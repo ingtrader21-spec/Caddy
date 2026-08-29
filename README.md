@@ -4,10 +4,10 @@ This repository is the Git-controlled source of truth for Caddy configuration, v
 
 ## Branch model
 
-- `development` — active integration branch; feature/fix branches target this branch first.
-- `test` — automated and integration-test promotion branch.
+- `development` — active integration environment; feature/fix branches target this branch first.
+- `test` — automated and integration-test environment.
 - `staging` — pre-production environment used for smoke, TLS, routing, WebSocket, and upstream checks.
-- `production` — approved live configuration candidate.
+- `production` — approved live configuration source for the Caddy server.
 - `main` — canonical reviewed release history and governance baseline.
 
 ## Promotion flow
@@ -16,14 +16,14 @@ This repository is the Git-controlled source of truth for Caddy configuration, v
 
 Every promotion is performed by pull request. No feature branch is allowed to deploy directly to production.
 
-## Environment layout
+## Configuration layout
 
-- `config/development/`
-- `config/test/`
-- `config/staging/`
-- `config/production/`
+- `config/Caddyfile` — canonical Caddy configuration at the commit checked out on the current environment branch.
+- `snippets/` — optional reusable Caddy snippets when introduced.
+- `scripts/` — validation, initial import, deployment, rollback/drift support.
+- `.github/workflows/` — validation and promotion-chain enforcement.
 
-Each environment owns its explicit Caddy configuration. Environment-specific differences must be visible in Git rather than hidden on a server.
+The branch is the environment boundary. Do not maintain duplicate development/test/staging/production Caddyfiles in the same commit; promotion must move one reviewed configuration forward through the branch chain.
 
 ## Controller rule
 
@@ -42,4 +42,4 @@ After the initial live configuration is imported, GitHub becomes the configurati
 
 ## Initial migration state
 
-The current live server configuration still needs to be imported into this repository. Until that import is reviewed and promoted through the branch chain, this repository contains controller scaffolding only and must not replace `/etc/caddy/Caddyfile`.
+The current live server configuration still needs to be imported into `config/Caddyfile`. Until that import is reviewed and promoted through the branch chain, this repository contains controller scaffolding only and must not replace `/etc/caddy/Caddyfile`.
