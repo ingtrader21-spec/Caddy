@@ -26,6 +26,9 @@ jobs:
       - name: Checkout reviewed commit
         uses: actions/checkout@v4
 
+      - name: Test observability patch
+        run: python3 scripts/test_observability_metrics.py
+
       - name: Detect committed secrets
         shell: bash
         run: |
@@ -49,7 +52,9 @@ jobs:
           fi
 
           for file in "${files[@]}"; do
-            echo "Validating $file"
+            echo "Validating observability contract for $file"
+            python3 scripts/ensure-observability-metrics.py --check "$file"
+
             docker run --rm -v "$PWD:/repo:ro" caddy:2.11.4 \
               validate --config "/repo/$file" --adapter caddyfile
 
