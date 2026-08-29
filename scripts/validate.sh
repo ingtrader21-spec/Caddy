@@ -11,12 +11,12 @@ if ! command -v "$CADDY_BIN" >/dev/null 2>&1; then
   exit 1
 fi
 
+python3 scripts/test_observability_metrics.py
 mapfile -d '' files < <(find config -type f -name Caddyfile -print0 2>/dev/null || true)
 
 if (( ${#files[@]} == 0 )); then
   echo "BOOTSTRAP: no environment Caddyfile has been imported yet."
   echo "Validation infrastructure and the mandatory observability patch are ready; production deployment remains blocked."
-  python3 -m py_compile scripts/ensure-observability-metrics.py
   exit 0
 fi
 
