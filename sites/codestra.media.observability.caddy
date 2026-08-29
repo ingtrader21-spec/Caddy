@@ -1,6 +1,7 @@
-# Browser-facing observability routes. Authentication and role enforcement
-# remain application/Keycloak responsibilities; these routes must not be
-# deployed until the matching identity and private-network changes pass review.
+# Codestra observability/security edge routes.
+# DNS for all listed hosts points to 37.27.128.39. This file deliberately
+# proxies only browser-facing applications. Native monitoring backends remain
+# private and receive a controlled public denial.
 
 graf.codestra.media {
 	import security_headers
@@ -13,6 +14,7 @@ graf.codestra.media {
 	reverse_proxy {$CADDY_GRAFANA_UPSTREAM} {
 		header_up Host {host}
 		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-Proto {scheme}
 	}
 
 	log {
@@ -44,6 +46,7 @@ supe.codestra.media {
 	reverse_proxy {$CADDY_SUPERSET_UPSTREAM} {
 		header_up Host {host}
 		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-Proto {scheme}
 	}
 
 	log {
@@ -68,20 +71,18 @@ bao.codestra.media {
 	import security_headers
 	encode zstd gzip
 
-	request_body {
-		max_size 1MB
-	}
+	# OpenBao is intentionally stricter than the other browser-facing systems.
+	# Both networks must be supplied by reviewed deployment configuration.
+	@openbao_allowed remote_ip {$CADDY_OPENBAO_ALLOWED_CIDR_1} {$CADDY_OPENBAO_ALLOWED_CIDR_2}
 
-	# OpenBao has the strictest edge policy. A request must originate from an
-	# explicitly reviewed operator/VPN CIDR and must still pass OpenBao's own
-	# Keycloak OIDC and least-privilege policy checks. The default is 403.
-	@openbao_allowed remote_ip {$CADDY_OPENBAO_ALLOWED_NETWORKS}
 	handle @openbao_allowed {
 		reverse_proxy {$CADDY_OPENBAO_UPSTREAM} {
 			header_up Host {host}
 			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Proto {scheme}
 		}
 	}
+
 	handle {
 		respond "Forbidden" 403
 	}
@@ -89,13 +90,47 @@ bao.codestra.media {
 	log {
 		output file /var/log/caddy/bao-codestra-media-access.log {
 			roll_size 20MiB
-			roll_keep 5
+			roll_keep 10
 		}
 		format filter {
 			request>headers>Authorization delete
 			request>headers>Cookie delete
 			request>headers>X-Vault-Token delete
 			request>headers>X-Bao-Token delete
+			request>uri query {
+				delete access_token
+				delete code
+				delete token
+			}
+			resp_headers>Set-Cookie delete
+		}
+	}
+}
+
+# DNS exists for these systems so that approved private clients can use stable
+# names. Caddy must never proxy their native ports from the public Internet.
+prom.codestra.media,
+aler.codestra.media,
+loki.codestra.media,
+temp.codestra.media,
+otel.codestra.media,
+node.codestra.media,
+cadv.codestra.media,
+pgex.codestra.media,
+rdex.codestra.media,
+blac.codestra.media,
+allo.codestra.media {
+	import security_headers
+	respond "This service is private." 403
+
+	log {
+		output file /var/log/caddy/private-observability-denials.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format filter {
+			request>headers>Authorization delete
+			request>headers>Cookie delete
 			request>uri query {
 				delete access_token
 				delete code

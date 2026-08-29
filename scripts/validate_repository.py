@@ -8,8 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 README_PATH = ROOT / "README.md"
 SITE_PATH = ROOT / "sites" / "api.codestra.co.caddy"
-OBSERVABILITY_SITE_PATH = ROOT / "sites" / "observability-browser.caddy"
-OBSERVABILITY_DENY_PATH = ROOT / "sites" / "observability-private-deny.caddy"
+OBSERVABILITY_SITE_PATH = ROOT / "sites" / "codestra.media.observability.caddy"
+OBSERVABILITY_CONTRACT_PATH = ROOT / "config" / "observability-hosts.v1.json"
 ROOT_CADDYFILE = ROOT / "Caddyfile"
 SECURITY_HEADERS = ROOT / "snippets" / "security_headers.caddy"
 CONTRACT_PATH = ROOT / "config" / "caddy-kong-contract.v1.json"
@@ -20,7 +20,7 @@ for path in (
     README_PATH,
     SITE_PATH,
     OBSERVABILITY_SITE_PATH,
-    OBSERVABILITY_DENY_PATH,
+    OBSERVABILITY_CONTRACT_PATH,
     ROOT_CADDYFILE,
     SECURITY_HEADERS,
     CONTRACT_PATH,
@@ -33,7 +33,7 @@ for path in (
 README = README_PATH.read_text(encoding="utf-8")
 SITE = SITE_PATH.read_text(encoding="utf-8")
 OBSERVABILITY_SITE = OBSERVABILITY_SITE_PATH.read_text(encoding="utf-8")
-OBSERVABILITY_DENY = OBSERVABILITY_DENY_PATH.read_text(encoding="utf-8")
+OBSERVABILITY_CONTRACT = json.loads(OBSERVABILITY_CONTRACT_PATH.read_text(encoding="utf-8"))
 CADDYFILE = ROOT_CADDYFILE.read_text(encoding="utf-8")
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
 RUNTIME = RUNTIME_EXAMPLE.read_text(encoding="utf-8")
@@ -132,7 +132,8 @@ for env_name in (
     "CADDY_GRAFANA_UPSTREAM",
     "CADDY_SUPERSET_UPSTREAM",
     "CADDY_OPENBAO_UPSTREAM",
-    "CADDY_OPENBAO_ALLOWED_NETWORKS",
+    "CADDY_OPENBAO_ALLOWED_CIDR_1",
+    "CADDY_OPENBAO_ALLOWED_CIDR_2",
 ):
     if env_name not in RUNTIME:
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=runtime_variable_missing:{env_name}")
@@ -152,14 +153,36 @@ for host, upstream in browser_hosts.items():
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=missing_observability_host:{host}")
     if "{" + "$" + upstream + "}" not in OBSERVABILITY_SITE:
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=missing_observability_upstream:{upstream}")
+    if re.search(r"\{\$" + re.escape(upstream) + r":[^}]+\}", OBSERVABILITY_SITE):
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=observability_upstream_default_forbidden:{upstream}")
 
-if "CADDY_OPENBAO_ALLOWED_NETWORKS" not in OBSERVABILITY_SITE:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=openbao_network_gate_missing")
+for allowlist_variable in ("CADDY_OPENBAO_ALLOWED_CIDR_1", "CADDY_OPENBAO_ALLOWED_CIDR_2"):
+    if "{$" + allowlist_variable + "}" not in OBSERVABILITY_SITE:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=openbao_network_gate_missing:{allowlist_variable}")
 if 'respond "Forbidden" 403' not in OBSERVABILITY_SITE:
     raise SystemExit("CADDY_AUTHORITY_ERROR=openbao_default_deny_missing")
 for secret_header in ("Authorization", "Cookie", "X-Vault-Token", "X-Bao-Token"):
     if f"request>headers>{secret_header} delete" not in OBSERVABILITY_SITE:
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=observability_log_redaction:{secret_header}")
+for secret_query in ("access_token", "code", "token"):
+    if f"delete {secret_query}" not in OBSERVABILITY_SITE:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=observability_query_redaction:{secret_query}")
+if OBSERVABILITY_SITE.count("resp_headers>Set-Cookie delete") < 3:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=observability_response_cookie_redaction")
+
+contract_browser = {
+    item.get("host"): item for item in OBSERVABILITY_CONTRACT.get("browserFacing", [])
+}
+if set(contract_browser) != set(browser_hosts):
+    raise SystemExit("CADDY_AUTHORITY_ERROR=observability_browser_contract_mismatch")
+for host, env_name in browser_hosts.items():
+    item = contract_browser[host]
+    if item.get("upstreamEnvironmentVariable") != env_name:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=observability_contract_upstream:{host}")
+    if item.get("upstreamEnvironmentVariableRequired") is not True:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=observability_contract_required_upstream:{host}")
+    if item.get("referenceOnly") is not True or "defaultUpstream" in item:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=observability_contract_reference_only:{host}")
 
 private_hosts = (
     "prom.codestra.media",
@@ -174,17 +197,33 @@ private_hosts = (
     "blac.codestra.media",
     "allo.codestra.media",
 )
+if set(OBSERVABILITY_CONTRACT.get("privateOnly", [])) != set(private_hosts):
+    raise SystemExit("CADDY_AUTHORITY_ERROR=private_host_contract_mismatch")
+private_block_marker = "prom.codestra.media,"
+if private_block_marker not in OBSERVABILITY_SITE:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=private_host_block_missing")
+OBSERVABILITY_DENY = private_block_marker + OBSERVABILITY_SITE.split(private_block_marker, 1)[1]
 for host in private_hosts:
     if host not in OBSERVABILITY_DENY:
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=private_host_denial_missing:{host}")
 deny_source_without_comments = re.sub(r"(?m)^\s*#.*$", "", OBSERVABILITY_DENY)
 if re.search(r"(?m)^\s*reverse_proxy\b", deny_source_without_comments):
     raise SystemExit("CADDY_AUTHORITY_ERROR=private_host_reverse_proxy_forbidden")
-if 'respond "Not Found" 404' not in OBSERVABILITY_DENY:
+if not re.search(r'respond\s+"[^"]*"\s+(?:403|404)\b', OBSERVABILITY_DENY):
     raise SystemExit("CADDY_AUTHORITY_ERROR=private_host_controlled_denial_missing")
 for forbidden_port in (":9090", ":9093", ":3100", ":3200", ":4317", ":4318", ":9100", ":8080", ":9187", ":9121", ":9115", ":12345"):
     if forbidden_port in OBSERVABILITY_DENY:
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=private_native_port_routed:{forbidden_port}")
+
+activation = OBSERVABILITY_CONTRACT.get("activation") or {}
+for flag in (
+    "principalListenerAuthorityConfirmed",
+    "privateUpstreamHealthConfirmed",
+    "liveCaddyReloadAuthorized",
+    "productionTrafficCutoverAuthorized",
+):
+    if activation.get(flag) is not False:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=observability_activation_gate:{flag}")
 
 secret_patterns = (
     r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",

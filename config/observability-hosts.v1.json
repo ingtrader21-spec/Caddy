@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "domain": "codestra.media",
+  "dnsTarget": "37.27.128.39",
+  "dnsTtlSeconds": 600,
+  "browserFacing": [
+    {
+      "host": "graf.codestra.media",
+      "service": "grafana",
+      "upstreamEnvironmentVariable": "CADDY_GRAFANA_UPSTREAM",
+      "referenceUpstream": "127.0.0.1:18003",
+      "upstreamEnvironmentVariableRequired": true,
+      "referenceOnly": true,
+      "authentication": "native-oidc-keycloak",
+      "publicNativePortAllowed": false
+    },
+    {
+      "host": "supe.codestra.media",
+      "service": "superset",
+      "upstreamEnvironmentVariable": "CADDY_SUPERSET_UPSTREAM",
+      "referenceUpstream": "127.0.0.1:18088",
+      "upstreamEnvironmentVariableRequired": true,
+      "referenceOnly": true,
+      "authentication": "native-oidc-keycloak",
+      "publicNativePortAllowed": false
+    },
+    {
+      "host": "bao.codestra.media",
+      "service": "openbao",
+      "upstreamEnvironmentVariable": "CADDY_OPENBAO_UPSTREAM",
+      "referenceUpstream": "127.0.0.1:18200",
+      "upstreamEnvironmentVariableRequired": true,
+      "referenceOnly": true,
+      "authentication": "network-allowlist-plus-native-oidc",
+      "publicNativePortAllowed": false
+    }
+  ],
+  "privateOnly": [
+    "prom.codestra.media",
+    "aler.codestra.media",
+    "loki.codestra.media",
+    "temp.codestra.media",
+    "otel.codestra.media",
+    "node.codestra.media",
+    "cadv.codestra.media",
+    "pgex.codestra.media",
+    "rdex.codestra.media",
+    "blac.codestra.media",
+    "allo.codestra.media"
+  ],
+  "publicPrivateHostBehavior": {
+    "status": 403,
+    "proxyNativeService": false,
+    "issueTlsCertificate": true
+  },
+  "activation": {
+    "dnsComplete": true,
+    "repositoryConfigurationOnly": true,
+    "principalListenerAuthorityConfirmed": false,
+    "privateUpstreamHealthConfirmed": false,
+    "liveCaddyReloadAuthorized": false,
+    "productionTrafficCutoverAuthorized": false
+  }
+}
