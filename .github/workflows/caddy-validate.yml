@@ -1,0 +1,63 @@
+name: Caddy validation
+
+on:
+  pull_request:
+    branches:
+      - development
+      - test
+      - staging
+      - production
+      - main
+  push:
+    branches:
+      - development
+      - test
+      - staging
+      - production
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout reviewed commit
+        uses: actions/checkout@v4
+
+      - name: Detect committed secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE --exclude='*.md' --exclude='*.example' \
+            '(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|api[_-]?token[[:space:]]*[:=][[:space:]]*[^{$]|password[[:space:]]*[:=][[:space:]]*[^{$]|bearer[[:space:]]+[A-Za-z0-9._-]+)' \
+            config 2>/dev/null; then
+            echo 'Potential secret found under config/.' >&2
+            exit 1
+          fi
+
+      - name: Validate and enforce formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' files < <(find config -type f -name Caddyfile -print0 2>/dev/null || true)
+
+          if (( ${#files[@]} == 0 )); then
+            echo 'Bootstrap repository: no live Caddyfile imported yet.'
+            exit 0
+          fi
+
+          for file in "${files[@]}"; do
+            echo "Validating $file"
+            docker run --rm -v "$PWD:/repo:ro" caddy:2.11.4 \
+              validate --config "/repo/$file" --adapter caddyfile
+
+            diff_output="$(docker run --rm -v "$PWD:/repo:ro" caddy:2.11.4 \
+              fmt --diff "/repo/$file")"
+            if [[ -n "$diff_output" ]]; then
+              echo "$diff_output"
+              echo "Caddyfile formatting differs from 'caddy fmt'." >&2
+              exit 1
+            fi
+          done
