@@ -9,9 +9,10 @@ This repository is the configuration authority for Caddy. The live server is not
 - Work starts on `feat/*`, `fix/*`, or `chore/*` branches based on `development`.
 - Feature/fix PRs target `development`.
 - Promote `development` to `test` only by PR.
-- Promote `test` to `production` only by PR after validation and smoke evidence.
+- Promote `test` to `staging` only by PR after automated validation.
+- Promote `staging` to `production` only by PR after smoke, TLS, routing, WebSocket, and upstream evidence.
 - Promote `production` to `main` only after deployment evidence is recorded.
-- Never force-push `main`, `production`, or `test`.
+- Never force-push `main`, `production`, `staging`, or `test`.
 - Never deploy a feature branch directly to a live server.
 
 ## Configuration rules
@@ -22,6 +23,8 @@ This repository is the configuration authority for Caddy. The live server is not
 - Run `scripts/validate.sh` before every PR update.
 - Prefer reload over restart.
 - A failed validation or reload must leave or restore the previously working configuration.
+- Production deployment must use the exact reviewed Git commit.
+- Manual server edits are drift; reconcile them through Git before the next release.
 
 ## Secret rules
 
@@ -53,4 +56,5 @@ Every configuration PR must identify:
 2. validation result;
 3. expected HTTP/TLS behavior;
 4. rollback impact;
-5. whether the change affects authentication, API ingress, WebSockets, or internal services.
+5. whether the change affects authentication, API ingress, WebSockets, or internal services;
+6. environment promotion source and destination.
