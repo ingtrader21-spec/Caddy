@@ -36,12 +36,12 @@ git diff --check
 git status
 ```
 
-Before committing, manually inspect `config/production/Caddyfile`. Remove inline credentials and replace them with environment-variable references or another protected runtime-secret mechanism.
+Before committing, manually inspect `config/Caddyfile`. Remove inline credentials and replace them with environment-variable references or another protected runtime-secret mechanism.
 
 Then commit and push the import branch:
 
 ```bash
-git add config/production/Caddyfile
+git add config/Caddyfile
 git commit -m "chore: import live Caddy configuration"
 git push -u origin feat/import-live-caddy
 ```
@@ -68,7 +68,7 @@ git config pull.ff only
 
 After this cutover, normal production flow is:
 
-1. change configuration on a feature/fix branch;
+1. change `config/Caddyfile` on a feature/fix branch based on `development`;
 2. PR to `development`;
 3. promote to `test`;
 4. promote to `staging` and record smoke evidence;
@@ -84,7 +84,7 @@ Do not edit `/etc/caddy/Caddyfile` manually after cutover except for an emergenc
 Useful drift check:
 
 ```bash
-sudo diff -u /srv/caddy-controller/config/production/Caddyfile /etc/caddy/Caddyfile
+sudo diff -u /srv/caddy-controller/config/Caddyfile /etc/caddy/Caddyfile
 ```
 
 An empty diff is the desired state.
