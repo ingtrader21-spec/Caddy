@@ -1,0 +1,107 @@
+# Browser-facing observability routes. Authentication and role enforcement
+# remain application/Keycloak responsibilities; these routes must not be
+# deployed until the matching identity and private-network changes pass review.
+
+graf.codestra.media {
+	import security_headers
+	encode zstd gzip
+
+	request_body {
+		max_size 10MB
+	}
+
+	reverse_proxy {$CADDY_GRAFANA_UPSTREAM} {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		output file /var/log/caddy/graf-codestra-media-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format filter {
+			request>headers>Authorization delete
+			request>headers>Cookie delete
+			request>uri query {
+				delete access_token
+				delete code
+				delete token
+			}
+			resp_headers>Set-Cookie delete
+		}
+	}
+}
+
+supe.codestra.media {
+	import security_headers
+	encode zstd gzip
+
+	request_body {
+		max_size 10MB
+	}
+
+	reverse_proxy {$CADDY_SUPERSET_UPSTREAM} {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		output file /var/log/caddy/supe-codestra-media-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format filter {
+			request>headers>Authorization delete
+			request>headers>Cookie delete
+			request>uri query {
+				delete access_token
+				delete code
+				delete token
+			}
+			resp_headers>Set-Cookie delete
+		}
+	}
+}
+
+bao.codestra.media {
+	import security_headers
+	encode zstd gzip
+
+	request_body {
+		max_size 1MB
+	}
+
+	# OpenBao has the strictest edge policy. A request must originate from an
+	# explicitly reviewed operator/VPN CIDR and must still pass OpenBao's own
+	# Keycloak OIDC and least-privilege policy checks. The default is 403.
+	@openbao_allowed remote_ip {$CADDY_OPENBAO_ALLOWED_NETWORKS}
+	handle @openbao_allowed {
+		reverse_proxy {$CADDY_OPENBAO_UPSTREAM} {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+	handle {
+		respond "Forbidden" 403
+	}
+
+	log {
+		output file /var/log/caddy/bao-codestra-media-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format filter {
+			request>headers>Authorization delete
+			request>headers>Cookie delete
+			request>headers>X-Vault-Token delete
+			request>headers>X-Bao-Token delete
+			request>uri query {
+				delete access_token
+				delete code
+				delete token
+			}
+			resp_headers>Set-Cookie delete
+		}
+	}
+}

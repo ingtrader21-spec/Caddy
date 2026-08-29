@@ -35,6 +35,15 @@ Each system keeps its own source authority:
 - `config/caddy-kong-contract.v1.json` — machine-readable Caddy/Kong/Keycloak/Middleware boundary.
 - `config/runtime-values.example` — non-secret runtime variable names and repository-backed reference listeners.
 - `docs/CADDY_KONG_INTEGRATION.md` — migration and validation gates.
+- `sites/observability-browser.caddy` — gated Grafana, Superset and restricted
+  OpenBao browser routes.
+- `sites/observability-private-deny.caddy` — controlled 404 responses for the
+  eleven DNS-only/private observability names; it contains no upstream routes.
+
+The observability site files are source preparation only. They must not be
+installed until the matching Keycloak OIDC/RBAC and infrastructure
+private-network/firewall candidates pass review and their application
+upstreams pass private health checks.
 
 ## Caddy -> Kong integration
 

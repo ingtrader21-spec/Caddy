@@ -8,6 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 README_PATH = ROOT / "README.md"
 SITE_PATH = ROOT / "sites" / "api.codestra.co.caddy"
+OBSERVABILITY_SITE_PATH = ROOT / "sites" / "observability-browser.caddy"
+OBSERVABILITY_DENY_PATH = ROOT / "sites" / "observability-private-deny.caddy"
 ROOT_CADDYFILE = ROOT / "Caddyfile"
 SECURITY_HEADERS = ROOT / "snippets" / "security_headers.caddy"
 CONTRACT_PATH = ROOT / "config" / "caddy-kong-contract.v1.json"
@@ -17,6 +19,8 @@ INTEGRATION_DOC = ROOT / "docs" / "CADDY_KONG_INTEGRATION.md"
 for path in (
     README_PATH,
     SITE_PATH,
+    OBSERVABILITY_SITE_PATH,
+    OBSERVABILITY_DENY_PATH,
     ROOT_CADDYFILE,
     SECURITY_HEADERS,
     CONTRACT_PATH,
@@ -28,6 +32,8 @@ for path in (
 
 README = README_PATH.read_text(encoding="utf-8")
 SITE = SITE_PATH.read_text(encoding="utf-8")
+OBSERVABILITY_SITE = OBSERVABILITY_SITE_PATH.read_text(encoding="utf-8")
+OBSERVABILITY_DENY = OBSERVABILITY_DENY_PATH.read_text(encoding="utf-8")
 CADDYFILE = ROOT_CADDYFILE.read_text(encoding="utf-8")
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
 RUNTIME = RUNTIME_EXAMPLE.read_text(encoding="utf-8")
@@ -123,6 +129,10 @@ for env_name in (
     "CADDY_KONG_UPSTREAM",
     "CADDY_LEGACY_API_UPSTREAM",
     "CADDY_REALTIME_UPSTREAM",
+    "CADDY_GRAFANA_UPSTREAM",
+    "CADDY_SUPERSET_UPSTREAM",
+    "CADDY_OPENBAO_UPSTREAM",
+    "CADDY_OPENBAO_ALLOWED_NETWORKS",
 ):
     if env_name not in RUNTIME:
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=runtime_variable_missing:{env_name}")
@@ -131,6 +141,50 @@ if "admin 127.0.0.1:2019" not in CADDYFILE:
     raise SystemExit("CADDY_AUTHORITY_ERROR=admin_api_not_private")
 if "import snippets/*.caddy" not in CADDYFILE or "import sites/*.caddy" not in CADDYFILE:
     raise SystemExit("CADDY_AUTHORITY_ERROR=canonical_imports_missing")
+
+browser_hosts = {
+    "graf.codestra.media": "CADDY_GRAFANA_UPSTREAM",
+    "supe.codestra.media": "CADDY_SUPERSET_UPSTREAM",
+    "bao.codestra.media": "CADDY_OPENBAO_UPSTREAM",
+}
+for host, upstream in browser_hosts.items():
+    if f"{host} {{" not in OBSERVABILITY_SITE:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=missing_observability_host:{host}")
+    if "{" + "$" + upstream + "}" not in OBSERVABILITY_SITE:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=missing_observability_upstream:{upstream}")
+
+if "CADDY_OPENBAO_ALLOWED_NETWORKS" not in OBSERVABILITY_SITE:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=openbao_network_gate_missing")
+if 'respond "Forbidden" 403' not in OBSERVABILITY_SITE:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=openbao_default_deny_missing")
+for secret_header in ("Authorization", "Cookie", "X-Vault-Token", "X-Bao-Token"):
+    if f"request>headers>{secret_header} delete" not in OBSERVABILITY_SITE:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=observability_log_redaction:{secret_header}")
+
+private_hosts = (
+    "prom.codestra.media",
+    "aler.codestra.media",
+    "loki.codestra.media",
+    "temp.codestra.media",
+    "otel.codestra.media",
+    "node.codestra.media",
+    "cadv.codestra.media",
+    "pgex.codestra.media",
+    "rdex.codestra.media",
+    "blac.codestra.media",
+    "allo.codestra.media",
+)
+for host in private_hosts:
+    if host not in OBSERVABILITY_DENY:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=private_host_denial_missing:{host}")
+deny_source_without_comments = re.sub(r"(?m)^\s*#.*$", "", OBSERVABILITY_DENY)
+if re.search(r"(?m)^\s*reverse_proxy\b", deny_source_without_comments):
+    raise SystemExit("CADDY_AUTHORITY_ERROR=private_host_reverse_proxy_forbidden")
+if 'respond "Not Found" 404' not in OBSERVABILITY_DENY:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=private_host_controlled_denial_missing")
+for forbidden_port in (":9090", ":9093", ":3100", ":3200", ":4317", ":4318", ":9100", ":8080", ":9187", ":9121", ":9115", ":12345"):
+    if forbidden_port in OBSERVABILITY_DENY:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=private_native_port_routed:{forbidden_port}")
 
 secret_patterns = (
     r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
@@ -155,3 +209,6 @@ print("KONG_PRINCIPAL=appolon1908-hue/Kong")
 print("PRODUCTION_PLATFORM=REFERENCE_ONLY")
 print("DIRECT_MIDDLEWARE_FOR_KONG_PATHS=DENIED")
 print("LIVE_RELOAD_AUTHORIZED=NO")
+print("OBSERVABILITY_BROWSER_HOSTS=graf.codestra.media,supe.codestra.media,bao.codestra.media")
+print("OBSERVABILITY_PRIVATE_HOSTS=DENY_ONLY")
+print("OPENBAO_EDGE_POLICY=ALLOWLIST_AND_NATIVE_AUTH_REQUIRED")

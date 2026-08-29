@@ -11,3 +11,15 @@ CADDY_LEGACY_API_UPSTREAM=127.0.0.1:18101
 # Transitional realtime/health listener from the historical reference.
 # Remove or move behind Kong only after an accepted Kong realtime contract exists.
 CADDY_REALTIME_UPSTREAM=127.0.0.1:18102
+
+# Browser-facing observability upstreams. Each listener must be loopback,
+# private-VLAN, or private-container-network only. These example values are
+# validation references, not authority to deploy the services.
+CADDY_GRAFANA_UPSTREAM=127.0.0.1:18003
+CADDY_SUPERSET_UPSTREAM=127.0.0.1:18088
+CADDY_OPENBAO_UPSTREAM=127.0.0.1:18200
+
+# Space-separated operator/VPN CIDRs permitted to reach the OpenBao proxy.
+# Replace this validation-only loopback value through reviewed deployment
+# configuration. Never use 0.0.0.0/0 or ::/0.
+CADDY_OPENBAO_ALLOWED_NETWORKS=127.0.0.1/32
