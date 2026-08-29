@@ -17,9 +17,10 @@ This repository is the configuration authority for Caddy. The live server is not
 
 ## Configuration rules
 
+- `config/Caddyfile` is the canonical configuration path on every environment branch.
+- The branch is the environment boundary; do not keep duplicate environment Caddyfiles in one commit.
 - Do not invent, rename, remove, or redirect domains/upstreams without evidence from the current configuration or an approved change.
 - The initial live `/etc/caddy/Caddyfile` must be imported and reviewed before production deployment is enabled.
-- Keep environment-specific configuration under `config/<environment>/`.
 - Run `scripts/validate.sh` before every PR update.
 - Prefer reload over restart.
 - A failed validation or reload must leave or restore the previously working configuration.
