@@ -1,0 +1,63 @@
+# Canonical shared API-edge source owned by appolon1908-hue/Caddy.
+# Historical reference: appolon1908-hue/codestra-production-platform
+# ref: release/production-activation
+# path: operations/caddy/api.codestra.co.caddy
+#
+# Caddy terminates the public edge. Kong owns API authentication, authorization,
+# rate/route policy and the handoff to Middleware. Transitional legacy/realtime
+# upstreams remain explicit until their equivalent Kong routes are accepted.
+api.codestra.co {
+	import security_headers
+	encode zstd gzip
+
+	request_body {
+		max_size 10MB
+	}
+
+	route {
+		# Paths already represented by reviewed Kong source. Preserve the public
+		# host because Kong uses host-based routing for api.codestra.co.
+		@kong path /api/v1/control* /api/v1/messages* /api/v1/events* /api/v1/results* /api/v1/reconciliation* /api/v1/health* /api/v1/callbacks* /api/v1/automation/policy-check /api/v1/integrations/n8n/results /v1/admin/system* /v1/crm* /v1/email* /v1/sms* /v1/webhooks*
+		handle @kong {
+			reverse_proxy {$CADDY_KONG_UPSTREAM} {
+				header_up Host {host}
+				header_up X-Real-IP {remote_host}
+			}
+		}
+
+		# Transitional compatibility only. These paths are not yet proven to have
+		# equivalent accepted Kong routes in the reviewed source inventory.
+		@realtime path /ws/agent /api/v1/realtime/sessions /healthz /readyz /version
+		handle @realtime {
+			reverse_proxy {$CADDY_REALTIME_UPSTREAM} {
+				header_up Host {host}
+				header_up X-Real-IP {remote_host}
+			}
+		}
+
+		# Transitional legacy API fallback. The Caddy principal-source migration is
+		# complete only when this fallback is no longer required and Kong owns the
+		# corresponding route contracts.
+		handle {
+			reverse_proxy {$CADDY_LEGACY_API_UPSTREAM} {
+				header_up Host {host}
+				header_up X-Real-IP {remote_host}
+			}
+		}
+	}
+
+	log {
+		output file /var/log/caddy/api-codestra-co-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format filter {
+			request>headers>Apikey delete
+			request>headers>X-Api-Key delete
+			request>headers>Authorization delete
+			request>uri query {
+				delete apikey
+			}
+		}
+	}
+}
