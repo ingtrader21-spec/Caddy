@@ -37,7 +37,7 @@ jobs:
             exit 1
           fi
 
-      - name: Validate and format Caddyfiles
+      - name: Validate and enforce formatting
         shell: bash
         run: |
           set -euo pipefail
@@ -53,6 +53,11 @@ jobs:
             docker run --rm -v "$PWD:/repo:ro" caddy:2.11.4 \
               validate --config "/repo/$file" --adapter caddyfile
 
-            docker run --rm -v "$PWD:/repo:ro" caddy:2.11.4 \
-              fmt --diff "/repo/$file"
+            diff_output="$(docker run --rm -v "$PWD:/repo:ro" caddy:2.11.4 \
+              fmt --diff "/repo/$file")"
+            if [[ -n "$diff_output" ]]; then
+              echo "$diff_output"
+              echo "Caddyfile formatting differs from 'caddy fmt'." >&2
+              exit 1
+            fi
           done
