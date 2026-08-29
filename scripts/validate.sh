@@ -15,12 +15,18 @@ mapfile -d '' files < <(find config -type f -name Caddyfile -print0 2>/dev/null 
 
 if (( ${#files[@]} == 0 )); then
   echo "BOOTSTRAP: no environment Caddyfile has been imported yet."
-  echo "Validation infrastructure is ready; production deployment remains blocked."
+  echo "Validation infrastructure and the mandatory observability patch are ready; production deployment remains blocked."
+  python3 -m py_compile scripts/ensure-observability-metrics.py
   exit 0
 fi
 
 failed=0
 for file in "${files[@]}"; do
+  echo "==> Observability contract: $file"
+  if ! python3 scripts/ensure-observability-metrics.py --check "$file"; then
+    failed=1
+  fi
+
   echo "==> Formatting check: $file"
   formatted="$($CADDY_BIN fmt "$file")"
   current="$(cat "$file")"
