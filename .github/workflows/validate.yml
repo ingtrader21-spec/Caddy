@@ -15,10 +15,23 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.13'
-      - name: Validate repository authority and secret-free source
+
+      - name: Validate repository authority and Caddy -> Kong boundary
         run: python3 scripts/validate_repository.py
+
+      - name: Validate complete Caddy configuration
+        run: |
+          docker run --rm --network none --workdir /srv \
+            -e CADDY_KONG_UPSTREAM=127.0.0.1:8000 \
+            -e CADDY_LEGACY_API_UPSTREAM=127.0.0.1:18101 \
+            -e CADDY_REALTIME_UPSTREAM=127.0.0.1:18102 \
+            -v "$PWD:/srv:ro" \
+            caddy:2.10.0-alpine \
+            caddy validate --config /srv/Caddyfile --adapter caddyfile
+
       - name: Reject whitespace errors
         run: git diff --check
