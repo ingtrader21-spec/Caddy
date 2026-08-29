@@ -25,16 +25,19 @@ fi
 
 mkdir -p "$(dirname "$DEST")"
 cp "$TMP" "$DEST"
+python3 "$ROOT/scripts/ensure-observability-metrics.py" "$DEST"
 caddy fmt --overwrite "$DEST"
 caddy validate --config "$DEST" --adapter caddyfile
+python3 "$ROOT/scripts/ensure-observability-metrics.py" --check "$DEST"
 
 cat <<EOF
-Imported and validated: $DEST
+Imported, observability-patched, and validated: $DEST
 
 NEXT STEPS:
 1. Manually review the file for credentials, private IP exposure, stale routes, and unintended public admin/metrics endpoints.
-2. Run: git diff --check
-3. Run: scripts/validate.sh
-4. Commit on a feature/fix branch based on development.
-5. Promote only by PR: development -> test -> staging -> production -> main.
+2. Confirm the runtime attaches Caddy to the private codestra-observability network without publishing port 2020.
+3. Run: git diff --check
+4. Run: scripts/validate.sh
+5. Commit on a feature/fix branch based on development.
+6. Promote only by PR: development -> test -> staging -> production -> main.
 EOF
