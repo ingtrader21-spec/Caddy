@@ -11,3 +11,14 @@ CADDY_LEGACY_API_UPSTREAM=127.0.0.1:18101
 # Transitional realtime/health listener from the historical reference.
 # Remove or move behind Kong only after an accepted Kong realtime contract exists.
 CADDY_REALTIME_UPSTREAM=127.0.0.1:18102
+
+# Browser-facing observability/security applications. Their native ports remain
+# loopback/private; Caddy is the only public listener.
+CADDY_GRAFANA_UPSTREAM=127.0.0.1:3000
+CADDY_SUPERSET_UPSTREAM=127.0.0.1:8088
+CADDY_OPENBAO_UPSTREAM=127.0.0.1:8200
+
+# OpenBao receives an additional edge source-network gate. Replace the examples
+# with reviewed administrative/private CIDRs for the target environment.
+CADDY_OPENBAO_ALLOWED_CIDR_1=127.0.0.1/32
+CADDY_OPENBAO_ALLOWED_CIDR_2=10.40.0.0/24
