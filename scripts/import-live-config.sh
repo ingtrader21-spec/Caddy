@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIVE="${CADDY_LIVE_CONFIG:-/etc/caddy/Caddyfile}"
-DEST="$ROOT/config/production/Caddyfile"
+DEST="$ROOT/config/Caddyfile"
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 
