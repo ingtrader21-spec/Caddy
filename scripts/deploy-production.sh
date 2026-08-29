@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SOURCE="$ROOT/config/production/Caddyfile"
+SOURCE="$ROOT/config/Caddyfile"
 TARGET="${CADDY_TARGET:-/etc/caddy/Caddyfile}"
 BACKUP_DIR="${CADDY_BACKUP_DIR:-/var/backups/caddy-git-controller}"
 CADDY_BIN="${CADDY_BIN:-caddy}"
