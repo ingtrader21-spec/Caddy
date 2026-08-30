@@ -26,12 +26,17 @@ automation.codestra.co {
 	# intended to be reachable from the public internet at large, so a source
 	# range must be supplied explicitly by the deployment environment.
 	@offnet not remote_ip {$CADDY_EDITOR_ADMIN_CIDRS}
-	handle @offnet {
-		respond "Not Found" 404
-	}
 
+	# Everything lives inside one route because route preserves the order written
+	# here. A sibling handle would instead be ordered by Caddy's own directive
+	# sort, which places route before handle -- the catch-all below would then
+	# answer first and this gate would never run.
 	route {
-		# Every editor path is handed to Kong, which owns the Keycloak browser
+		handle @offnet {
+			respond "Not Found" 404
+		}
+
+		# Every remaining path is handed to Kong, which owns the Keycloak browser
 		# flow and session policy for this host.
 		handle {
 			reverse_proxy {$CADDY_KONG_UPSTREAM} {
@@ -48,7 +53,6 @@ automation.codestra.co {
 		}
 		format filter {
 			request>headers>Cookie delete
-			request>headers>Set-Cookie delete
 			request>headers>Apikey delete
 			request>headers>X-Api-Key delete
 			request>headers>Authorization delete
