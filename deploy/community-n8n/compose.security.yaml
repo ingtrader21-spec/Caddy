@@ -1,0 +1,76 @@
+name: codestra-n8n-community-security
+
+x-n8n-security: &n8n-security
+  N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+  N8N_BLOCK_FILE_ACCESS_TO_N8N_FILES: "true"
+  N8N_RESTRICT_FILE_ACCESS_TO: /tmp/n8n-files
+  N8N_COMMUNITY_PACKAGES_ENABLED: "false"
+  N8N_PUBLIC_API_DISABLED: "true"
+  MIDDLEWARE_BASE_URL: https://api.codestra.co/v1/integrations/n8n
+  NODES_EXCLUDE: '["n8n-nodes-base.code","n8n-nodes-base.executeCommand","n8n-nodes-base.ftp","n8n-nodes-base.git","n8n-nodes-base.localFileTrigger","n8n-nodes-base.readBinaryFile","n8n-nodes-base.readWriteFile","n8n-nodes-base.ssh","n8n-nodes-base.writeBinaryFile"]'
+  HTTPS_PROXY: http://n8n-egress-proxy:3128
+  HTTP_PROXY: http://n8n-egress-proxy:3128
+  NO_PROXY: postgres,redis,n8n,n8n-webhook,n8n-worker
+
+services:
+  n8n:
+    environment: *n8n-security
+    networks: [n8n_runtime_internal, editor_edge]
+
+  n8n-webhook:
+    environment: *n8n-security
+    networks: [n8n_runtime_internal, editor_edge]
+
+  n8n-worker:
+    environment: *n8n-security
+    networks: [n8n_runtime_internal]
+
+  n8n-egress-proxy:
+    image: ${SQUID_IMAGE_DIGEST:?immutable Squid image digest required}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ./squid.conf:/etc/squid/squid.conf:ro
+    networks: [n8n_runtime_internal, approved_egress]
+
+  n8n-editor-gateway:
+    image: ${OAUTH2_PROXY_IMAGE_DIGEST:?immutable oauth2-proxy image digest required}
+    command:
+      - --provider=keycloak-oidc
+      - --oidc-issuer-url=https://auth.codestra.co/realms/codestra
+      - --client-id=n8n-editor-gateway
+      - --code-challenge-method=S256
+      - --allowed-group=/automation-editors
+      - --upstream=http://n8n:5678
+      - --redirect-url=https://${EDITOR_HOST:?editor hostname required}/oauth2/callback
+      - --skip-auth-route=^/(webhook|webhook-waiting|form)/
+      - --pass-access-token=false
+      - --pass-basic-auth=false
+      - --pass-authorization-header=false
+      - --set-authorization-header=false
+      - --skip-provider-button=true
+      - --reverse-proxy=true
+      - --http-address=0.0.0.0:4180
+    environment:
+      OAUTH2_PROXY_CLIENT_SECRET_FILE: /run/secrets/n8n_editor_gateway_oidc_credential
+      OAUTH2_PROXY_COOKIE_SECRET_FILE: /run/secrets/n8n_editor_gateway_cookie_secret
+    secrets:
+      - n8n_editor_gateway_oidc_credential
+      - n8n_editor_gateway_cookie_secret
+    ports:
+      - 127.0.0.1:4180:4180
+    networks: [editor_edge, approved_egress]
+
+networks:
+  n8n_runtime_internal:
+    internal: true
+  editor_edge:
+    internal: true
+  approved_egress: {}
+
+secrets:
+  n8n_editor_gateway_oidc_credential:
+    file: ${OPENBAO_RENDER_DIR:?OpenBao render directory required}/n8n-editor-gateway-oidc-credential
+  n8n_editor_gateway_cookie_secret:
+    file: ${OPENBAO_RENDER_DIR:?OpenBao render directory required}/n8n-editor-gateway-cookie-secret

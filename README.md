@@ -35,6 +35,9 @@ Each system keeps its own source authority:
 - `config/caddy-kong-contract.v1.json` — machine-readable Caddy/Kong/Keycloak/Middleware boundary.
 - `config/runtime-values.example` — non-secret runtime variable names and repository-backed reference listeners.
 - `docs/CADDY_KONG_INTEGRATION.md` — migration and validation gates.
+- `sites/n8n-editor.community.caddy` — Keycloak/oauth2-proxy boundary for the community-edition editor.
+- `deploy/community-n8n/` — fail-closed node and outbound-network policy overlay.
+- `config/community-n8n-credentials.v1.json` — metadata-only ownership and rotation contract.
 
 ## Caddy -> Kong integration
 

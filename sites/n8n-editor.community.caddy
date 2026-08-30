@@ -14,6 +14,11 @@
 	}
 
 	route {
+		# Only production webhook/form endpoints may bypass editor login. Test and
+		# owner-bootstrap surfaces never cross the public edge.
+		@never_public path /webhook-test* /form-test* /rest/owner/setup* /rest/owner/dismiss-banner*
+		respond @never_public 404
+
 		# Never trust identity headers supplied by the browser. oauth2-proxy must
 		# derive fresh identity and role context from the Keycloak session.
 		request_header -X-Auth-Request-User
@@ -22,6 +27,7 @@
 		request_header -X-Forwarded-User
 		request_header -X-Forwarded-Email
 		request_header -X-Forwarded-Groups
+		request_header -Authorization
 
 		reverse_proxy {$CADDY_N8N_OAUTH2_PROXY_UPSTREAM} {
 			header_up Host {host}
