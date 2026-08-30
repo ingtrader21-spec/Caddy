@@ -8,7 +8,12 @@ n8n Community Edition does not depend on n8n Enterprise SSO in this design. The 
 2. oauth2-proxy uses Keycloak OIDC authorization code flow with PKCE S256 and requires either `n8n_operator` or `n8n_admin`.
 3. n8n's native owner login remains required after edge authorization. The local owner is a dedicated service-owner identity, not a personal account.
 
-The source route deliberately contains no direct n8n upstream. oauth2-proxy owns the private n8n upstream and all OIDC client secrets. Those secrets must be rendered from OpenBao at runtime and must never be added to this repository, workflow JSON, or GitHub configuration.
+The source route deliberately contains no direct n8n upstream. oauth2-proxy owns
+the private n8n upstream and all OIDC client secrets. Until OpenBao is
+commissioned, those values are supplied as root-owned Docker secret files below
+the required `RUNTIME_SECRET_DIR`; files must be mode 0400 and rotated within 90
+days. They must never be added to this repository, workflow JSON, or GitHub
+configuration. A future OpenBao migration requires its own verified deployment.
 
 ## Required runtime gates
 
