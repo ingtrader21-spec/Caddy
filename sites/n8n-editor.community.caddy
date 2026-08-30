@@ -1,0 +1,49 @@
+# Community-compatible n8n editor edge.
+#
+# Caddy terminates public HTTPS and sends every editor request to oauth2-proxy.
+# oauth2-proxy performs Keycloak OIDC authorization and then proxies to the
+# private n8n editor. Caddy never routes this host directly to n8n.
+{$CADDY_N8N_EDITOR_HOST} {
+	import security_headers
+	encode zstd gzip
+
+	# Keep the edge ceiling aligned with the n8n N8N_PAYLOAD_SIZE_MAX value.
+	# The deployment renders the equivalent byte count into this variable.
+	request_body {
+		max_size {$CADDY_N8N_EDITOR_MAX_REQUEST_BODY}
+	}
+
+	route {
+		# Never trust identity headers supplied by the browser. oauth2-proxy must
+		# derive fresh identity and role context from the Keycloak session.
+		request_header -X-Auth-Request-User
+		request_header -X-Auth-Request-Email
+		request_header -X-Auth-Request-Groups
+		request_header -X-Forwarded-User
+		request_header -X-Forwarded-Email
+		request_header -X-Forwarded-Groups
+
+		reverse_proxy {$CADDY_N8N_OAUTH2_PROXY_UPSTREAM} {
+			header_up Host {host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	log {
+		output file /var/log/caddy/n8n-editor-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		format filter {
+			request>headers>Authorization delete
+			request>headers>Cookie delete
+			request>uri query {
+				delete code
+				delete state
+				delete session_state
+			}
+		}
+	}
+}

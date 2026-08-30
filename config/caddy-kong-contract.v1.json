@@ -27,6 +27,7 @@
     "/api/v1/callbacks",
     "/api/v1/automation/policy-check",
     "/api/v1/integrations/n8n/results",
+    "/v1/integrations/n8n",
     "/v1/admin/system",
     "/v1/crm",
     "/v1/email",
