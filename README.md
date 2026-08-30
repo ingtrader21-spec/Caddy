@@ -39,6 +39,11 @@ Each system keeps its own source authority:
 - `deploy/community-n8n/` — fail-closed node and outbound-network policy overlay.
 - `config/community-n8n-credentials.v1.json` — metadata-only ownership and rotation contract.
 
+The runtime identity remains the canonical Keycloak-managed `n8n-automation`
+client. The editor gateway uses the existing `n8n_operator` and `n8n_admin`
+roles. Until OpenBao is commissioned, its client and cookie material is supplied
+as root-owned Docker secret files; only paths and rotation metadata belong here.
+
 ## Caddy -> Kong integration
 
 The reviewed Kong repository exposes host-bound `api.codestra.co` route contracts and exercises the Kong data plane on loopback port `8000`. The Caddy source therefore uses `CADDY_KONG_UPSTREAM` for path families already represented in Kong source and preserves `Host: api.codestra.co` on that handoff.

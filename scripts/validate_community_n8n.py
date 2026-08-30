@@ -25,7 +25,8 @@ for required in ("NODES_EXCLUDE", "n8n-nodes-base.executeCommand", "n8n-nodes-ba
 assert "api.codestra.co auth.codestra.co" in squid
 assert "http_access deny all" in squid
 for required in (
-    "--allowed-group=/automation-editors",
+    "--allowed-role=n8n_operator",
+    "--allowed-role=n8n_admin",
     "--upstream=http://n8n:5678",
     "--redirect-url=https://${EDITOR_HOST:?editor hostname required}/oauth2/callback",
     "--skip-auth-route=^/(webhook|webhook-waiting|form)/",
@@ -34,6 +35,9 @@ for required in (
 ):
     assert required in compose, required
 assert credentials["runtime_identity"]["owner"] == "n8n-service-owner"
+assert credentials["runtime_identity"]["client_id"] == "n8n-automation"
 assert credentials["runtime_identity"]["rotation_days"] <= 90
+assert credentials["editor_gateway_identity"]["secret_source"] == "root-owned-docker-secret-files"
+assert credentials["editor_gateway_identity"]["rotation_days"] <= 90
 assert credentials["secret_values_in_repository"] is False
 print("COMMUNITY_N8N_SECURITY=PASS")
