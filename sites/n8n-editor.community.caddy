@@ -7,8 +7,10 @@
 	import security_headers
 	encode zstd gzip
 
+	# Keep the edge ceiling aligned with the n8n N8N_PAYLOAD_SIZE_MAX value.
+	# The deployment renders the equivalent byte count into this variable.
 	request_body {
-		max_size 2MB
+		max_size {$CADDY_N8N_EDITOR_MAX_REQUEST_BODY}
 	}
 
 	route {
