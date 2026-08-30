@@ -11,3 +11,8 @@ CADDY_LEGACY_API_UPSTREAM=127.0.0.1:18101
 # Transitional realtime/health listener from the historical reference.
 # Remove or move behind Kong only after an accepted Kong realtime contract exists.
 CADDY_REALTIME_UPSTREAM=127.0.0.1:18102
+
+# Administrative source ranges permitted to reach the n8n editor host before the
+# gateway's Keycloak browser flow runs. Space-separated CIDRs. There is no safe
+# default: leaving this unset must fail closed at deploy review, never widen.
+CADDY_EDITOR_ADMIN_CIDRS=REPLACE_WITH_VERIFIED_ADMIN_CIDRS
