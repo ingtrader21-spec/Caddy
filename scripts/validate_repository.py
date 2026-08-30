@@ -158,6 +158,7 @@ if N8N_CONTRACT.get("edge_chain") != ["Caddy", "oauth2-proxy", "n8n"]:
 for token in (
     "{$CADDY_N8N_EDITOR_HOST}",
     "{$CADDY_N8N_OAUTH2_PROXY_UPSTREAM}",
+    "max_size {$CADDY_N8N_EDITOR_MAX_REQUEST_BODY}",
     "reverse_proxy {$CADDY_N8N_OAUTH2_PROXY_UPSTREAM}",
     "request_header -X-Auth-Request-User",
     "request_header -X-Auth-Request-Email",
@@ -174,6 +175,8 @@ for forbidden in (
     "CADDY_N8N_UPSTREAM",
     "N8N_EDITOR_UPSTREAM",
     ":5678",
+    "max_size 2MB",
+    "max_size 2MiB",
     "header_up X-Auth-Request-User",
     "header_up X-Forwarded-User",
 ):
@@ -186,9 +189,12 @@ for env_name in (
     "CADDY_REALTIME_UPSTREAM",
     "CADDY_N8N_EDITOR_HOST",
     "CADDY_N8N_OAUTH2_PROXY_UPSTREAM",
+    "CADDY_N8N_EDITOR_MAX_REQUEST_BODY",
 ):
     if env_name not in RUNTIME:
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=runtime_variable_missing:{env_name}")
+if "CADDY_N8N_EDITOR_MAX_REQUEST_BODY=16777216" not in RUNTIME:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=n8n_editor_body_limit_example_drift")
 
 if "admin 127.0.0.1:2019" not in CADDYFILE:
     raise SystemExit("CADDY_AUTHORITY_ERROR=admin_api_not_private")
@@ -217,6 +223,7 @@ print("CADDY_TO_KONG_CONTRACT=PASS")
 print("KONG_PRINCIPAL=appolon1908-hue/Kong")
 print("N8N_COMMUNITY_EDITOR_EDGE=PREPARED_NOT_APPLIED")
 print("N8N_DIRECT_PUBLIC_UPSTREAM=DENIED")
+print("N8N_EDITOR_BODY_LIMIT=RUNTIME_ALIGNED")
 print("KEYCLOAK_OIDC_GATE=OAUTH2_PROXY")
 print("PRODUCTION_PLATFORM=REFERENCE_ONLY")
 print("DIRECT_MIDDLEWARE_FOR_KONG_PATHS=DENIED")
