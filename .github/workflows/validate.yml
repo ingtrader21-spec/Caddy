@@ -21,7 +21,9 @@ jobs:
           python-version: '3.13'
 
       - name: Validate repository authority and Caddy boundaries
-        run: python3 scripts/validate_repository.py
+        run: |
+          python3 scripts/validate_repository.py
+          python3 scripts/validate_community_n8n.py
 
       - name: Validate complete Caddy configuration
         run: |
