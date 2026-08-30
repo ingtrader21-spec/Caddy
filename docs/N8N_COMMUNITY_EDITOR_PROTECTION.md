@@ -19,5 +19,6 @@ The source route deliberately contains no direct n8n upstream. oauth2-proxy owns
 - Spoofable identity headers are stripped before the request reaches oauth2-proxy.
 - Access logs redact authorization, cookies, OAuth code, state, and session-state values.
 - Native n8n owner authentication and session revocation are tested independently.
+- `CADDY_N8N_EDITOR_MAX_REQUEST_BODY` is rendered as the exact byte equivalent of the same deployment's `N8N_PAYLOAD_SIZE_MAX` value. The reviewed example uses n8n's documented 16 MiB default: `16 * 1048576 = 16777216` bytes. A payload-limit change must update and validate both layers together so Caddy does not impose a lower editor-wide ceiling.
 
 No reload, deployment, DNS change, Keycloak client creation, or secret mutation is authorized by this source change.
