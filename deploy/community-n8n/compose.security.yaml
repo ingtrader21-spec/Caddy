@@ -42,10 +42,15 @@ services:
       - --client-id=n8n-editor-gateway
       - --code-challenge-method=S256
       - --allowed-group=/automation-editors
+      - --upstream=http://n8n:5678
+      - --redirect-url=https://${EDITOR_HOST:?editor hostname required}/oauth2/callback
+      - --skip-auth-route=^/(webhook|webhook-waiting|form)/
       - --pass-access-token=false
+      - --pass-basic-auth=false
       - --pass-authorization-header=false
       - --set-authorization-header=false
       - --skip-provider-button=true
+      - --reverse-proxy=true
       - --http-address=0.0.0.0:4180
     environment:
       OAUTH2_PROXY_CLIENT_SECRET_FILE: /run/secrets/n8n_editor_gateway_oidc_credential
