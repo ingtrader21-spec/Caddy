@@ -8,8 +8,16 @@ compose = (root / "deploy/community-n8n/compose.security.yaml").read_text()
 squid = (root / "deploy/community-n8n/squid.conf").read_text()
 credentials = json.loads((root / "config/community-n8n-credentials.v1.json").read_text())
 
-for required in ("{$EDITOR_HOST}", "forward_auth", "/automation-editors", "header_up -Authorization"):
+for required in (
+    "{$EDITOR_HOST}",
+    "forward_auth",
+    "/automation-editors",
+    "header_up -Authorization",
+    "handle /oauth2/*",
+    "/oauth2/sign_in?rd={scheme}://{host}{uri}",
+):
     assert required in site, required
+assert "handle_path /oauth2" not in site
 for forbidden in ("client" + "_secret=", "cookie" + "_secret=", "header_up Authorization"):
     assert forbidden not in site + compose, forbidden
 for service in ("n8n:", "n8n-webhook:", "n8n-worker:"):
