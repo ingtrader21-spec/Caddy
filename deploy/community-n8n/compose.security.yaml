@@ -41,7 +41,8 @@ services:
       - --oidc-issuer-url=https://auth.codestra.co/realms/codestra
       - --client-id=n8n-editor-gateway
       - --code-challenge-method=S256
-      - --allowed-group=/automation-editors
+      - --allowed-role=n8n_operator
+      - --allowed-role=n8n_admin
       - --upstream=http://n8n:5678
       - --redirect-url=https://${EDITOR_HOST:?editor hostname required}/oauth2/callback
       - --skip-auth-route=^/(webhook|webhook-waiting|form)/
@@ -71,6 +72,6 @@ networks:
 
 secrets:
   n8n_editor_gateway_oidc_credential:
-    file: ${OPENBAO_RENDER_DIR:?OpenBao render directory required}/n8n-editor-gateway-oidc-credential
+    file: ${RUNTIME_SECRET_DIR:?root-owned runtime secret directory required}/n8n-editor-gateway-oidc-credential
   n8n_editor_gateway_cookie_secret:
-    file: ${OPENBAO_RENDER_DIR:?OpenBao render directory required}/n8n-editor-gateway-cookie-secret
+    file: ${RUNTIME_SECRET_DIR:?root-owned runtime secret directory required}/n8n-editor-gateway-cookie-secret
