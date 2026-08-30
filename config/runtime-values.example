@@ -11,3 +11,11 @@ CADDY_LEGACY_API_UPSTREAM=127.0.0.1:18101
 # Transitional realtime/health listener from the historical reference.
 # Remove or move behind Kong only after an accepted Kong realtime contract exists.
 CADDY_REALTIME_UPSTREAM=127.0.0.1:18102
+
+# Community-compatible n8n editor host. The production/staging value is supplied
+# outside Git after DNS, TLS, Keycloak client and oauth2-proxy checks pass.
+CADDY_N8N_EDITOR_HOST=n8n-editor.invalid
+
+# Private oauth2-proxy listener. oauth2-proxy owns Keycloak OIDC and its upstream
+# is the private n8n editor; Caddy must never point this host directly at :5678.
+CADDY_N8N_OAUTH2_PROXY_UPSTREAM=127.0.0.1:4180
