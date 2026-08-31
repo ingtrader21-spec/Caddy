@@ -47,5 +47,14 @@
     "runtimeInventoryRequiredBeforeCutover": true,
     "rollbackRehearsalRequiredBeforeCutover": true,
     "productionCutoverAuthorizedBySource": false
+  },
+  "editorHost": {
+    "host": "automation.codestra.co",
+    "purpose": "n8n Community Edition editor, human administrative surface",
+    "adminCidrEnvironmentVariable": "CADDY_EDITOR_ADMIN_CIDRS",
+    "gatewayEnforcesKeycloakBrowserFlow": true,
+    "caddyAuthenticatesEditorSessions": false,
+    "directUpstreamToN8nAllowed": false,
+    "nativeN8nAuthRequiredBehindGateway": true
   }
 }

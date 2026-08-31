@@ -65,3 +65,25 @@ Caddy CI must fail when any of these become true:
 - a possible secret/private key is committed.
 
 A green source PR does not authorize a live Caddy reload, DNS/TLS change, Kong reconciliation apply, or production traffic cutover.
+
+## n8n editor host (automation.codestra.co)
+
+n8n Community Edition has no enterprise SSO, so the editor cannot authenticate
+against Keycloak by itself. The reviewed community-compatible strategy is
+`verified-gateway-oidc-and-native-auth`, recorded in
+`appolon1908-hue/N8N` at `config/n8n-policy.json`:
+
+1. Caddy terminates TLS for `automation.codestra.co` and refuses any source
+   outside `CADDY_EDITOR_ADMIN_CIDRS` before anything else runs.
+2. Kong performs the Keycloak authorization-code browser flow and owns session
+   policy for the host. This is a browser flow, not the bearer-only method used
+   for the service routes in `kong/plugins/oidc/keycloak.yml`.
+3. n8n's own native owner login stays enabled behind the gateway, so a gateway
+   bypass alone does not yield editor access.
+
+Caddy's identity boundary is unchanged: it authenticates nothing and mints no
+identity headers. That is why this host has no direct upstream to n8n — removing
+the Kong hop would remove the only OIDC enforcement point.
+
+The editor is not directly publicly routable, which is the condition the N8N
+policy asserts through `editor_access.publicly_routable = false`.
