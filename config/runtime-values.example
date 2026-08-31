@@ -16,3 +16,16 @@ CADDY_REALTIME_UPSTREAM=127.0.0.1:18102
 # gateway's Keycloak browser flow runs. Space-separated CIDRs. There is no safe
 # default: leaving this unset must fail closed at deploy review, never widen.
 CADDY_EDITOR_ADMIN_CIDRS=REPLACE_WITH_VERIFIED_ADMIN_CIDRS
+
+# Community-compatible n8n editor host. The production/staging value is supplied
+# outside Git after DNS, TLS, Keycloak client and oauth2-proxy checks pass.
+CADDY_N8N_EDITOR_HOST=n8n-editor.invalid
+
+# Private oauth2-proxy listener. oauth2-proxy owns Keycloak OIDC and its upstream
+# is the private n8n editor; Caddy must never point this host directly at :5678.
+CADDY_N8N_OAUTH2_PROXY_UPSTREAM=127.0.0.1:4180
+
+# Exact byte ceiling for editor requests. Keep this equal to
+# N8N_PAYLOAD_SIZE_MAX * 1048576 for the same deployment. n8n's documented
+# default is 16 MiB, represented here as 16777216 bytes.
+CADDY_N8N_EDITOR_MAX_REQUEST_BODY=16777216
