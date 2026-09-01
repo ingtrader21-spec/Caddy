@@ -18,6 +18,9 @@ N8N_CONTRACT_PATH = ROOT / "config" / "n8n-editor-community.v1.json"
 RUNTIME_EXAMPLE = ROOT / "config" / "runtime-values.example"
 INTEGRATION_DOC = ROOT / "docs" / "CADDY_KONG_INTEGRATION.md"
 N8N_DOC = ROOT / "docs" / "N8N_COMMUNITY_EDITOR_PROTECTION.md"
+DEPLOY_SCRIPT = ROOT / "scripts" / "deploy-production.sh"
+RUNTIME_COMPOSE = ROOT / "deploy" / "compose.runtime.yaml"
+RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "immutable-release.yml"
 
 for path in (
     README_PATH,
@@ -30,6 +33,9 @@ for path in (
     RUNTIME_EXAMPLE,
     INTEGRATION_DOC,
     N8N_DOC,
+    DEPLOY_SCRIPT,
+    RUNTIME_COMPOSE,
+    RELEASE_WORKFLOW,
 ):
     if not path.exists():
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=missing_required_file:{path.relative_to(ROOT)}")
@@ -41,6 +47,36 @@ CADDYFILE = ROOT_CADDYFILE.read_text(encoding="utf-8")
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
 N8N_CONTRACT = json.loads(N8N_CONTRACT_PATH.read_text(encoding="utf-8"))
 RUNTIME = RUNTIME_EXAMPLE.read_text(encoding="utf-8")
+DEPLOY = DEPLOY_SCRIPT.read_text(encoding="utf-8")
+COMPOSE = RUNTIME_COMPOSE.read_text(encoding="utf-8")
+RELEASE = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+for token in (
+    "CADDY_REVIEWED_SHA",
+    "refs/remotes/origin/production",
+    'cp -a "$SOURCE_DIR/." "$staged/"',
+    'validate --config "$staged/Caddyfile"',
+):
+    if token not in DEPLOY:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=deployment_gate_missing:{token}")
+
+for token in (
+    'read_only: true',
+    '/run/caddy:uid=65532,gid=65532,mode=0700',
+    '/var/log/caddy:uid=65532,gid=65532,mode=0700',
+    'user: "65532:65532"',
+):
+    if token not in COMPOSE:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=nonroot_runtime_mount_missing:{token}")
+
+for token in (
+    "caddy-binary-build-attestation.json",
+    "cosign sign-blob",
+    "cosign verify-blob",
+    "BINARY_BUILD_ATTESTATION=PASS",
+):
+    if token not in RELEASE:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=binary_attestation_missing:{token}")
 
 required_repositories = (
     "appolon1908-hue/Caddy",

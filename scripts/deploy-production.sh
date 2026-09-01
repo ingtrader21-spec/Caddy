@@ -2,10 +2,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SOURCE="$ROOT/config/Caddyfile"
-TARGET="${CADDY_TARGET:-/etc/caddy/Caddyfile}"
+SOURCE_DIR="$ROOT/config"
+SOURCE="$SOURCE_DIR/Caddyfile"
+TARGET_DIR="${CADDY_TARGET_DIR:-/etc/caddy}"
 BACKUP_DIR="${CADDY_BACKUP_DIR:-/var/backups/caddy-git-controller}"
 CADDY_BIN="${CADDY_BIN:-caddy}"
+REVIEWED_SHA="${CADDY_REVIEWED_SHA:-}"
 
 if [[ ! -f "$SOURCE" ]]; then
   echo "BLOCKED: $SOURCE does not exist. Import and review the live configuration first." >&2
@@ -23,34 +25,76 @@ if [[ "$branch" != "production" ]]; then
   exit 1
 fi
 
+if [[ ! "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "BLOCKED: CADDY_REVIEWED_SHA must be the approved 40-character production commit." >&2
+  exit 1
+fi
+
+head_sha="$(git -C "$ROOT" rev-parse HEAD)"
+git -C "$ROOT" fetch --quiet origin production
+remote_sha="$(git -C "$ROOT" rev-parse refs/remotes/origin/production)"
+if [[ "$head_sha" != "$REVIEWED_SHA" || "$remote_sha" != "$REVIEWED_SHA" ]]; then
+  echo "BLOCKED: reviewed, checked-out, and remote production SHAs must match." >&2
+  echo "REVIEWED_SHA=$REVIEWED_SHA" >&2
+  echo "HEAD_SHA=$head_sha" >&2
+  echo "REMOTE_PRODUCTION_SHA=$remote_sha" >&2
+  exit 1
+fi
+
 "$CADDY_BIN" validate --config "$SOURCE" --adapter caddyfile
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 sudo mkdir -p "$BACKUP_DIR"
-if sudo test -f "$TARGET"; then
-  sudo cp -a "$TARGET" "$BACKUP_DIR/Caddyfile.$stamp"
+backup="$BACKUP_DIR/config.$stamp"
+if sudo test -d "$TARGET_DIR"; then
+  sudo cp -a "$TARGET_DIR" "$backup"
 fi
 
-sudo install -o root -g root -m 0644 "$SOURCE" "$TARGET"
+target_parent="$(dirname "$TARGET_DIR")"
+target_name="$(basename "$TARGET_DIR")"
+staged="$(sudo mktemp -d "$target_parent/.${target_name}.staged.XXXXXX")"
+previous="$target_parent/.${target_name}.previous.$stamp"
+cleanup() {
+  if [[ -n "${staged:-}" ]] && sudo test -d "$staged"; then
+    sudo rm -rf -- "$staged"
+  fi
+}
+trap cleanup EXIT
+sudo cp -a "$SOURCE_DIR/." "$staged/"
+sudo chown -R root:root "$staged"
+sudo find "$staged" -type d -exec chmod 0755 {} +
+sudo find "$staged" -type f -exec chmod 0644 {} +
 
-if ! sudo "$CADDY_BIN" validate --config "$TARGET" --adapter caddyfile; then
+sudo "$CADDY_BIN" validate --config "$staged/Caddyfile" --adapter caddyfile
+if sudo test -e "$TARGET_DIR"; then
+  sudo mv "$TARGET_DIR" "$previous"
+fi
+sudo mv "$staged" "$TARGET_DIR"
+staged=""
+
+if ! sudo "$CADDY_BIN" validate --config "$TARGET_DIR/Caddyfile" --adapter caddyfile; then
   echo "Installed configuration failed validation; restoring backup." >&2
-  if sudo test -f "$BACKUP_DIR/Caddyfile.$stamp"; then
-    sudo cp -a "$BACKUP_DIR/Caddyfile.$stamp" "$TARGET"
+  if sudo test -d "$previous"; then
+    sudo mv "$TARGET_DIR" "$staged"
+    sudo mv "$previous" "$TARGET_DIR"
   fi
   exit 1
 fi
 
 if ! sudo systemctl reload caddy; then
   echo "Reload failed; restoring previous configuration." >&2
-  if sudo test -f "$BACKUP_DIR/Caddyfile.$stamp"; then
-    sudo cp -a "$BACKUP_DIR/Caddyfile.$stamp" "$TARGET"
+  if sudo test -d "$previous"; then
+    sudo mv "$TARGET_DIR" "$staged"
+    sudo mv "$previous" "$TARGET_DIR"
     sudo systemctl reload caddy || true
   fi
   exit 1
 fi
 
 sudo systemctl is-active --quiet caddy
+if sudo test -d "$previous"; then
+  sudo rm -rf -- "$previous"
+fi
 
-echo "DEPLOYED_COMMIT=$(git -C "$ROOT" rev-parse HEAD)"
-echo "BACKUP=$BACKUP_DIR/Caddyfile.$stamp"
+echo "DEPLOYED_COMMIT=$head_sha"
+echo "BACKUP=$backup"

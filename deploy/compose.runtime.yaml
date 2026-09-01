@@ -1,0 +1,20 @@
+services:
+  caddy:
+    image: "${CADDY_IMAGE:?set an immutable ghcr.io image digest}"
+    read_only: true
+    user: "65532:65532"
+    tmpfs:
+      - /run/caddy:uid=65532,gid=65532,mode=0700
+      - /var/log/caddy:uid=65532,gid=65532,mode=0700
+    volumes:
+      - caddy_data:/data
+      - caddy_runtime_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_runtime_config:
