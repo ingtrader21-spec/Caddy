@@ -25,6 +25,12 @@ jobs:
           python3 scripts/test_caddy_kong_contract.py
           python3 scripts/validate_repository.py
           python3 scripts/validate_community_n8n.py
+          python3 -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Validate immutable runtime inputs
+        env:
+          CADDY_IMAGE_SHA256: 0000000000000000000000000000000000000000000000000000000000000000
+        run: docker compose -f deploy/compose.runtime.yaml config --quiet
 
       - name: Validate complete Caddy configuration
         run: |
