@@ -22,6 +22,8 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    env:
+      CADDY_IMAGE: caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     steps:
       - name: Checkout reviewed commit
         uses: actions/checkout@v4
@@ -48,13 +50,29 @@ jobs:
             exit 0
           fi
 
+          validation_pki="$RUNNER_TEMP/caddy-validation-pki"
+          mkdir -p "$validation_pki/middleware" "$validation_pki/klyrow"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=caddy-ci.invalid' \
+            -keyout "$validation_pki/validation.key" -out "$validation_pki/validation.crt" >/dev/null 2>&1
+          install -m 0600 "$validation_pki/validation.key" "$validation_pki/middleware/server.key"
+          install -m 0600 "$validation_pki/validation.key" "$validation_pki/middleware/staging-server.key"
+          install -m 0644 "$validation_pki/validation.crt" "$validation_pki/middleware/server.crt"
+          install -m 0644 "$validation_pki/validation.crt" "$validation_pki/middleware/staging-server.crt"
+          install -m 0644 "$validation_pki/validation.crt" "$validation_pki/middleware/client-ca.crt"
+          install -m 0600 "$validation_pki/validation.key" "$validation_pki/klyrow/tls.key"
+          install -m 0644 "$validation_pki/validation.crt" "$validation_pki/klyrow/tls-fullchain.crt"
+          install -m 0644 "$validation_pki/validation.crt" "$validation_pki/klyrow/klyrow-client.crt"
+
           for file in "${files[@]}"; do
             echo "Validating $file"
-            docker run --rm -v "$PWD:/repo:ro" caddy:2.11.4 \
-              validate --config "/repo/$file" --adapter caddyfile
+            docker run --rm -v "$PWD:/repo:ro" \
+              -v "$validation_pki/middleware:/etc/codestra/pki/middleware-private-ingress:ro" \
+              -v "$validation_pki/klyrow:/etc/caddy/private/klyrow-events:ro" \
+              "$CADDY_IMAGE" \
+              caddy validate --config "/repo/$file" --adapter caddyfile
 
-            diff_output="$(docker run --rm -v "$PWD:/repo:ro" caddy:2.11.4 \
-              fmt --diff "/repo/$file")"
+            diff_output="$(docker run --rm -v "$PWD:/repo:ro" "$CADDY_IMAGE" \
+              caddy fmt "/repo/$file" | diff -u "$file" - || true)"
             if [[ -n "$diff_output" ]]; then
               echo "$diff_output"
               echo "Caddyfile formatting differs from 'caddy fmt'." >&2
