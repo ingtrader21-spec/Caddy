@@ -1,0 +1,44 @@
+name: Validate Caddy source authority
+
+on:
+  pull_request:
+  push:
+    branches: [main, development, test, production]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+
+      - name: Validate repository authority and Caddy boundaries
+        run: |
+          python3 scripts/test_caddy_kong_contract.py
+          python3 scripts/validate_repository.py
+          python3 scripts/validate_community_n8n.py
+
+      - name: Validate complete Caddy configuration
+        run: |
+          docker run --rm --network none --workdir /srv \
+            -e CADDY_KONG_UPSTREAM=127.0.0.1:8000 \
+            -e CADDY_LEGACY_API_UPSTREAM=127.0.0.1:18101 \
+            -e CADDY_REALTIME_UPSTREAM=127.0.0.1:18102 \
+            -e CADDY_EDITOR_ADMIN_CIDRS=192.0.2.0/24 \
+            -e CADDY_N8N_EDITOR_HOST=n8n-editor.invalid \
+            -e CADDY_N8N_OAUTH2_PROXY_UPSTREAM=127.0.0.1:4180 \
+            -e CADDY_N8N_EDITOR_MAX_REQUEST_BODY=16777216 \
+            -v "$PWD:/srv:ro" \
+            caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 \
+            caddy validate --config /srv/candidate/Caddyfile --adapter caddyfile
+
+      - name: Reject whitespace errors
+        run: git diff --check
