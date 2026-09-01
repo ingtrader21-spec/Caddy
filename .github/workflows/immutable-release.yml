@@ -7,11 +7,7 @@ on:
       - config/**
       - .github/workflows/immutable-release.yml
   push:
-    branches: [main]
-    paths:
-      - Dockerfile
-      - config/**
-      - .github/workflows/immutable-release.yml
+    branches: [production]
 
 permissions:
   contents: read
@@ -107,7 +103,7 @@ jobs:
             build/caddy-binary-build-attestation.json
           cosign verify-blob \
             --bundle caddy-binary-build-attestation.bundle \
-            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/main$" \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             build/caddy-binary-build-attestation.json >/dev/null
       - name: Sign and verify immutable digest
@@ -118,7 +114,7 @@ jobs:
           set -euo pipefail
           cosign sign --yes "$SUBJECT"
           cosign verify \
-            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/main$" \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "$SUBJECT" >/dev/null
           printf '%s\n' \

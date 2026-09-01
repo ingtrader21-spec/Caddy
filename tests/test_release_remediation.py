@@ -17,6 +17,19 @@ class ReleaseRemediationTests(unittest.TestCase):
         self.assertEqual(source.count('mv "$previous" "$TARGET_DIR"'), 2)
         self.assertNotIn('mv "$TARGET_DIR" "$staged"', source)
 
+    def test_deployment_stages_only_reviewed_git_tracked_configuration(self) -> None:
+        source = (ROOT / "scripts/deploy-production.sh").read_text()
+        tracked_archive = (
+            'git -C "$ROOT" archive --format=tar "$REVIEWED_SHA" -- config'
+        )
+        self.assertIn(tracked_archive, source)
+        self.assertIn('--strip-components=1', source)
+        self.assertNotIn('cp -a "$SOURCE_DIR/." "$staged/"', source)
+        self.assertLess(
+            source.index(tracked_archive),
+            source.index('cp -a -- "$TARGET_DIR/private" "$staged/private"'),
+        )
+
     def test_container_runtime_is_exact_nonroot_and_host_bound(self) -> None:
         compose = (ROOT / "deploy/compose.runtime.yaml").read_text()
         self.assertIn(
@@ -29,6 +42,9 @@ class ReleaseRemediationTests(unittest.TestCase):
         self.assertIn("XDG_CONFIG_HOME: /config", compose)
         self.assertIn("network_mode: host", compose)
         self.assertNotIn("ports:", compose)
+        self.assertIn("cap_drop:\n      - ALL", compose)
+        self.assertIn("cap_add:\n      - NET_BIND_SERVICE", compose)
+        self.assertIn("no-new-privileges:true", compose)
         for trust_path in (
             "/etc/caddy/private/klyrow-events",
             "/etc/codestra/pki/middleware-private-ingress",
@@ -45,11 +61,40 @@ class ReleaseRemediationTests(unittest.TestCase):
             '[[ "$owner" != "65532:65532" ]]',
             "(mode_value & 0200) == 0",
             "(mode_value & 0022) != 0",
-            'docker compose -f "$COMPOSE" pull caddy',
+            '"$COSIGN_BIN" verify',
+            '--certificate-identity "$CERTIFICATE_IDENTITY"',
+            '--certificate-oidc-issuer "$CERTIFICATE_ISSUER"',
+            '"$DOCKER_BIN" pull "$IMAGE_REF"',
+            'org.opencontainers.image.revision',
+            'org.opencontainers.image.source',
+            '[[ "$image_revision" != "$REVIEWED_SHA" ]]',
             "run --rm --no-deps caddy",
             "up -d --pull never --no-build",
         ):
             self.assertIn(required, source)
+
+    def test_signed_revision_binding_precedes_any_container_execution(self) -> None:
+        source = (ROOT / "scripts/run-immutable-runtime.sh").read_text()
+        verify = source.index('"$COSIGN_BIN" verify')
+        pull = source.index('"$DOCKER_BIN" pull "$IMAGE_REF"')
+        revision = source.index('[[ "$image_revision" != "$REVIEWED_SHA" ]]')
+        validate = source.index('compose -f "$COMPOSE" run --rm --no-deps caddy')
+        start = source.index('compose -f "$COMPOSE" up -d --pull never --no-build')
+        self.assertLess(verify, pull)
+        self.assertLess(pull, revision)
+        self.assertLess(revision, validate)
+        self.assertLess(validate, start)
+
+        dockerfile = (ROOT / "Dockerfile").read_text()
+        workflow = (ROOT / ".github/workflows/immutable-release.yml").read_text()
+        self.assertIn('org.opencontainers.image.revision="$VCS_REF"', dockerfile)
+        self.assertIn('VCS_REF=${{ github.sha }}', workflow)
+        self.assertIn('cosign sign --yes "$SUBJECT"', workflow)
+        self.assertIn('branches: [production]', workflow)
+        self.assertNotIn('branches: [main]', workflow)
+        self.assertEqual(workflow.count('refs/heads/production$'), 2)
+        self.assertNotIn('refs/heads/main$', workflow)
+        self.assertIn('refs/heads/production"', source)
 
 
 if __name__ == "__main__":
