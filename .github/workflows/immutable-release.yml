@@ -25,6 +25,27 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: 1.26.6
+          cache: false
+      - name: Build patched Caddy source
+        env:
+          CADDY_SOURCE_SHA: e2eee6a7fce366321294c9c2a79f3146891dcbdf
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/caddyserver/caddy.git build/caddy-source
+          git -C build/caddy-source checkout --detach "$CADDY_SOURCE_SHA"
+          cd build/caddy-source
+          go get \
+            golang.org/x/crypto@v0.55.0 \
+            golang.org/x/net@v0.56.0 \
+            golang.org/x/text@v0.39.0 \
+            google.golang.org/grpc@v1.82.1
+          go mod tidy
+          CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o ../caddy ./cmd/caddy
+          ../caddy version
+          ../caddy list-modules --packages > ../caddy-modules.txt
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
       - name: Build exact-head security candidate
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
