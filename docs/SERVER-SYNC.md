@@ -63,7 +63,7 @@ git checkout production
 git reset --hard origin/production
 git config pull.ff only
 
-./scripts/deploy-production.sh
+CADDY_REVIEWED_SHA="$(git rev-parse origin/production)" ./scripts/deploy-production.sh
 ```
 
 After this cutover, normal production flow is:
@@ -74,8 +74,29 @@ After this cutover, normal production flow is:
 4. promote to `staging` and record smoke evidence;
 5. promote to `production`;
 6. server fetches the exact reviewed production commit;
-7. `scripts/deploy-production.sh` validates, backs up, installs, reloads, and checks Caddy;
-8. after deployment evidence, promote `production` to `main`.
+7. an operator supplies the explicitly approved 40-character `CADDY_REVIEWED_SHA`;
+8. `scripts/deploy-production.sh` proves that SHA equals both `HEAD` and
+   `origin/production`, validates and atomically backs up/installs the complete
+   `config/` tree (including imported fragments), reloads, and checks Caddy;
+9. after deployment evidence, promote `production` to `main`.
+
+For the immutable container runtime, pre-create the persistent state paths for
+the exact non-root UID, then use the reviewed launcher:
+
+```bash
+sudo install -d -o 65532 -g 65532 -m 0700 \
+  /var/lib/codestra/caddy/data /var/lib/codestra/caddy/config
+export CADDY_REVIEWED_SHA="$(git rev-parse origin/production)"
+export CADDY_IMAGE_SHA256='<approved 64-character sha256 value>'
+./scripts/run-immutable-runtime.sh
+```
+
+The launcher rejects mutable image identities and binds the fixed
+`ghcr.io/appolon1908-hue/codestra-caddy@sha256:` repository identity to that digest. The
+compose runtime uses host networking because the reviewed Caddyfile binds the
+host's public and private addresses, sets `/data` and `/config` as the Caddy XDG
+state paths, and mounts the Klyrow and Middleware host-managed certificate trees
+read-only. It never copies those certificates into the image or repository.
 
 ## Drift rule
 
