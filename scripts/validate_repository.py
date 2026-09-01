@@ -5,6 +5,8 @@ import json
 import re
 from pathlib import Path
 
+from caddy_kong_contract import validate_exact_kong_routes
+
 ROOT = Path(__file__).resolve().parents[1]
 README_PATH = ROOT / "README.md"
 SITE_PATH = ROOT / "sites" / "api.codestra.co.caddy"
@@ -121,8 +123,10 @@ if not isinstance(managed_paths, list) or not managed_paths:
 for path_prefix in managed_paths:
     if not isinstance(path_prefix, str) or not path_prefix.startswith("/"):
         raise SystemExit("CADDY_AUTHORITY_ERROR=invalid_kong_path")
-    if path_prefix not in SITE:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=kong_path_not_routed:{path_prefix}")
+try:
+    validate_exact_kong_routes(SITE, managed_paths)
+except ValueError as exc:
+    raise SystemExit(f"CADDY_AUTHORITY_ERROR={exc}") from exc
 
 # n8n Community editor boundary. Caddy terminates TLS but oauth2-proxy owns
 # Keycloak OIDC; the editor is never routed directly to n8n.
@@ -220,6 +224,7 @@ for path in ROOT.rglob("*"):
 print("CADDY_REPOSITORY_AUTHORITY=PASS")
 print("CADDY_PRINCIPAL=appolon1908-hue/Caddy")
 print("CADDY_TO_KONG_CONTRACT=PASS")
+print("KONG_ROUTE_CONTRACT_BIDIRECTIONAL=PASS")
 print("KONG_PRINCIPAL=appolon1908-hue/Kong")
 print("N8N_COMMUNITY_EDITOR_EDGE=PREPARED_NOT_APPLIED")
 print("N8N_DIRECT_PUBLIC_UPSTREAM=DENIED")

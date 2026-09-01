@@ -22,6 +22,7 @@ jobs:
 
       - name: Validate repository authority and Caddy boundaries
         run: |
+          python3 scripts/test_caddy_kong_contract.py
           python3 scripts/validate_repository.py
           python3 scripts/validate_community_n8n.py
 

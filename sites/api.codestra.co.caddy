@@ -17,7 +17,7 @@ api.codestra.co {
 	route {
 		# Paths already represented by reviewed Kong source. Preserve the public
 		# host because Kong uses host-based routing for api.codestra.co.
-		@kong path /api/v1/control* /api/v1/messages* /api/v1/events* /api/v1/results* /api/v1/reconciliation* /api/v1/health* /api/v1/callbacks* /api/v1/automation/policy-check /api/v1/integrations/n8n/results /v1/integrations/n8n* /v1/admin/system* /v1/crm* /v1/email* /v1/sms* /v1/webhooks*
+		@kong path /api/v1/control* /api/v1/messages* /api/v1/events* /api/v1/results* /api/v1/reconciliation* /api/v1/health* /api/v1/callbacks* /api/v1/automation/policy-check /api/v1/integrations/n8n/results /v1/integrations/n8n* /v1/admin/system* /v1/crm* /v1/email* /v1/sms* /v1/webhooks* /v1/intake*
 		handle @kong {
 			reverse_proxy {$CADDY_KONG_UPSTREAM} {
 				header_up Host {host}

@@ -32,7 +32,8 @@
     "/v1/crm",
     "/v1/email",
     "/v1/sms",
-    "/v1/webhooks"
+    "/v1/webhooks",
+    "/v1/intake"
   ],
   "transitionalPaths": [
     "/ws/agent",
