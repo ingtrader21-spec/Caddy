@@ -22,6 +22,8 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    env:
+      CADDY_IMAGE: caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     steps:
       - name: Checkout reviewed commit
         uses: actions/checkout@v4
@@ -50,11 +52,11 @@ jobs:
 
           for file in "${files[@]}"; do
             echo "Validating $file"
-            docker run --rm -v "$PWD:/repo:ro" caddy:2.11.4 \
-              validate --config "/repo/$file" --adapter caddyfile
+            docker run --rm -v "$PWD:/repo:ro" "$CADDY_IMAGE" \
+              caddy validate --config "/repo/$file" --adapter caddyfile
 
-            diff_output="$(docker run --rm -v "$PWD:/repo:ro" caddy:2.11.4 \
-              fmt --diff "/repo/$file")"
+            diff_output="$(docker run --rm -v "$PWD:/repo:ro" "$CADDY_IMAGE" \
+              caddy fmt "/repo/$file" | diff -u "$file" - || true)"
             if [[ -n "$diff_output" ]]; then
               echo "$diff_output"
               echo "Caddyfile formatting differs from 'caddy fmt'." >&2
