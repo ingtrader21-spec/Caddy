@@ -1,6 +1,6 @@
 # Live Caddy Import Evidence
 
-Status: **AWAITING LIVE SERVER CONFIGURATION**
+Status: **LIVE CONFIGURATION IMPORTED — PROMOTION REVIEW REQUIRED**
 
 This branch is reserved for the one-time import of the currently running Caddy configuration into Git control.
 
@@ -38,16 +38,16 @@ git push origin feat/import-live-caddy
 
 ## Evidence required before merge
 
-- [ ] Current `/etc/caddy/Caddyfile` captured from the live host
-- [ ] No secrets/private keys committed
-- [ ] `caddy fmt` clean
-- [ ] `caddy validate` passed
-- [ ] Repository validation script passed
-- [ ] Routes and upstreams manually reviewed
-- [ ] Caddy admin endpoint remains private
-- [ ] No `tls_insecure_skip_verify` workaround introduced
-- [ ] Production deployment remains disabled during import
-- [ ] Git diff matches the intended live configuration
+- [x] Current `/etc/caddy/Caddyfile` and its `snippets/`, `sites/`, and `conf.d/` imports captured from the live host
+- [x] No secrets/private keys committed; `private/` and `secrets/` are excluded from the import scope
+- [x] `caddy fmt` clean
+- [x] `caddy validate` passed against the complete imported configuration
+- [x] Repository validation script passed
+- [x] Routes and upstreams reviewed from the approved local host path
+- [x] Caddy admin endpoint remains a Unix socket
+- [x] No `tls_insecure_skip_verify` workaround introduced
+- [x] Production deployment remained disabled during import; no reload or restart occurred
+- [x] Imported file checksums match the live configuration after canonical formatting
 
 ## Promotion after import
 
