@@ -1,0 +1,25 @@
+# Runtime state and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+secrets/
+data/
+caddy_data/
+caddy_config/
+
+# Backups / temporary files
+*.bak
+*.backup
+*.tmp
+backups/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
