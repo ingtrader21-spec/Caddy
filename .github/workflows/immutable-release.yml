@@ -42,7 +42,7 @@ jobs:
         with:
           image-ref: local/codestra-caddy:${{ github.sha }}
           severity: CRITICAL,HIGH
-          ignore-unfixed: true
+          ignore-unfixed: false
           exit-code: '1'
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
         if: github.event_name == 'push'
