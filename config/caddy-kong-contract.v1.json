@@ -27,11 +27,13 @@
     "/api/v1/callbacks",
     "/api/v1/automation/policy-check",
     "/api/v1/integrations/n8n/results",
+    "/v1/integrations/n8n",
     "/v1/admin/system",
     "/v1/crm",
     "/v1/email",
     "/v1/sms",
-    "/v1/webhooks"
+    "/v1/webhooks",
+    "/v1/intake"
   ],
   "transitionalPaths": [
     "/ws/agent",
@@ -46,5 +48,14 @@
     "runtimeInventoryRequiredBeforeCutover": true,
     "rollbackRehearsalRequiredBeforeCutover": true,
     "productionCutoverAuthorizedBySource": false
+  },
+  "editorHost": {
+    "host": "automation.codestra.co",
+    "purpose": "n8n Community Edition editor, human administrative surface",
+    "adminCidrEnvironmentVariable": "CADDY_EDITOR_ADMIN_CIDRS",
+    "gatewayEnforcesKeycloakBrowserFlow": true,
+    "caddyAuthenticatesEditorSessions": false,
+    "directUpstreamToN8nAllowed": false,
+    "nativeN8nAuthRequiredBehindGateway": true
   }
 }

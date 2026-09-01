@@ -5,31 +5,41 @@ import json
 import re
 from pathlib import Path
 
+from caddy_kong_contract import validate_exact_kong_routes
+
 ROOT = Path(__file__).resolve().parents[1]
 README_PATH = ROOT / "README.md"
 SITE_PATH = ROOT / "sites" / "api.codestra.co.caddy"
+N8N_SITE_PATH = ROOT / "sites" / "n8n-editor.community.caddy"
 ROOT_CADDYFILE = ROOT / "Caddyfile"
 SECURITY_HEADERS = ROOT / "snippets" / "security_headers.caddy"
 CONTRACT_PATH = ROOT / "config" / "caddy-kong-contract.v1.json"
+N8N_CONTRACT_PATH = ROOT / "config" / "n8n-editor-community.v1.json"
 RUNTIME_EXAMPLE = ROOT / "config" / "runtime-values.example"
 INTEGRATION_DOC = ROOT / "docs" / "CADDY_KONG_INTEGRATION.md"
+N8N_DOC = ROOT / "docs" / "N8N_COMMUNITY_EDITOR_PROTECTION.md"
 
 for path in (
     README_PATH,
     SITE_PATH,
+    N8N_SITE_PATH,
     ROOT_CADDYFILE,
     SECURITY_HEADERS,
     CONTRACT_PATH,
+    N8N_CONTRACT_PATH,
     RUNTIME_EXAMPLE,
     INTEGRATION_DOC,
+    N8N_DOC,
 ):
     if not path.exists():
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=missing_required_file:{path.relative_to(ROOT)}")
 
 README = README_PATH.read_text(encoding="utf-8")
 SITE = SITE_PATH.read_text(encoding="utf-8")
+N8N_SITE = N8N_SITE_PATH.read_text(encoding="utf-8")
 CADDYFILE = ROOT_CADDYFILE.read_text(encoding="utf-8")
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+N8N_CONTRACT = json.loads(N8N_CONTRACT_PATH.read_text(encoding="utf-8"))
 RUNTIME = RUNTIME_EXAMPLE.read_text(encoding="utf-8")
 
 required_repositories = (
@@ -89,7 +99,6 @@ if "Authorization delete" not in SITE:
 if "header_up Authorization" in SITE or "header_up -Authorization" in SITE:
     raise SystemExit("CADDY_AUTHORITY_ERROR=authorization_forwarding_modified")
 
-# Caddy is an edge transport boundary, not an application identity authority.
 for forbidden_header in (
     "X-Authenticated-Client",
     "X-Authenticated-Tenant",
@@ -99,8 +108,6 @@ for forbidden_header in (
     if forbidden_header in SITE:
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=trusted_identity_header_in_caddy:{forbidden_header}")
 
-# The shared API host must never route Kong-managed paths directly to the
-# Middleware integration listener. Transitional listeners are separately named.
 for forbidden_target in (
     "codestra-middleware-integration-api-1",
     ":8095",
@@ -116,16 +123,82 @@ if not isinstance(managed_paths, list) or not managed_paths:
 for path_prefix in managed_paths:
     if not isinstance(path_prefix, str) or not path_prefix.startswith("/"):
         raise SystemExit("CADDY_AUTHORITY_ERROR=invalid_kong_path")
-    if path_prefix not in SITE:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=kong_path_not_routed:{path_prefix}")
+try:
+    validate_exact_kong_routes(SITE, managed_paths)
+except ValueError as exc:
+    raise SystemExit(f"CADDY_AUTHORITY_ERROR={exc}") from exc
+
+# n8n Community editor boundary. Caddy terminates TLS but oauth2-proxy owns
+# Keycloak OIDC; the editor is never routed directly to n8n.
+if N8N_CONTRACT.get("schema_version") != "1.0":
+    raise SystemExit("CADDY_AUTHORITY_ERROR=unsupported_n8n_editor_contract")
+if N8N_CONTRACT.get("contract_id") != "codestra.n8n-community-editor-edge":
+    raise SystemExit("CADDY_AUTHORITY_ERROR=wrong_n8n_editor_contract")
+expected_n8n_contract = {
+    "status": "PREPARED_NOT_APPLIED",
+    "principal_repository": "appolon1908-hue/Caddy",
+    "runtime_repository": "appolon1908-hue/N8N",
+    "identity_repository": "appolon1908-hue/Keycloak",
+    "identity_provider": "Keycloak",
+    "authentication_gateway": "oauth2-proxy",
+    "issuer": "https://auth.codestra.co/realms/codestra",
+    "authorization_code_flow": True,
+    "pkce_method": "S256",
+    "native_n8n_owner_login_required": True,
+    "enterprise_n8n_sso_required": False,
+    "direct_n8n_public_exposure": False,
+    "spoofable_identity_headers_stripped": True,
+    "secrets_in_repository": False,
+    "deployment_authorized": False,
+}
+for key, expected in expected_n8n_contract.items():
+    if N8N_CONTRACT.get(key) != expected:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=n8n_editor_contract:{key}")
+if set(N8N_CONTRACT.get("required_any_roles") or []) != {"n8n_operator", "n8n_admin"}:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=n8n_editor_roles")
+if N8N_CONTRACT.get("edge_chain") != ["Caddy", "oauth2-proxy", "n8n"]:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=n8n_editor_chain")
+
+for token in (
+    "{$CADDY_N8N_EDITOR_HOST}",
+    "{$CADDY_N8N_OAUTH2_PROXY_UPSTREAM}",
+    "max_size {$CADDY_N8N_EDITOR_MAX_REQUEST_BODY}",
+    "reverse_proxy {$CADDY_N8N_OAUTH2_PROXY_UPSTREAM}",
+    "request_header -X-Auth-Request-User",
+    "request_header -X-Auth-Request-Email",
+    "request_header -X-Auth-Request-Groups",
+    "request>headers>Authorization delete",
+    "request>headers>Cookie delete",
+    "delete code",
+    "delete state",
+    "delete session_state",
+):
+    if token not in N8N_SITE:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=n8n_editor_site_missing:{token}")
+for forbidden in (
+    "CADDY_N8N_UPSTREAM",
+    "N8N_EDITOR_UPSTREAM",
+    ":5678",
+    "max_size 2MB",
+    "max_size 2MiB",
+    "header_up X-Auth-Request-User",
+    "header_up X-Forwarded-User",
+):
+    if forbidden in N8N_SITE:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=n8n_editor_direct_or_spoofable:{forbidden}")
 
 for env_name in (
     "CADDY_KONG_UPSTREAM",
     "CADDY_LEGACY_API_UPSTREAM",
     "CADDY_REALTIME_UPSTREAM",
+    "CADDY_N8N_EDITOR_HOST",
+    "CADDY_N8N_OAUTH2_PROXY_UPSTREAM",
+    "CADDY_N8N_EDITOR_MAX_REQUEST_BODY",
 ):
     if env_name not in RUNTIME:
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=runtime_variable_missing:{env_name}")
+if "CADDY_N8N_EDITOR_MAX_REQUEST_BODY=16777216" not in RUNTIME:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=n8n_editor_body_limit_example_drift")
 
 if "admin 127.0.0.1:2019" not in CADDYFILE:
     raise SystemExit("CADDY_AUTHORITY_ERROR=admin_api_not_private")
@@ -151,7 +224,12 @@ for path in ROOT.rglob("*"):
 print("CADDY_REPOSITORY_AUTHORITY=PASS")
 print("CADDY_PRINCIPAL=appolon1908-hue/Caddy")
 print("CADDY_TO_KONG_CONTRACT=PASS")
+print("KONG_ROUTE_CONTRACT_BIDIRECTIONAL=PASS")
 print("KONG_PRINCIPAL=appolon1908-hue/Kong")
+print("N8N_COMMUNITY_EDITOR_EDGE=PREPARED_NOT_APPLIED")
+print("N8N_DIRECT_PUBLIC_UPSTREAM=DENIED")
+print("N8N_EDITOR_BODY_LIMIT=RUNTIME_ALIGNED")
+print("KEYCLOAK_OIDC_GATE=OAUTH2_PROXY")
 print("PRODUCTION_PLATFORM=REFERENCE_ONLY")
 print("DIRECT_MIDDLEWARE_FOR_KONG_PATHS=DENIED")
 print("LIVE_RELOAD_AUTHORIZED=NO")
