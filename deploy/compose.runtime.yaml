@@ -1,20 +1,32 @@
 services:
   caddy:
-    image: "${CADDY_IMAGE:?set an immutable ghcr.io image digest}"
+    image: "ghcr.io/appolon1908-hue/codestra-caddy@sha256:${CADDY_IMAGE_SHA256:?set the approved 64-character image digest}"
     read_only: true
     user: "65532:65532"
+    environment:
+      XDG_DATA_HOME: /data
+      XDG_CONFIG_HOME: /config
     tmpfs:
       - /run/caddy:uid=65532,gid=65532,mode=0700
       - /var/log/caddy:uid=65532,gid=65532,mode=0700
     volumes:
-      - caddy_data:/data
-      - caddy_runtime_config:/config
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - type: bind
+        source: "${CADDY_DATA_DIR:-/var/lib/codestra/caddy/data}"
+        target: /data
+      - type: bind
+        source: "${CADDY_CONFIG_DIR:-/var/lib/codestra/caddy/config}"
+        target: /config
+      - type: bind
+        source: /etc/caddy/private/klyrow-events
+        target: /etc/caddy/private/klyrow-events
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/codestra/pki/middleware-private-ingress
+        target: /etc/codestra/pki/middleware-private-ingress
+        read_only: true
+        bind:
+          create_host_path: false
+    network_mode: host
     restart: unless-stopped
-
-volumes:
-  caddy_data:
-  caddy_runtime_config:

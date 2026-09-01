@@ -20,6 +20,7 @@ INTEGRATION_DOC = ROOT / "docs" / "CADDY_KONG_INTEGRATION.md"
 N8N_DOC = ROOT / "docs" / "N8N_COMMUNITY_EDITOR_PROTECTION.md"
 DEPLOY_SCRIPT = ROOT / "scripts" / "deploy-production.sh"
 RUNTIME_COMPOSE = ROOT / "deploy" / "compose.runtime.yaml"
+RUNTIME_LAUNCHER = ROOT / "scripts" / "run-immutable-runtime.sh"
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "immutable-release.yml"
 
 for path in (
@@ -35,6 +36,7 @@ for path in (
     N8N_DOC,
     DEPLOY_SCRIPT,
     RUNTIME_COMPOSE,
+    RUNTIME_LAUNCHER,
     RELEASE_WORKFLOW,
 ):
     if not path.exists():
@@ -49,12 +51,15 @@ N8N_CONTRACT = json.loads(N8N_CONTRACT_PATH.read_text(encoding="utf-8"))
 RUNTIME = RUNTIME_EXAMPLE.read_text(encoding="utf-8")
 DEPLOY = DEPLOY_SCRIPT.read_text(encoding="utf-8")
 COMPOSE = RUNTIME_COMPOSE.read_text(encoding="utf-8")
+RUNTIME_RUNNER = RUNTIME_LAUNCHER.read_text(encoding="utf-8")
 RELEASE = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 
 for token in (
     "CADDY_REVIEWED_SHA",
     "refs/remotes/origin/production",
     'cp -a "$SOURCE_DIR/." "$staged/"',
+    'cp -a -- "$TARGET_DIR/private" "$staged/private"',
+    'mv "$TARGET_DIR" "$failed"',
     'validate --config "$staged/Caddyfile"',
 ):
     if token not in DEPLOY:
@@ -65,9 +70,33 @@ for token in (
     '/run/caddy:uid=65532,gid=65532,mode=0700',
     '/var/log/caddy:uid=65532,gid=65532,mode=0700',
     'user: "65532:65532"',
+    'XDG_DATA_HOME: /data',
+    'XDG_CONFIG_HOME: /config',
+    'network_mode: host',
+    'source: /etc/caddy/private/klyrow-events',
+    'source: /etc/codestra/pki/middleware-private-ingress',
+    'ghcr.io/appolon1908-hue/codestra-caddy@sha256:${CADDY_IMAGE_SHA256:',
 ):
     if token not in COMPOSE:
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=nonroot_runtime_mount_missing:{token}")
+
+if "CADDY_IMAGE:?" in COMPOSE or "ports:" in COMPOSE:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=mutable_or_bridged_runtime")
+
+for token in (
+    '[[ ! "$IMAGE_SHA256" =~ ^[0-9a-f]{64}$ ]]',
+    '[[ "$(git -C "$ROOT" branch --show-current)" != "production" ]]',
+    'refs/remotes/origin/production',
+    'stat -c \'%u:%g\'',
+    '[[ "$owner" != "65532:65532" ]]',
+    'mode_value=$((8#$mode))',
+    'docker compose -f "$COMPOSE" config --quiet',
+    'docker compose -f "$COMPOSE" pull caddy',
+    'run --rm --no-deps caddy',
+    'up -d --pull never --no-build',
+):
+    if token not in RUNTIME_RUNNER:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=runtime_launcher_gate_missing:{token}")
 
 for token in (
     "caddy-binary-build-attestation.json",

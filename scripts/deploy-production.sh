@@ -14,6 +14,11 @@ if [[ ! -f "$SOURCE" ]]; then
   exit 1
 fi
 
+if [[ -e "$SOURCE_DIR/private" || -L "$SOURCE_DIR/private" ]]; then
+  echo "BLOCKED: host-managed private material must not exist in the repository tree." >&2
+  exit 1
+fi
+
 if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
   echo "BLOCKED: repository worktree is dirty." >&2
   exit 1
@@ -54,9 +59,13 @@ target_parent="$(dirname "$TARGET_DIR")"
 target_name="$(basename "$TARGET_DIR")"
 staged="$(sudo mktemp -d "$target_parent/.${target_name}.staged.XXXXXX")"
 previous="$target_parent/.${target_name}.previous.$stamp"
+failed="$target_parent/.${target_name}.failed.$stamp"
 cleanup() {
   if [[ -n "${staged:-}" ]] && sudo test -d "$staged"; then
     sudo rm -rf -- "$staged"
+  fi
+  if [[ -n "${failed:-}" ]] && sudo test -d "$failed"; then
+    sudo rm -rf -- "$failed"
   fi
 }
 trap cleanup EXIT
@@ -64,6 +73,17 @@ sudo cp -a "$SOURCE_DIR/." "$staged/"
 sudo chown -R root:root "$staged"
 sudo find "$staged" -type d -exec chmod 0755 {} +
 sudo find "$staged" -type f -exec chmod 0644 {} +
+if sudo test -L "$TARGET_DIR/private"; then
+  echo "BLOCKED: host-managed private material must not be a symbolic link." >&2
+  exit 1
+fi
+if sudo test -e "$TARGET_DIR/private"; then
+  if ! sudo test -d "$TARGET_DIR/private"; then
+    echo "BLOCKED: host-managed private material is not a directory." >&2
+    exit 1
+  fi
+  sudo cp -a -- "$TARGET_DIR/private" "$staged/private"
+fi
 
 sudo "$CADDY_BIN" validate --config "$staged/Caddyfile" --adapter caddyfile
 if sudo test -e "$TARGET_DIR"; then
@@ -75,7 +95,7 @@ staged=""
 if ! sudo "$CADDY_BIN" validate --config "$TARGET_DIR/Caddyfile" --adapter caddyfile; then
   echo "Installed configuration failed validation; restoring backup." >&2
   if sudo test -d "$previous"; then
-    sudo mv "$TARGET_DIR" "$staged"
+    sudo mv "$TARGET_DIR" "$failed"
     sudo mv "$previous" "$TARGET_DIR"
   fi
   exit 1
@@ -84,7 +104,7 @@ fi
 if ! sudo systemctl reload caddy; then
   echo "Reload failed; restoring previous configuration." >&2
   if sudo test -d "$previous"; then
-    sudo mv "$TARGET_DIR" "$staged"
+    sudo mv "$TARGET_DIR" "$failed"
     sudo mv "$previous" "$TARGET_DIR"
     sudo systemctl reload caddy || true
   fi
