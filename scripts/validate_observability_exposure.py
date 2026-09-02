@@ -186,6 +186,28 @@ def validate(contract: dict[str, Any], site: str, all_sites: str, runtime: str, 
 
     comments_removed = re.sub(r"(?m)^\s*#.*$", "", all_sites)
     validate_static_site_addresses(comments_removed)
+    top_level_addresses = {
+        match.group(1).strip()
+        for match in re.finditer(
+            r"(?m)^((?:\{\$[A-Z0-9_]+\}|[A-Za-z0-9.*:-]+)"
+            r"(?:,[ \t]*(?:\{\$[A-Z0-9_]+\}|[A-Za-z0-9.*:-]+))*)[ \t]*\{",
+            comments_removed,
+        )
+    }
+    reviewed_addresses = {
+        "api.codestra.co",
+        "automation.codestra.co",
+        "{$CADDY_N8N_EDITOR_HOST}",
+        *PUBLIC,
+    }
+    if top_level_addresses != reviewed_addresses:
+        unexpected = sorted(top_level_addresses - reviewed_addresses)
+        missing = sorted(reviewed_addresses - top_level_addresses)
+        raise ExposureError(
+            f"top-level site-address allowlist mismatch; unexpected={unexpected}, missing={missing}"
+        )
+    if any("*" in address for address in top_level_addresses):
+        raise ExposureError("wildcard top-level Caddy site address prohibited")
     forbidden_hostnames = set(PRIVATE.values()) | {PROHIBITED_PUBLIC_NAME}
     reserved_matcher = "@reserved_observability_host host " + " ".join(sorted(forbidden_hostnames))
     dynamic_block = site_block(all_sites, APPROVED_DYNAMIC_SITE_ADDRESS)
@@ -217,6 +239,9 @@ def validate(contract: dict[str, Any], site: str, all_sites: str, runtime: str, 
         )
         if any(token not in block for token in required):
             raise ExposureError(f"{host}: security, proxy, streaming, timeout, or redaction control missing")
+        for query_name in ("access_token", "code", "id_token", "session_state", "state", "token"):
+            if f"delete {query_name}" not in block:
+                raise ExposureError(f"{host}: OIDC query redaction missing: {query_name}")
         if "{$" + env_name + "}" not in block or re.search(r"\{\$" + re.escape(env_name) + r":[^}]+\}", block):
             raise ExposureError(f"{host}: exact required private upstream variable missing")
         for header in (
