@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "2.0.0",
+  "repository": "appolon1908-hue/Caddy",
+  "classification": "runtime-infrastructure",
+  "targetBranch": "codex/codestra-orbit-v2-caddy",
+  "adoptionMode": "contract-only",
+  "domain": null,
+  "domainStatus": "not-applicable",
+  "requirements": {
+    "noFabricatedBrowserUi": true,
+    "domainRegistry": true,
+    "routingContract": true,
+    "identityBoundary": true,
+    "securityHeaders": true,
+    "tlsEvidence": true,
+    "monitoring": true,
+    "rollback": true
+  },
+  "status": "branch-created",
+  "blockers": [
+    "SDK-repository pull request 75 must complete protected review before shared Orbit contracts are promoted.",
+    "Reconcile exact application domains, source repositories, upstreams, Keycloak redirects, Kong routes, CSP, TLS, monitoring, and rollback.",
+    "Validate changes through the protected Caddy workflow without deriving live routing from repository or branch names."
+  ]
+}
