@@ -29,9 +29,13 @@ common_args=(
   -v "$ROOT_DIR:/srv:ro"
 )
 
-format_diff="$(docker run "${common_args[@]}" "$CADDY_VALIDATOR_IMAGE" caddy fmt --diff /srv/sites/codestra.media.observability.caddy)"
-[[ -z "$format_diff" ]] || {
-  printf 'CADDY_FORMAT_ERROR=sites/codestra.media.observability.caddy\n%s\n' "$format_diff" >&2
+formatted_file="$(mktemp)"
+trap 'rm -f -- "$formatted_file"' EXIT
+docker run "${common_args[@]}" "$CADDY_VALIDATOR_IMAGE" \
+  caddy fmt /srv/sites/codestra.media.observability.caddy >"$formatted_file"
+cmp -s sites/codestra.media.observability.caddy "$formatted_file" || {
+  printf 'CADDY_FORMAT_ERROR=sites/codestra.media.observability.caddy\n' >&2
+  diff -u sites/codestra.media.observability.caddy "$formatted_file" >&2 || true
   exit 1
 }
 
