@@ -43,14 +43,14 @@ docker run --detach --name "$name" \
   "$IMAGE_REF" run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
 
 for _ in $(seq 1 30); do
-  if curl --fail --silent http://127.0.0.1:80/ >/dev/null \
-    && curl --fail --silent --insecure https://127.0.0.1:443/ >/dev/null; then
+  if curl --fail --silent --max-time 2 --noproxy '*' http://127.0.0.1:80/ >/dev/null \
+    && curl --fail --silent --max-time 2 --noproxy '*' --insecure https://localhost:443/ >/dev/null; then
     break
   fi
   sleep 1
 done
-curl --fail --silent http://127.0.0.1:80/ | grep -Fx caddy-runtime-bind-ok
-curl --fail --silent --insecure https://127.0.0.1:443/ | grep -Fx caddy-runtime-bind-ok
+test "$(curl --fail --silent --max-time 2 --noproxy '*' http://127.0.0.1:80/)" = caddy-runtime-bind-ok
+test "$(curl --fail --silent --max-time 2 --noproxy '*' --insecure https://localhost:443/)" = caddy-runtime-bind-ok
 
 pid="$(docker inspect --format '{{.State.Pid}}' "$name")"
 status="/proc/$pid/status"

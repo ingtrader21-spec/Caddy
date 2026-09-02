@@ -114,7 +114,7 @@ class ReleaseRemediationTests(unittest.TestCase):
             "--env XDG_DATA_HOME=/data",
             "--env XDG_CONFIG_HOME=/config",
             "http://127.0.0.1:80/",
-            "https://127.0.0.1:443/",
+            "https://localhost:443/",
             '"/proc/$pid/net/udp"',
             "0000000000000400",
         ):
