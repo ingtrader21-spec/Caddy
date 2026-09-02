@@ -67,3 +67,24 @@ jobs:
           python-version: '3.13'
       - name: Validate exact merge result and immutable Caddy configuration
         run: bash scripts/validate-ci.sh
+
+  validate:
+    name: validate
+    if: always()
+    needs: [validate-source, validate-merge-result]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 2
+    steps:
+      - name: Preserve the protected legacy aggregate context
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SOURCE_RESULT: ${{ needs.validate-source.result }}
+          MERGE_RESULT: ${{ needs.validate-merge-result.result }}
+        run: |
+          set -Eeuo pipefail
+          test "$SOURCE_RESULT" = success
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            test "$MERGE_RESULT" = success
+          else
+            test "$MERGE_RESULT" = skipped
+          fi
