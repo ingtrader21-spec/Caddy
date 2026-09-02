@@ -27,20 +27,29 @@ REQUIRED_REDACTIONS = (
     "request>headers>X-Api-Key delete",
     "delete apikey",
 )
+RUNTIME_VARIABLES = {
+    "CADDY_KONG_UPSTREAM",
+    "CADDY_LEGACY_API_UPSTREAM",
+    "CADDY_REALTIME_UPSTREAM",
+    "CADDY_EDITOR_ADMIN_CIDRS",
+    "CADDY_N8N_EDITOR_HOST",
+    "CADDY_N8N_OAUTH2_PROXY_UPSTREAM",
+    "CADDY_N8N_EDITOR_MAX_REQUEST_BODY",
+}
 
 
 class ValidationError(RuntimeError):
     pass
 
 
-def run_fixed(command: list[str]) -> str:
+def run_fixed(command: list[str], environment: dict[str, str] | None = None) -> str:
     result = subprocess.run(
         command,
         check=False,
         capture_output=True,
         text=True,
         timeout=30,
-        env={"PATH": "/usr/bin:/bin"},
+        env={"PATH": "/usr/bin:/bin", **(environment or {})},
     )
     if result.returncode != 0:
         raise ValidationError(f"fixed command failed: {command[1]}")
@@ -61,6 +70,49 @@ def require_redaction(source: str) -> None:
     missing = [token for token in REQUIRED_REDACTIONS if token not in source]
     if missing:
         raise ValidationError("credential redaction policy is incomplete")
+
+
+def runtime_environment() -> dict[str, str]:
+    pid = run_fixed(
+        [SYSTEMCTL, "show", "--property", "MainPID", "--value", "caddy.service"]
+    ).strip()
+    if not pid.isdigit() or pid == "0":
+        raise ValidationError("caddy.service has no running process")
+    entries = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
+    selected: dict[str, str] = {}
+    for entry in entries:
+        if b"=" not in entry:
+            continue
+        raw_name, raw_value = entry.split(b"=", 1)
+        name = raw_name.decode("ascii", errors="strict")
+        if name in RUNTIME_VARIABLES:
+            selected[name] = raw_value.decode("utf-8", errors="strict")
+    if set(selected) != RUNTIME_VARIABLES or any(not value for value in selected.values()):
+        raise ValidationError("required Caddy runtime variables are unavailable")
+    return selected
+
+
+def require_adapted_redaction(adapted: dict[str, Any]) -> None:
+    logs = ((adapted.get("logging") or {}).get("logs") or {})
+    access_logs = [value for name, value in logs.items() if name != "default"]
+    if not access_logs:
+        raise ValidationError("adapted access logs are missing")
+    required_headers = {
+        "request>headers>Authorization",
+        "request>headers>Apikey",
+        "request>headers>X-Api-Key",
+    }
+    for log in access_logs:
+        fields = ((log.get("encoder") or {}).get("fields") or {})
+        if any((fields.get(name) or {}).get("filter") != "delete" for name in required_headers):
+            raise ValidationError("adapted access log header redaction is incomplete")
+        uri = fields.get("request>uri") or {}
+        actions = uri.get("actions") or []
+        if uri.get("filter") != "query" or not any(
+            action.get("type") == "delete" and action.get("parameter") == "apikey"
+            for action in actions
+        ):
+            raise ValidationError("adapted access log query redaction is incomplete")
 
 
 def sanitized_summary(adapted: dict[str, Any]) -> dict[str, Any]:
@@ -113,10 +165,14 @@ def main() -> int:
         raise ValidationError("arguments are not accepted")
     source, checksum = canonical_source()
     require_redaction(source)
-    run_fixed([CADDY, "validate", "--config", str(CONFIG)])
+    environment = runtime_environment()
+    run_fixed([CADDY, "validate", "--config", str(CONFIG)], environment)
     if run_fixed([SYSTEMCTL, "is-active", "caddy.service"]).strip() != "active":
         raise ValidationError("caddy.service is not active")
-    adapted = json.loads(run_fixed([CADDY, "adapt", "--config", str(CONFIG), "--pretty"]))
+    adapted = json.loads(
+        run_fixed([CADDY, "adapt", "--config", str(CONFIG), "--pretty"], environment)
+    )
+    require_adapted_redaction(adapted)
     evidence = {
         "schema": "codestra.caddy-readonly-validation.v1",
         "config_sha256": checksum,
@@ -135,4 +191,3 @@ if __name__ == "__main__":
     except (ValidationError, json.JSONDecodeError, OSError, subprocess.SubprocessError) as exc:
         print(f"CADDY_READONLY_VALIDATION=FAIL:{type(exc).__name__}", file=sys.stderr)
         raise SystemExit(2)
-

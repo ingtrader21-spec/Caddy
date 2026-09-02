@@ -40,7 +40,25 @@ class ReadonlyValidatorTests(unittest.TestCase):
             with self.assertRaises(validator.ValidationError):
                 validator.sanitized_summary({"dial": dial})
 
+    def test_each_adapted_access_log_requires_all_credential_redactions(self):
+        fields = {
+            "request>headers>Authorization": {"filter": "delete"},
+            "request>headers>Apikey": {"filter": "delete"},
+            "request>headers>X-Api-Key": {"filter": "delete"},
+            "request>uri": {
+                "filter": "query",
+                "actions": [{"type": "delete", "parameter": "apikey"}],
+            },
+        }
+        adapted = {"logging": {"logs": {"default": {}, "api": {"encoder": {"fields": fields}}}}}
+        validator.require_adapted_redaction(adapted)
+        for key in tuple(fields):
+            broken = {**fields}
+            broken.pop(key)
+            candidate = {"logging": {"logs": {"api": {"encoder": {"fields": broken}}}}}
+            with self.assertRaises(validator.ValidationError):
+                validator.require_adapted_redaction(candidate)
+
 
 if __name__ == "__main__":
     unittest.main()
-
