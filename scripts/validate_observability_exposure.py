@@ -36,6 +36,7 @@ PRIVATE = {
     "blackbox-exporter": "blac.codestra.media",
 }
 PROHIBITED_PUBLIC_NAME = "pgex.codestra.media"
+APPROVED_DYNAMIC_SITE_ADDRESS = "{$CADDY_N8N_EDITOR_HOST}"
 
 
 class ExposureError(ValueError):
@@ -57,7 +58,7 @@ def site_block(site: str, host: str) -> str:
     if not match:
         raise ExposureError(f"missing public site block: {host}")
     depth = 0
-    for index in range(match.start(), len(site)):
+    for index in range(match.end() - 1, len(site)):
         if site[index] == "{":
             depth += 1
         elif site[index] == "}":
@@ -65,6 +66,44 @@ def site_block(site: str, host: str) -> str:
             if depth == 0:
                 return site[match.start() : index + 1]
     raise ExposureError(f"unterminated public site block: {host}")
+
+
+def validate_static_site_addresses(all_sites: str) -> None:
+    """Reject catch-all or runtime-selected site addresses in public source."""
+
+    depth = 0
+    for raw_line in all_sites.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        structural = re.sub(
+            r"\{(?:\$|env\.)[^}]+\}",
+            lambda match: " " * len(match.group(0)),
+            line,
+            flags=re.IGNORECASE,
+        )
+        if depth == 0 and "{" in structural:
+            address = line[: structural.index("{")].strip()
+            if address.startswith("(") and address.endswith(")"):
+                pass
+            elif "{$" in address and address != APPROVED_DYNAMIC_SITE_ADDRESS:
+                raise ExposureError(
+                    f"wildcard, catch-all, or dynamic public site address prohibited: {address}"
+                )
+            elif (
+                "*" in address
+                or "{env." in address.lower()
+                or address.startswith(":")
+                or address in {"http://", "https://"}
+            ):
+                raise ExposureError(
+                    f"wildcard, catch-all, or dynamic public site address prohibited: {address}"
+                )
+        depth += structural.count("{") - structural.count("}")
+        if depth < 0:
+            raise ExposureError("unbalanced public Caddy source")
+    if depth != 0:
+        raise ExposureError("unbalanced public Caddy source")
 
 
 def validate(contract: dict[str, Any], site: str, all_sites: str, runtime: str, headers: str) -> None:
@@ -146,7 +185,13 @@ def validate(contract: dict[str, Any], site: str, all_sites: str, runtime: str, 
         raise ExposureError("protected-main exact-source checks mismatch")
 
     comments_removed = re.sub(r"(?m)^\s*#.*$", "", all_sites)
+    validate_static_site_addresses(comments_removed)
     forbidden_hostnames = set(PRIVATE.values()) | {PROHIBITED_PUBLIC_NAME}
+    reserved_matcher = "@reserved_observability_host host " + " ".join(sorted(forbidden_hostnames))
+    dynamic_block = site_block(all_sites, APPROVED_DYNAMIC_SITE_ADDRESS)
+    if reserved_matcher not in dynamic_block or 'respond @reserved_observability_host "Not Found" 404' not in dynamic_block:
+        raise ExposureError("approved dynamic site is missing its reserved observability host denial")
+    comments_removed = comments_removed.replace(reserved_matcher, "")
     for hostname in forbidden_hostnames:
         if re.search(rf"(?i)(?<![A-Za-z0-9.-]){re.escape(hostname)}(?![A-Za-z0-9.-])", comments_removed):
             raise ExposureError(f"private hostname appears in public Caddy source: {hostname}")
@@ -161,6 +206,8 @@ def validate(contract: dict[str, Any], site: str, all_sites: str, runtime: str, 
             "request>headers>Authorization delete",
             "request>headers>Cookie delete",
             "resp_headers>Set-Cookie delete",
+            "delete state",
+            "delete session_state",
             "header_up Host {host}",
             "header_up X-Forwarded-Host {host}",
             "header_up X-Forwarded-Proto https",

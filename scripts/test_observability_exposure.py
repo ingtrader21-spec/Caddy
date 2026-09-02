@@ -39,6 +39,22 @@ class ExposureContractTests(unittest.TestCase):
         with self.assertRaises(ExposureError):
             validate(self.contract, self.site, injected, self.runtime, self.headers)
 
+    def test_wildcard_site_address_is_rejected(self) -> None:
+        injected = self.all_sites + "\n*.codestra.media { reverse_proxy 127.0.0.1:9090 }\n"
+        with self.assertRaises(ExposureError):
+            validate(self.contract, self.site, injected, self.runtime, self.headers)
+
+    def test_dynamic_site_address_is_rejected(self) -> None:
+        injected = self.all_sites + "\n{$CADDY_PUBLIC_MONITORING_HOST} { reverse_proxy 127.0.0.1:9090 }\n"
+        with self.assertRaises(ExposureError):
+            validate(self.contract, self.site, injected, self.runtime, self.headers)
+
+    def test_oauth_state_redaction_is_required(self) -> None:
+        site = self.site.replace("\t\t\t\tdelete session_state\n", "", 1)
+        all_sites = self.all_sites.replace(self.site, site)
+        with self.assertRaises(ExposureError):
+            validate(self.contract, site, all_sites, self.runtime, self.headers)
+
     def test_postgres_exporter_public_dns_is_rejected(self) -> None:
         contract = copy.deepcopy(self.contract)
         postgres = next(item for item in contract["privateServices"] if item["service"] == "postgres-exporter")
