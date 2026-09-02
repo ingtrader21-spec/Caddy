@@ -37,7 +37,7 @@ docker run --detach --name "$name" \
   --tmpfs /data:uid=65532,gid=65532,mode=0700 \
   --tmpfs /config:uid=65532,gid=65532,mode=0700 \
   --mount "type=bind,src=$work/Caddyfile,dst=/etc/caddy/Caddyfile,readonly" \
-  "$IMAGE_REF" caddy run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
+  "$IMAGE_REF" run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
 
 for _ in $(seq 1 30); do
   if curl --fail --silent http://127.0.0.1:80/ >/dev/null \
