@@ -43,6 +43,8 @@ graf.codestra.media {
 				delete access_token
 				delete code
 				delete id_token
+				delete session_state
+				delete state
 				delete token
 			}
 			resp_headers>Set-Cookie delete
@@ -92,6 +94,8 @@ supe.codestra.media {
 				delete access_token
 				delete code
 				delete id_token
+				delete session_state
+				delete state
 				delete token
 			}
 			resp_headers>Set-Cookie delete
@@ -151,6 +155,8 @@ bao.codestra.media {
 				delete access_token
 				delete code
 				delete id_token
+				delete session_state
+				delete state
 				delete token
 			}
 			resp_headers>Set-Cookie delete

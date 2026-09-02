@@ -46,6 +46,22 @@ class ExposureContractTests(unittest.TestCase):
         with self.assertRaises(ExposureError):
             validate(contract, self.site, self.all_sites, self.runtime, self.headers)
 
+    def test_unreviewed_dynamic_site_address_is_rejected(self) -> None:
+        injected = self.all_sites + "\n{$CADDY_PUBLIC_MONITORING_HOST} { reverse_proxy 127.0.0.1:9090 }\n"
+        with self.assertRaises(ExposureError):
+            validate(self.contract, self.site, injected, self.runtime, self.headers)
+
+    def test_wildcard_site_address_is_rejected(self) -> None:
+        injected = self.all_sites + "\n*.codestra.media { reverse_proxy 127.0.0.1:9090 }\n"
+        with self.assertRaises(ExposureError):
+            validate(self.contract, self.site, injected, self.runtime, self.headers)
+
+    def test_missing_oidc_state_redaction_is_rejected(self) -> None:
+        site = self.site.replace("\t\t\t\tdelete session_state\n", "", 1)
+        all_sites = self.all_sites.replace(self.site, site)
+        with self.assertRaises(ExposureError):
+            validate(self.contract, site, all_sites, self.runtime, self.headers)
+
     def test_broad_openbao_range_is_rejected(self) -> None:
         runtime = self.runtime.replace("192.0.2.0/24 198.51.100.0/24", "0.0.0.0/0")
         with self.assertRaises(ExposureError):
