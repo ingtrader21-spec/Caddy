@@ -57,7 +57,8 @@ RELEASE = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 for token in (
     "CADDY_REVIEWED_SHA",
     "refs/remotes/origin/production",
-    'cp -a "$SOURCE_DIR/." "$staged/"',
+    'git -C "$ROOT" archive --format=tar "$REVIEWED_SHA" -- config',
+    '--strip-components=1',
     'cp -a -- "$TARGET_DIR/private" "$staged/private"',
     'mv "$TARGET_DIR" "$failed"',
     'validate --config "$staged/Caddyfile"',
@@ -73,6 +74,10 @@ for token in (
     'XDG_DATA_HOME: /data',
     'XDG_CONFIG_HOME: /config',
     'network_mode: host',
+    'cap_drop:',
+    'cap_add:',
+    'NET_BIND_SERVICE',
+    'no-new-privileges:true',
     'source: /etc/caddy/private/klyrow-events',
     'source: /etc/codestra/pki/middleware-private-ingress',
     'ghcr.io/appolon1908-hue/codestra-caddy@sha256:${CADDY_IMAGE_SHA256:',
@@ -90,8 +95,15 @@ for token in (
     'stat -c \'%u:%g\'',
     '[[ "$owner" != "65532:65532" ]]',
     'mode_value=$((8#$mode))',
-    'docker compose -f "$COMPOSE" config --quiet',
-    'docker compose -f "$COMPOSE" pull caddy',
+    '"$DOCKER_BIN" compose -f "$COMPOSE" config --quiet',
+    '"$COSIGN_BIN" verify',
+    '"$COSIGN_BIN" verify-attestation',
+    'scripts/verify-image-attestation.py',
+    '--certificate-identity "$CERTIFICATE_IDENTITY"',
+    '--certificate-oidc-issuer "$CERTIFICATE_ISSUER"',
+    '"$DOCKER_BIN" pull "$IMAGE_REF"',
+    'org.opencontainers.image.revision',
+    '[[ "$image_revision" != "$REVIEWED_SHA" ]]',
     'run --rm --no-deps caddy',
     'up -d --pull never --no-build',
 ):
@@ -103,9 +115,19 @@ for token in (
     "cosign sign-blob",
     "cosign verify-blob",
     "BINARY_BUILD_ATTESTATION=PASS",
+    "cosign attest --yes",
+    "codestra.caddy.source.v1",
+    "SOURCE_PROVENANCE=PASS",
+    "tests/runtime-bind-test.sh",
+    "build/codestra-set-bind-capability",
+    "branches: [production]",
+    "refs/heads/production$",
 ):
     if token not in RELEASE:
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=binary_attestation_missing:{token}")
+
+if "branches: [main]" in RELEASE or "refs/heads/main$" in RELEASE:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=image_release_not_bound_to_production")
 
 required_repositories = (
     "appolon1908-hue/Caddy",
