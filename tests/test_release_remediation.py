@@ -97,6 +97,8 @@ class ReleaseRemediationTests(unittest.TestCase):
         self.assertIn('cosign attest --yes', workflow)
         self.assertIn('tests/runtime-bind-test.sh local/codestra-caddy:${{ github.sha }}', workflow)
         self.assertIn('build/codestra-set-bind-capability', workflow)
+        self.assertIn('google.golang.org/grpc@v1.83.1', workflow)
+        self.assertNotIn('google.golang.org/grpc@v1.82.1', workflow)
         self.assertIn('RUN ["/usr/bin/codestra-set-bind-capability"]', dockerfile)
         self.assertIn('codestra.caddy.source.v1', workflow)
         self.assertIn('branches: [production]', workflow)
