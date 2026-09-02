@@ -15,10 +15,12 @@ from validate_observability_exposure import (  # noqa: E402
     RUNTIME_PATH,
     SITE_PATH,
     ExposureError,
+    extract_static_site_addresses,
     load_contract,
     load_root_caddy_sources,
     root_caddy_source_paths,
     validate,
+    validate_fragment_imports,
 )
 
 
@@ -41,6 +43,19 @@ class ExposureContractTests(unittest.TestCase):
         expected.update(str(path.relative_to(ROOT)) for path in (ROOT / "snippets").glob("*.caddy"))
         self.assertEqual(relative, expected)
 
+    def test_nested_file_import_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ExposureError, "nested or unreviewed import"):
+            validate_fragment_imports(
+                ROOT / "sites" / "synthetic.caddy",
+                "metrics.example {\n  import hidden.inc\n}\n",
+            )
+
+    def test_reviewed_named_snippet_import_is_allowed(self) -> None:
+        validate_fragment_imports(
+            ROOT / "sites" / "synthetic.caddy",
+            "metrics.example {\n  import security_headers\n}\n",
+        )
+
     def test_private_native_route_is_rejected(self) -> None:
         injected = self.all_sites + "\nprom.codestra.media { reverse_proxy 127.0.0.1:9090 }\n"
         with self.assertRaises(ExposureError):
@@ -55,6 +70,28 @@ class ExposureContractTests(unittest.TestCase):
         injected = self.all_sites + "\n{$CADDY_PUBLIC_MONITORING_HOST} { reverse_proxy 127.0.0.1:9090 }\n"
         with self.assertRaises(ExposureError):
             validate(self.contract, self.site, injected, self.runtime, self.headers)
+
+    def test_indented_unreviewed_site_address_is_rejected(self) -> None:
+        injected = self.all_sites + "\n  metrics.example { reverse_proxy 127.0.0.1:9090 }\n"
+        with self.assertRaisesRegex(ExposureError, "allowlist mismatch"):
+            validate(self.contract, self.site, injected, self.runtime, self.headers)
+
+    def test_https_unreviewed_site_address_is_rejected(self) -> None:
+        injected = self.all_sites + "\nhttps://metrics.example { reverse_proxy 127.0.0.1:9090 }\n"
+        with self.assertRaisesRegex(ExposureError, "allowlist mismatch"):
+            validate(self.contract, self.site, injected, self.runtime, self.headers)
+
+    def test_https_address_is_extracted_at_top_level(self) -> None:
+        addresses = extract_static_site_addresses(
+            "  https://metrics.example { reverse_proxy 127.0.0.1:9090 }\n"
+        )
+        self.assertEqual(addresses, ("metrics.example",))
+
+    def test_insecure_http_site_address_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ExposureError, "insecure public site scheme"):
+            extract_static_site_addresses(
+                "http://metrics.example { reverse_proxy 127.0.0.1:9090 }\n"
+            )
 
     def test_oauth_state_redaction_is_required(self) -> None:
         site = self.site.replace("\t\t\t\tdelete session_state\n", "", 1)

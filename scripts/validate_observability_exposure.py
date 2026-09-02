@@ -57,8 +57,27 @@ def root_caddy_source_paths() -> tuple[Path, ...]:
         matches = sorted(ROOT.glob(pattern))
         if not matches or any(not path.is_file() for path in matches):
             raise ExposureError(f"root Caddy import has no regular-file match: {pattern}")
+        for path in matches:
+            validate_fragment_imports(path, path.read_text(encoding="utf-8"))
         paths.extend(matches)
     return tuple(paths)
+
+
+def validate_fragment_imports(path: Path, source: str) -> None:
+    """Allow only the reviewed named snippet import inside site fragments."""
+
+    imports = []
+    for raw_line in source.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if line.startswith("import "):
+            imports.append(line.removeprefix("import ").strip())
+    relative_parent = path.parent.relative_to(ROOT)
+    allowed = {"security_headers"} if relative_parent == Path("sites") else set()
+    unexpected = sorted({value for value in imports if value not in allowed})
+    if unexpected:
+        raise ExposureError(
+            f"nested or unreviewed import in {path.relative_to(ROOT)}: {unexpected}"
+        )
 
 
 def load_root_caddy_sources() -> str:
@@ -92,10 +111,11 @@ def site_block(site: str, host: str) -> str:
     raise ExposureError(f"unterminated public site block: {host}")
 
 
-def validate_static_site_addresses(all_sites: str) -> None:
-    """Reject catch-all or runtime-selected site addresses in public source."""
+def extract_static_site_addresses(all_sites: str) -> tuple[str, ...]:
+    """Return normalized top-level addresses while rejecting unsafe forms."""
 
     depth = 0
+    addresses: list[str] = []
     for raw_line in all_sites.splitlines():
         line = raw_line.split("#", 1)[0].strip()
         if not line:
@@ -108,26 +128,47 @@ def validate_static_site_addresses(all_sites: str) -> None:
         )
         if depth == 0 and "{" in structural:
             address = line[: structural.index("{")].strip()
-            if address.startswith("(") and address.endswith(")"):
-                pass
-            elif "{$" in address and address != APPROVED_DYNAMIC_SITE_ADDRESS:
-                raise ExposureError(
-                    f"wildcard, catch-all, or dynamic public site address prohibited: {address}"
-                )
-            elif (
-                "*" in address
-                or "{env." in address.lower()
-                or address.startswith(":")
-                or address in {"http://", "https://"}
-            ):
-                raise ExposureError(
-                    f"wildcard, catch-all, or dynamic public site address prohibited: {address}"
-                )
+            if address and not (address.startswith("(") and address.endswith(")")):
+                for candidate in (item.strip() for item in address.split(",")):
+                    if not candidate:
+                        raise ExposureError("empty top-level Caddy site address")
+                    if "{$" in candidate:
+                        if candidate != APPROVED_DYNAMIC_SITE_ADDRESS:
+                            raise ExposureError(
+                                "wildcard, catch-all, or dynamic public site address "
+                                f"prohibited: {candidate}"
+                            )
+                        addresses.append(candidate)
+                        continue
+                    lowered = candidate.lower()
+                    if lowered.startswith("http://"):
+                        raise ExposureError(
+                            f"insecure public site scheme prohibited: {candidate}"
+                        )
+                    if lowered.startswith("https://"):
+                        candidate = candidate[len("https://") :]
+                    elif "://" in candidate:
+                        raise ExposureError(
+                            f"unreviewed public site scheme prohibited: {candidate}"
+                        )
+                    if (
+                        "*" in candidate
+                        or "{env." in candidate.lower()
+                        or candidate.startswith(":")
+                        or not candidate
+                        or any(character.isspace() for character in candidate)
+                    ):
+                        raise ExposureError(
+                            "wildcard, catch-all, or dynamic public site address "
+                            f"prohibited: {candidate}"
+                        )
+                    addresses.append(candidate)
         depth += structural.count("{") - structural.count("}")
         if depth < 0:
             raise ExposureError("unbalanced public Caddy source")
     if depth != 0:
         raise ExposureError("unbalanced public Caddy source")
+    return tuple(addresses)
 
 
 def validate(contract: dict[str, Any], site: str, all_sites: str, runtime: str, headers: str) -> None:
@@ -209,15 +250,8 @@ def validate(contract: dict[str, Any], site: str, all_sites: str, runtime: str, 
         raise ExposureError("protected-main exact-source checks mismatch")
 
     comments_removed = re.sub(r"(?m)^\s*#.*$", "", all_sites)
-    validate_static_site_addresses(comments_removed)
-    top_level_addresses = {
-        match.group(1).strip()
-        for match in re.finditer(
-            r"(?m)^((?:\{\$[A-Z0-9_]+\}|[A-Za-z0-9.*:-]+)"
-            r"(?:,[ \t]*(?:\{\$[A-Z0-9_]+\}|[A-Za-z0-9.*:-]+))*)[ \t]*\{",
-            comments_removed,
-        )
-    }
+    extracted_addresses = extract_static_site_addresses(comments_removed)
+    top_level_addresses = set(extracted_addresses)
     reviewed_addresses = {
         "api.codestra.co",
         "automation.codestra.co",
@@ -230,6 +264,8 @@ def validate(contract: dict[str, Any], site: str, all_sites: str, runtime: str, 
         raise ExposureError(
             f"top-level site-address allowlist mismatch; unexpected={unexpected}, missing={missing}"
         )
+    if len(extracted_addresses) != len(top_level_addresses):
+        raise ExposureError("duplicate top-level Caddy site address prohibited")
     if any("*" in address for address in top_level_addresses):
         raise ExposureError("wildcard top-level Caddy site address prohibited")
     forbidden_hostnames = set(PRIVATE.values()) | {PROHIBITED_PUBLIC_NAME}
