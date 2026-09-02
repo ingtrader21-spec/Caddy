@@ -69,7 +69,11 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-sudo cp -a "$SOURCE_DIR/." "$staged/"
+if ! git -C "$ROOT" archive --format=tar "$REVIEWED_SHA" -- config \
+  | sudo tar --extract --file=- --directory="$staged" --strip-components=1; then
+  echo "BLOCKED: failed to stage the Git-tracked configuration from the reviewed commit." >&2
+  exit 1
+fi
 sudo chown -R root:root "$staged"
 sudo find "$staged" -type d -exec chmod 0755 {} +
 sudo find "$staged" -type f -exec chmod 0644 {} +
