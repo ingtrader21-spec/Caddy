@@ -8,6 +8,8 @@ IMAGE_SHA256="${CADDY_IMAGE_SHA256:-}"
 IMAGE_REPOSITORY="ghcr.io/appolon1908-hue/codestra-caddy"
 COSIGN_BIN="/usr/local/bin/cosign"
 DOCKER_BIN="/usr/bin/docker"
+PYTHON_BIN="/usr/bin/python3"
+ATTESTATION_VERIFIER="$ROOT/scripts/verify-image-attestation.py"
 CERTIFICATE_IDENTITY="https://github.com/appolon1908-hue/Caddy/.github/workflows/immutable-release.yml@refs/heads/production"
 CERTIFICATE_ISSUER="https://token.actions.githubusercontent.com"
 CADDY_DATA_DIR="${CADDY_DATA_DIR:-/var/lib/codestra/caddy/data}"
@@ -22,7 +24,7 @@ if [[ ! "$IMAGE_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
   exit 1
 fi
 IMAGE_REF="${IMAGE_REPOSITORY}@sha256:${IMAGE_SHA256}"
-for trusted_binary in "$COSIGN_BIN" "$DOCKER_BIN"; do
+for trusted_binary in "$COSIGN_BIN" "$DOCKER_BIN" "$PYTHON_BIN"; do
   if [[ -L "$trusted_binary" || ! -x "$trusted_binary" ]]; then
     echo "BLOCKED: required trusted executable is unavailable: $trusted_binary" >&2
     exit 1
@@ -89,6 +91,17 @@ export CADDY_DATA_DIR CADDY_CONFIG_DIR CADDY_IMAGE_SHA256
   --certificate-identity "$CERTIFICATE_IDENTITY" \
   --certificate-oidc-issuer "$CERTIFICATE_ISSUER" \
   "$IMAGE_REF" >/dev/null
+attestation_output="$(mktemp)"
+trap 'rm -f -- "$attestation_output"' EXIT
+"$COSIGN_BIN" verify-attestation \
+  --type codestra.caddy.source.v1 \
+  --certificate-identity "$CERTIFICATE_IDENTITY" \
+  --certificate-oidc-issuer "$CERTIFICATE_ISSUER" \
+  --output json \
+  "$IMAGE_REF" >"$attestation_output"
+"$PYTHON_BIN" "$ATTESTATION_VERIFIER" \
+  "$attestation_output" "$IMAGE_SHA256" \
+  "https://github.com/appolon1908-hue/Caddy" "$REVIEWED_SHA"
 "$DOCKER_BIN" pull "$IMAGE_REF" >/dev/null
 
 image_revision="$("$DOCKER_BIN" image inspect \

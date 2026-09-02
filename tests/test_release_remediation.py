@@ -62,6 +62,8 @@ class ReleaseRemediationTests(unittest.TestCase):
             "(mode_value & 0200) == 0",
             "(mode_value & 0022) != 0",
             '"$COSIGN_BIN" verify',
+            '"$COSIGN_BIN" verify-attestation',
+            'scripts/verify-image-attestation.py',
             '--certificate-identity "$CERTIFICATE_IDENTITY"',
             '--certificate-oidc-issuer "$CERTIFICATE_ISSUER"',
             '"$DOCKER_BIN" pull "$IMAGE_REF"',
@@ -76,11 +78,13 @@ class ReleaseRemediationTests(unittest.TestCase):
     def test_signed_revision_binding_precedes_any_container_execution(self) -> None:
         source = (ROOT / "scripts/run-immutable-runtime.sh").read_text()
         verify = source.index('"$COSIGN_BIN" verify')
+        provenance = source.index('"$COSIGN_BIN" verify-attestation')
         pull = source.index('"$DOCKER_BIN" pull "$IMAGE_REF"')
         revision = source.index('[[ "$image_revision" != "$REVIEWED_SHA" ]]')
         validate = source.index('compose -f "$COMPOSE" run --rm --no-deps caddy')
         start = source.index('compose -f "$COMPOSE" up -d --pull never --no-build')
         self.assertLess(verify, pull)
+        self.assertLess(provenance, pull)
         self.assertLess(pull, revision)
         self.assertLess(revision, validate)
         self.assertLess(validate, start)
@@ -90,9 +94,11 @@ class ReleaseRemediationTests(unittest.TestCase):
         self.assertIn('org.opencontainers.image.revision="$VCS_REF"', dockerfile)
         self.assertIn('VCS_REF=${{ github.sha }}', workflow)
         self.assertIn('cosign sign --yes "$SUBJECT"', workflow)
+        self.assertIn('cosign attest --yes', workflow)
+        self.assertIn('codestra.caddy.source.v1', workflow)
         self.assertIn('branches: [production]', workflow)
         self.assertNotIn('branches: [main]', workflow)
-        self.assertEqual(workflow.count('refs/heads/production$'), 2)
+        self.assertEqual(workflow.count('refs/heads/production$'), 3)
         self.assertNotIn('refs/heads/main$', workflow)
         self.assertIn('refs/heads/production"', source)
 

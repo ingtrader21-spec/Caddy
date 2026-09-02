@@ -97,6 +97,8 @@ for token in (
     'mode_value=$((8#$mode))',
     '"$DOCKER_BIN" compose -f "$COMPOSE" config --quiet',
     '"$COSIGN_BIN" verify',
+    '"$COSIGN_BIN" verify-attestation',
+    'scripts/verify-image-attestation.py',
     '--certificate-identity "$CERTIFICATE_IDENTITY"',
     '--certificate-oidc-issuer "$CERTIFICATE_ISSUER"',
     '"$DOCKER_BIN" pull "$IMAGE_REF"',
@@ -113,6 +115,9 @@ for token in (
     "cosign sign-blob",
     "cosign verify-blob",
     "BINARY_BUILD_ATTESTATION=PASS",
+    "cosign attest --yes",
+    "codestra.caddy.source.v1",
+    "SOURCE_PROVENANCE=PASS",
     "branches: [production]",
     "refs/heads/production$",
 ):

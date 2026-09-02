@@ -117,11 +117,28 @@ jobs:
             --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "$SUBJECT" >/dev/null
+          jq -n \
+            --arg repository "https://github.com/${GITHUB_REPOSITORY}" \
+            --arg revision "${GITHUB_SHA}" \
+            --arg workflow "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production" \
+            --arg release "${GITHUB_SHA}" \
+            '{repository:$repository,revision:$revision,workflow_identity:$workflow,release_identity:$release}' \
+            > caddy-source-provenance.json
+          cosign attest --yes \
+            --predicate caddy-source-provenance.json \
+            --type codestra.caddy.source.v1 \
+            "$SUBJECT"
+          cosign verify-attestation \
+            --type codestra.caddy.source.v1 \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "$SUBJECT" > caddy-source-provenance.verified.json
           printf '%s\n' \
             "SOURCE_SHA=${GITHUB_SHA}" \
             "IMAGE_DIGEST=${{ steps.publish.outputs.digest }}" \
             "SBOM=PASS" \
             "IMAGE_PROVENANCE=PASS" \
+            "SOURCE_PROVENANCE=PASS" \
             "BINARY_BUILD_ATTESTATION=PASS" \
             "SIGNATURE=PASS" \
             "VULNERABILITY_GATE=PASS" > caddy-release-evidence.txt
@@ -133,6 +150,8 @@ jobs:
             caddy-release-evidence.txt
             build/caddy-binary-build-attestation.json
             caddy-binary-build-attestation.bundle
+            caddy-source-provenance.json
+            caddy-source-provenance.verified.json
             build/caddy-go-version.txt
             build/caddy-modules.txt
             build/caddy-module-overrides.patch
