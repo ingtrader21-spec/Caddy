@@ -109,6 +109,8 @@ class ReleaseRemediationTests(unittest.TestCase):
             "--cap-drop ALL",
             "--cap-add NET_BIND_SERVICE",
             "--security-opt no-new-privileges:true",
+            "--env XDG_DATA_HOME=/data",
+            "--env XDG_CONFIG_HOME=/config",
             "http://127.0.0.1:80/",
             "https://127.0.0.1:443/",
             '"/proc/$pid/net/udp"',

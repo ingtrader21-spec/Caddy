@@ -32,6 +32,8 @@ docker run --detach --name "$name" \
   --cap-drop ALL \
   --cap-add NET_BIND_SERVICE \
   --security-opt no-new-privileges:true \
+  --env XDG_DATA_HOME=/data \
+  --env XDG_CONFIG_HOME=/config \
   --tmpfs /run/caddy:uid=65532,gid=65532,mode=0700 \
   --tmpfs /var/log/caddy:uid=65532,gid=65532,mode=0700 \
   --tmpfs /data:uid=65532,gid=65532,mode=0700 \
