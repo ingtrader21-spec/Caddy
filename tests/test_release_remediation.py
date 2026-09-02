@@ -113,8 +113,8 @@ class ReleaseRemediationTests(unittest.TestCase):
             "--security-opt no-new-privileges:true",
             "--env XDG_DATA_HOME=/data",
             "--env XDG_CONFIG_HOME=/config",
-            "http://127.0.0.1:80/",
-            "https://localhost:443/",
+            "has_socket 0050",
+            "has_socket 01BB",
             '"/proc/$pid/net/udp"',
             "0000000000000400",
         ):

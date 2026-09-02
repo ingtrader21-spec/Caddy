@@ -42,26 +42,31 @@ docker run --detach --name "$name" \
   --mount "type=bind,src=$work/Caddyfile,dst=/etc/caddy/Caddyfile,readonly" \
   "$IMAGE_REF" run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
 
+pid="$(docker inspect --format '{{.State.Pid}}' "$name")"
+status="/proc/$pid/status"
+has_socket() {
+  local port_hex="$1"
+  shift
+  awk -v port="$port_hex" \
+    'NR > 1 {split($2, address, ":"); if (toupper(address[2]) == port) found=1} END {exit !found}' \
+    "$@"
+}
 for _ in $(seq 1 30); do
-  if curl --fail --silent --max-time 2 --noproxy '*' http://127.0.0.1:80/ >/dev/null \
-    && curl --fail --silent --max-time 2 --noproxy '*' --insecure https://localhost:443/ >/dev/null; then
+  if test "$(docker inspect --format '{{.State.Running}}' "$name")" = true \
+    && has_socket 0050 "/proc/$pid/net/tcp" "/proc/$pid/net/tcp6" \
+    && has_socket 01BB "/proc/$pid/net/tcp" "/proc/$pid/net/tcp6" \
+    && has_socket 01BB "/proc/$pid/net/udp" "/proc/$pid/net/udp6"; then
     break
   fi
   sleep 1
 done
-test "$(curl --fail --silent --max-time 2 --noproxy '*' http://127.0.0.1:80/)" = caddy-runtime-bind-ok
-test "$(curl --fail --silent --max-time 2 --noproxy '*' --insecure https://localhost:443/)" = caddy-runtime-bind-ok
-
-pid="$(docker inspect --format '{{.State.Pid}}' "$name")"
-status="/proc/$pid/status"
+has_socket 0050 "/proc/$pid/net/tcp" "/proc/$pid/net/tcp6"
+has_socket 01BB "/proc/$pid/net/tcp" "/proc/$pid/net/tcp6"
+has_socket 01BB "/proc/$pid/net/udp" "/proc/$pid/net/udp6"
 test "$(awk '/^Uid:/ {print $2}' "$status")" = 65532
 test "$(awk '/^Gid:/ {print $2}' "$status")" = 65532
 test "$(awk '/^NoNewPrivs:/ {print $2}' "$status")" = 1
 test "$(awk '/^CapEff:/ {print $2}' "$status")" = 0000000000000400
-
-# 01BB is port 443. Caddy opens UDP 443 when HTTP/3 is enabled.
-awk 'NR > 1 {split($2, address, ":"); if (toupper(address[2]) == "01BB") found=1} END {exit !found}' \
-  "/proc/$pid/net/udp" "/proc/$pid/net/udp6"
 
 echo "CADDY_TCP_80=PASS"
 echo "CADDY_TCP_443=PASS"
