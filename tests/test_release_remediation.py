@@ -96,6 +96,8 @@ class ReleaseRemediationTests(unittest.TestCase):
         self.assertIn('cosign sign --yes "$SUBJECT"', workflow)
         self.assertIn('cosign attest --yes', workflow)
         self.assertIn('tests/runtime-bind-test.sh local/codestra-caddy:${{ github.sha }}', workflow)
+        self.assertIn('setcap cap_net_bind_service=ep ../caddy', workflow)
+        self.assertIn('caddy-file-capabilities.txt', workflow)
         self.assertIn('codestra.caddy.source.v1', workflow)
         self.assertIn('branches: [production]', workflow)
         self.assertNotIn('branches: [main]', workflow)

@@ -38,6 +38,7 @@ docker run --detach --name "$name" \
   --tmpfs /var/log/caddy:uid=65532,gid=65532,mode=0700 \
   --tmpfs /data:uid=65532,gid=65532,mode=0700 \
   --tmpfs /config:uid=65532,gid=65532,mode=0700 \
+  --tmpfs /tmp:uid=65532,gid=65532,mode=0700 \
   --mount "type=bind,src=$work/Caddyfile,dst=/etc/caddy/Caddyfile,readonly" \
   "$IMAGE_REF" run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
 

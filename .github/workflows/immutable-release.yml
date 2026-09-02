@@ -40,6 +40,9 @@ jobs:
             google.golang.org/grpc@v1.82.1
           go mod tidy
           CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o ../caddy ./cmd/caddy
+          sudo setcap cap_net_bind_service=ep ../caddy
+          getcap ../caddy | tee ../caddy-file-capabilities.txt
+          test "$(getcap ../caddy)" = "../caddy cap_net_bind_service=ep"
           ../caddy version
           ../caddy list-modules --packages > ../caddy-modules.txt
           go version -m ../caddy > ../caddy-go-version.txt
@@ -157,3 +160,4 @@ jobs:
             build/caddy-go-version.txt
             build/caddy-modules.txt
             build/caddy-module-overrides.patch
+            build/caddy-file-capabilities.txt
