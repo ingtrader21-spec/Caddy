@@ -66,6 +66,8 @@ jobs:
             SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
             VCS_REF=${{ github.sha }}
             VERSION=${{ github.sha }}
+      - name: Prove hardened non-root privileged-port binding
+        run: tests/runtime-bind-test.sh local/codestra-caddy:${{ github.sha }}
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: local/codestra-caddy:${{ github.sha }}

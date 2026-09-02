@@ -118,6 +118,7 @@ for token in (
     "cosign attest --yes",
     "codestra.caddy.source.v1",
     "SOURCE_PROVENANCE=PASS",
+    "tests/runtime-bind-test.sh",
     "branches: [production]",
     "refs/heads/production$",
 ):

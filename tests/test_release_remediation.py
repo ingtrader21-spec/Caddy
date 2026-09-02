@@ -95,12 +95,26 @@ class ReleaseRemediationTests(unittest.TestCase):
         self.assertIn('VCS_REF=${{ github.sha }}', workflow)
         self.assertIn('cosign sign --yes "$SUBJECT"', workflow)
         self.assertIn('cosign attest --yes', workflow)
+        self.assertIn('tests/runtime-bind-test.sh local/codestra-caddy:${{ github.sha }}', workflow)
         self.assertIn('codestra.caddy.source.v1', workflow)
         self.assertIn('branches: [production]', workflow)
         self.assertNotIn('branches: [main]', workflow)
         self.assertEqual(workflow.count('refs/heads/production$'), 3)
         self.assertNotIn('refs/heads/main$', workflow)
         self.assertIn('refs/heads/production"', source)
+
+        bind_test = (ROOT / "tests/runtime-bind-test.sh").read_text()
+        for required in (
+            "--user 65532:65532",
+            "--cap-drop ALL",
+            "--cap-add NET_BIND_SERVICE",
+            "--security-opt no-new-privileges:true",
+            "http://127.0.0.1:80/",
+            "https://127.0.0.1:443/",
+            '"/proc/$pid/net/udp"',
+            "0000000000000400",
+        ):
+            self.assertIn(required, bind_test)
 
 
 if __name__ == "__main__":
