@@ -16,6 +16,8 @@ from validate_observability_exposure import (  # noqa: E402
     SITE_PATH,
     ExposureError,
     load_contract,
+    load_root_caddy_sources,
+    root_caddy_source_paths,
     validate,
 )
 
@@ -27,12 +29,17 @@ class ExposureContractTests(unittest.TestCase):
         cls.site = SITE_PATH.read_text(encoding="utf-8")
         cls.runtime = RUNTIME_PATH.read_text(encoding="utf-8")
         cls.headers = HEADERS_PATH.read_text(encoding="utf-8")
-        cls.all_sites = "\n".join(
-            path.read_text(encoding="utf-8") for path in sorted((ROOT / "sites").glob("*.caddy"))
-        )
+        cls.all_sites = load_root_caddy_sources()
 
     def test_repository_source_is_valid(self) -> None:
         validate(self.contract, self.site, self.all_sites, self.runtime, self.headers)
+
+    def test_root_import_source_inventory_is_complete(self) -> None:
+        relative = {str(path.relative_to(ROOT)) for path in root_caddy_source_paths()}
+        expected = {"Caddyfile"}
+        expected.update(str(path.relative_to(ROOT)) for path in (ROOT / "sites").glob("*.caddy"))
+        expected.update(str(path.relative_to(ROOT)) for path in (ROOT / "snippets").glob("*.caddy"))
+        self.assertEqual(relative, expected)
 
     def test_private_native_route_is_rejected(self) -> None:
         injected = self.all_sites + "\nprom.codestra.media { reverse_proxy 127.0.0.1:9090 }\n"

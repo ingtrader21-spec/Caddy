@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+ROOT_CADDYFILE_PATH = ROOT / "Caddyfile"
 CONTRACT_PATH = ROOT / "config" / "observability-exposure.v1.json"
 SITE_PATH = ROOT / "sites" / "codestra.media.observability.caddy"
 RUNTIME_PATH = ROOT / "config" / "runtime-values.example"
@@ -41,6 +42,29 @@ APPROVED_DYNAMIC_SITE_ADDRESS = "{$CADDY_N8N_EDITOR_HOST}"
 
 class ExposureError(ValueError):
     pass
+
+
+def root_caddy_source_paths() -> tuple[Path, ...]:
+    """Return every source fragment imported by the root Caddyfile."""
+
+    root_source = ROOT_CADDYFILE_PATH.read_text(encoding="utf-8")
+    paths = [ROOT_CADDYFILE_PATH]
+    approved_imports = {"snippets/*.caddy", "sites/*.caddy"}
+    imports = re.findall(r"(?m)^\s*import\s+([^\s#]+)\s*$", root_source)
+    if set(imports) != approved_imports or len(imports) != len(approved_imports):
+        raise ExposureError("root Caddy import inventory is not the reviewed static set")
+    for pattern in sorted(imports):
+        matches = sorted(ROOT.glob(pattern))
+        if not matches or any(not path.is_file() for path in matches):
+            raise ExposureError(f"root Caddy import has no regular-file match: {pattern}")
+        paths.extend(matches)
+    return tuple(paths)
+
+
+def load_root_caddy_sources() -> str:
+    return "\n".join(
+        path.read_text(encoding="utf-8") for path in root_caddy_source_paths()
+    )
 
 
 def load_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
@@ -286,12 +310,15 @@ def validate(contract: dict[str, Any], site: str, all_sites: str, runtime: str, 
 
 
 def configuration_checksum(contract: dict[str, Any], site: str, runtime: str, headers: str) -> str:
+    overrides = {SITE_PATH: site, HEADERS_PATH: headers}
     payloads = [
         (str(CONTRACT_PATH.relative_to(ROOT)), json.dumps(contract, sort_keys=True, separators=(",", ":")) + "\n"),
-        (str(SITE_PATH.relative_to(ROOT)), site),
         (str(RUNTIME_PATH.relative_to(ROOT)), runtime),
-        (str(HEADERS_PATH.relative_to(ROOT)), headers),
     ]
+    payloads.extend(
+        (str(path.relative_to(ROOT)), overrides.get(path, path.read_text(encoding="utf-8")))
+        for path in root_caddy_source_paths()
+    )
     material = b"".join(path.encode() + b"\0" + payload.encode() for path, payload in payloads)
     return hashlib.sha256(material).hexdigest()
 
@@ -301,7 +328,7 @@ def run(write: bool) -> str:
     site = SITE_PATH.read_text(encoding="utf-8")
     runtime = RUNTIME_PATH.read_text(encoding="utf-8")
     headers = HEADERS_PATH.read_text(encoding="utf-8")
-    all_sites = "\n".join(path.read_text(encoding="utf-8") for path in sorted((ROOT / "sites").glob("*.caddy")))
+    all_sites = load_root_caddy_sources()
     validate(contract, site, all_sites, runtime, headers)
     checksum = configuration_checksum(contract, site, runtime, headers)
     expected = f"{checksum}  caddy-observability-source-bundle\n"
