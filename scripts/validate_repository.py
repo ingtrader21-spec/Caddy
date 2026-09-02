@@ -116,7 +116,7 @@ for token in (
     "cosign verify-blob",
     "BINARY_BUILD_ATTESTATION=PASS",
     "cosign attest --yes",
-    "codestra.caddy.source.v1",
+    "https://codestra.co/attestations/caddy-source/v1",
     "SOURCE_PROVENANCE=PASS",
     "tests/runtime-bind-test.sh",
     "build/codestra-set-bind-capability",
