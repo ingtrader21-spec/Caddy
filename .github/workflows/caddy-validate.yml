@@ -26,7 +26,7 @@ jobs:
       CADDY_IMAGE: caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     steps:
       - name: Checkout reviewed commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Detect committed secrets
         shell: bash

@@ -13,6 +13,9 @@ LABEL org.opencontainers.image.created="$BUILD_CREATED" \
       org.opencontainers.image.base.name="gcr.io/distroless/static-debian13:nonroot"
 
 COPY --chown=65532:65532 build/caddy /usr/bin/caddy
+COPY --chown=0:0 build/codestra-set-bind-capability /usr/bin/codestra-set-bind-capability
+USER 0:0
+RUN ["/usr/bin/codestra-set-bind-capability"]
 COPY --chown=65532:65532 config/ /etc/caddy/
 
 USER 65532:65532

@@ -7,11 +7,7 @@ on:
       - config/**
       - .github/workflows/immutable-release.yml
   push:
-    branches: [main]
-    paths:
-      - Dockerfile
-      - config/**
-      - .github/workflows/immutable-release.yml
+    branches: [production]
 
 permissions:
   contents: read
@@ -22,7 +18,7 @@ jobs:
   build-scan-publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
@@ -41,7 +37,7 @@ jobs:
             golang.org/x/crypto@v0.55.0 \
             golang.org/x/net@v0.57.0 \
             golang.org/x/text@v0.41.0 \
-            google.golang.org/grpc@v1.82.1
+            google.golang.org/grpc@v1.83.1
           go mod tidy
           CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o ../caddy ./cmd/caddy
           ../caddy version
@@ -57,9 +53,12 @@ jobs:
             --arg go_sum_sha256 "$(sha256sum go.sum | cut -d' ' -f1)" \
             '{schema:"codestra.caddy.binary-build.v1", source_repository:$repository, source_sha:$source_sha, wrapper_sha:$wrapper_sha, binary_sha256:$binary_sha256, go_mod_sha256:$go_mod_sha256, go_sum_sha256:$go_sum_sha256}' \
             > ../caddy-binary-build-attestation.json
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+          cd "$GITHUB_WORKSPACE"
+          CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' \
+            -o build/codestra-set-bind-capability build-tools/set-bind-capability/main.go
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e
       - name: Build exact-head security candidate
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
         with:
           context: .
           load: true
@@ -70,6 +69,8 @@ jobs:
             SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
             VCS_REF=${{ github.sha }}
             VERSION=${{ github.sha }}
+      - name: Prove hardened non-root privileged-port binding
+        run: tests/runtime-bind-test.sh local/codestra-caddy:${{ github.sha }}
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: local/codestra-caddy:${{ github.sha }}
@@ -84,7 +85,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: publish
         if: github.event_name == 'push'
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
         with:
           context: .
           push: true
@@ -107,7 +108,7 @@ jobs:
             build/caddy-binary-build-attestation.json
           cosign verify-blob \
             --bundle caddy-binary-build-attestation.bundle \
-            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/main$" \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             build/caddy-binary-build-attestation.json >/dev/null
       - name: Sign and verify immutable digest
@@ -118,14 +119,31 @@ jobs:
           set -euo pipefail
           cosign sign --yes "$SUBJECT"
           cosign verify \
-            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/main$" \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "$SUBJECT" >/dev/null
+          jq -n \
+            --arg repository "https://github.com/${GITHUB_REPOSITORY}" \
+            --arg revision "${GITHUB_SHA}" \
+            --arg workflow "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production" \
+            --arg release "${GITHUB_SHA}" \
+            '{repository:$repository,revision:$revision,workflow_identity:$workflow,release_identity:$release}' \
+            > caddy-source-provenance.json
+          cosign attest --yes \
+            --predicate caddy-source-provenance.json \
+            --type codestra.caddy.source.v1 \
+            "$SUBJECT"
+          cosign verify-attestation \
+            --type codestra.caddy.source.v1 \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "$SUBJECT" > caddy-source-provenance.verified.json
           printf '%s\n' \
             "SOURCE_SHA=${GITHUB_SHA}" \
             "IMAGE_DIGEST=${{ steps.publish.outputs.digest }}" \
             "SBOM=PASS" \
             "IMAGE_PROVENANCE=PASS" \
+            "SOURCE_PROVENANCE=PASS" \
             "BINARY_BUILD_ATTESTATION=PASS" \
             "SIGNATURE=PASS" \
             "VULNERABILITY_GATE=PASS" > caddy-release-evidence.txt
@@ -137,6 +155,8 @@ jobs:
             caddy-release-evidence.txt
             build/caddy-binary-build-attestation.json
             caddy-binary-build-attestation.bundle
+            caddy-source-provenance.json
+            caddy-source-provenance.verified.json
             build/caddy-go-version.txt
             build/caddy-modules.txt
             build/caddy-module-overrides.patch
