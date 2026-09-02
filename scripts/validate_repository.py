@@ -119,8 +119,7 @@ for token in (
     "codestra.caddy.source.v1",
     "SOURCE_PROVENANCE=PASS",
     "tests/runtime-bind-test.sh",
-    "setcap cap_net_bind_service=ep ../caddy",
-    "caddy-file-capabilities.txt",
+    "build/codestra-set-bind-capability",
     "branches: [production]",
     "refs/heads/production$",
 ):
