@@ -17,6 +17,7 @@ LABEL org.opencontainers.image.created="$BUILD_CREATED" \
       io.codestra.caddy.upstream.sha="$CADDY_UPSTREAM_SHA"
 
 COPY --chown=65532:65532 build/caddy /usr/bin/caddy
+COPY --chown=65532:65532 build/codestra-http3-probe /usr/bin/codestra-http3-probe
 COPY --chown=0:0 build/codestra-set-bind-capability /usr/bin/codestra-set-bind-capability
 USER 0:0
 RUN ["/usr/bin/codestra-set-bind-capability"]
