@@ -1,0 +1,90 @@
+name: Materialize Caddy reconciliation tree
+
+on:
+  push:
+    branches:
+      - fix/caddy-production-authority-reconciliation-20260903
+    paths:
+      - .github/workflows/materialize-caddy-reconciliation.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: caddy-reconciliation-materializer
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out bootstrap branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/caddy-production-authority-reconciliation-20260903
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify, materialize, test, and commit canonical tree
+        env:
+          EXPECTED_BASE64_SHA256: a356aeb31d418cd36a4cafe731777136f35e12b0db351fe58836f29a5866b4dc
+          EXPECTED_ARCHIVE_SHA256: 718b8f34fb4b1b7b8e25f489e9c96b715ecb22fb4dcbc39909968030edf67d52
+        run: |
+          set -Eeuo pipefail
+          umask 077
+
+          cat .reconciliation/part-* > /tmp/caddy-desired.tar.gz.b64
+          test "$(sha256sum /tmp/caddy-desired.tar.gz.b64 | cut -d' ' -f1)" = "$EXPECTED_BASE64_SHA256"
+          base64 --decode /tmp/caddy-desired.tar.gz.b64 > /tmp/caddy-desired.tar.gz
+          test "$(sha256sum /tmp/caddy-desired.tar.gz | cut -d' ' -f1)" = "$EXPECTED_ARCHIVE_SHA256"
+
+          materialized="$(mktemp -d)"
+          tar -xzf /tmp/caddy-desired.tar.gz -C "$materialized"
+
+          rm -rf \
+            .reconciliation \
+            candidate \
+            Caddyfile \
+            sites \
+            snippets
+          rm -f \
+            .github/workflows/caddy-validate.yml \
+            .github/workflows/materialize-caddy-reconciliation.yml \
+            config/caddy-kong-contract.v1.json \
+            config/n8n-editor-community.v1.json \
+            config/sites/current-production.caddy \
+            scripts/deploy-production.sh \
+            scripts/import-live-config.sh \
+            scripts/validate.sh
+
+          cp -a "$materialized"/. ./
+          rm -rf "$materialized" /tmp/caddy-desired.tar.gz /tmp/caddy-desired.tar.gz.b64
+
+          python3 -m pip install --disable-pip-version-check --no-cache-dir PyYAML==6.0.3
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import py_compile
+          import yaml
+
+          for path in Path('.').rglob('*.json'):
+              json.loads(path.read_text(encoding='utf-8'))
+          for path in Path('.github/workflows').glob('*.yml'):
+              yaml.safe_load(path.read_text(encoding='utf-8'))
+          for path in list(Path('scripts').glob('*.py')) + list(Path('tests').glob('*.py')):
+              py_compile.compile(str(path), doraise=True)
+          print('CADDY_MATERIALIZED_STATIC_VALIDATION=PASS')
+          PY
+
+          find scripts tests -type f -name '*.sh' -exec bash -n {} +
+          python3 scripts/validate_repository.py
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'fix: materialize canonical Caddy production authority'
+          git push origin HEAD:fix/caddy-production-authority-reconciliation-20260903
