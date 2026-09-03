@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """Fail closed unless a verified cosign attestation binds the exact Caddy tuple."""
-
+from __future__ import annotations
 import base64
 import json
 import re
 import sys
 
-
 def fail(message: str) -> None:
     raise SystemExit(f"BLOCKED: {message}")
 
+if len(sys.argv) != 6:
+    fail("attestation verifier requires file, digest, repository, revision, and configuration hash")
 
-if len(sys.argv) != 5:
-    fail("attestation verifier requires file, digest, repository, and revision")
-
-path, expected_digest, expected_repository, expected_revision = sys.argv[1:]
+path, expected_digest, expected_repository, expected_revision, expected_config_sha256 = sys.argv[1:]
 if re.fullmatch(r"[0-9a-f]{64}", expected_digest) is None:
     fail("expected image digest is malformed")
 if re.fullmatch(r"[0-9a-f]{40}", expected_revision) is None:
     fail("expected source revision is malformed")
+if re.fullmatch(r"[0-9a-f]{64}", expected_config_sha256) is None:
+    fail("expected configuration hash is malformed")
 
 try:
     raw = open(path, encoding="utf-8").read().strip()
@@ -50,8 +50,9 @@ required = {
     "revision": expected_revision,
     "workflow_identity": expected_workflow,
     "release_identity": expected_revision,
+    "config_sha256": expected_config_sha256,
 }
-if not isinstance(predicate, dict) or any(predicate.get(k) != v for k, v in required.items()):
-    fail("attested repository, revision, workflow, or release identity does not match")
+if not isinstance(predicate, dict) or any(predicate.get(key) != value for key, value in required.items()):
+    fail("attested repository, revision, configuration, workflow, or release identity does not match")
 
 print("CADDY_SOURCE_ATTESTATION=PASS")

@@ -1,0 +1,44 @@
+# Human administrative n8n surface. Caddy applies a source gate and hands every
+# accepted request to Kong for the Keycloak browser flow and session policy.
+automation.codestra.co {
+	import security_headers
+	encode zstd gzip
+
+	request_body {
+		max_size {$CADDY_N8N_EDITOR_MAX_REQUEST_BODY}
+	}
+
+	@offnet not remote_ip {$CADDY_EDITOR_ADMIN_CIDRS}
+	route {
+		handle @offnet {
+			respond "Not Found" 404
+		}
+
+		@never_public path /webhook-test* /form-test* /rest/owner/setup* /rest/owner/dismiss-banner*
+		handle @never_public {
+			respond "Not Found" 404
+		}
+
+		request_header -X-Auth-Request-User
+		request_header -X-Auth-Request-Email
+		request_header -X-Auth-Request-Groups
+		request_header -X-Forwarded-User
+		request_header -X-Forwarded-Email
+		request_header -X-Forwarded-Groups
+
+		handle {
+			reverse_proxy {$CADDY_KONG_UPSTREAM} {
+				import proxy_common
+			}
+		}
+	}
+
+	log {
+		output file /var/log/caddy/automation-codestra-co-access.log {
+			roll_size 20MiB
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		import sanitized_access_log
+	}
+}

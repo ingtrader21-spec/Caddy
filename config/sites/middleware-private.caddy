@@ -1,0 +1,66 @@
+middleware.internal.codestra.agency {
+	bind {$CADDY_PRIVATE_INGRESS_BIND}
+	tls /etc/codestra/pki/middleware-private-ingress/server.crt /etc/codestra/pki/middleware-private-ingress/server.key {
+		client_auth {
+			mode require_and_verify
+			trust_pool file /etc/codestra/pki/middleware-private-ingress/client-ca.crt
+		}
+	}
+	import security_headers
+
+	route {
+		@authorized_callback {
+			remote_ip {$CADDY_VICIDIAL_SOURCE_CIDRS}
+			method POST
+			path /api/v1/events/vicidial
+		}
+		reverse_proxy @authorized_callback {$CADDY_MIDDLEWARE_CALLBACK_UPSTREAM} {
+			import proxy_common
+		}
+		respond 403
+	}
+
+	log {
+		output file /var/log/caddy/middleware-private-access.log {
+			roll_size 20MiB
+			roll_keep 10
+			roll_keep_for 720h
+		}
+		import sanitized_access_log
+	}
+}
+
+middleware-staging.internal.codestra.agency {
+	bind {$CADDY_PRIVATE_INGRESS_BIND}
+	tls /etc/codestra/pki/middleware-private-ingress/staging-server.crt /etc/codestra/pki/middleware-private-ingress/staging-server.key {
+		client_auth {
+			mode require_and_verify
+			trust_pool file /etc/codestra/pki/middleware-private-ingress/client-ca.crt
+		}
+	}
+	import security_headers
+
+	route {
+		@staging_event {
+			remote_ip {$CADDY_STAGING_EVENT_SOURCE_CIDRS}
+			method POST
+			path /api/v1/staging/events/vicidial
+		}
+		handle @staging_event {
+			rewrite * /api/v1/events/vicidial
+			reverse_proxy {$CADDY_STAGING_API_UPSTREAM} {
+				import proxy_common
+			}
+		}
+		respond 403
+	}
+
+	log {
+		output file /var/log/caddy/middleware-staging-private-access.log {
+			roll_size 20MiB
+			roll_keep 10
+			roll_keep_for 720h
+		}
+		import sanitized_access_log
+	}
+}

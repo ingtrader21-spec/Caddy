@@ -1,0 +1,46 @@
+# Legacy hostname compatibility is path-bounded and cannot bypass Kong.
+api.codestra.agency {
+	import security_headers
+	encode zstd gzip
+	header X-Codestra-Canonical-Host "api.codestra.co"
+
+	request_body {
+		max_size 10MB
+	}
+
+	route {
+		@kong path /api/v1/control* /api/v1/messages* /api/v1/events* /api/v1/results* /api/v1/reconciliation* /api/v1/health* /api/v1/callbacks* /api/v1/automation/policy-check /api/v1/integrations/n8n/results /v1/integrations/n8n* /v1/admin/system* /v1/crm* /v1/email* /v1/sms* /v1/webhooks* /v1/intake*
+		handle @kong {
+			reverse_proxy {$CADDY_KONG_UPSTREAM} {
+				header_up Host api.codestra.co
+				header_up X-Real-IP {remote_host}
+				header_up X-Forwarded-Host {host}
+				header_up X-Forwarded-Proto {scheme}
+				transport http {
+					dial_timeout 5s
+					response_header_timeout 30s
+				}
+			}
+		}
+
+		@realtime path /ws/agent /api/v1/realtime/sessions /healthz /readyz /version
+		handle @realtime {
+			reverse_proxy {$CADDY_REALTIME_UPSTREAM} {
+				import proxy_common
+			}
+		}
+
+		handle {
+			respond "Not Found" 404
+		}
+	}
+
+	log {
+		output file /var/log/caddy/api-codestra-agency-access.log {
+			roll_size 20MiB
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		import sanitized_access_log
+	}
+}

@@ -1,8 +1,21 @@
 # Codestra Caddy Edge
 
-This repository is the principal Git source for Codestra Caddy edge configuration, validation, promotion, deployment controls, and release evidence.
+This repository is the principal Git source for Codestra shared Caddy edge configuration, immutable release construction, validation, promotion, runtime read-back, and rollback evidence.
 
-## Authority and request path
+## Single authority
+
+There is exactly one deployable configuration tree:
+
+```text
+config/Caddyfile
+config/snippets/*.caddy
+config/sites/*.caddy
+config/conf.d/*.caddy
+```
+
+The image build, CI validation, immutable launcher, container validator, canary, and rollback controls all consume that same tree. There is no separate candidate configuration and no server-owned route authority.
+
+## Request boundary
 
 The governed shared API path is:
 
@@ -10,51 +23,34 @@ The governed shared API path is:
 client -> Caddy -> Kong -> Middleware -> owned downstream service
 ```
 
-Caddy owns TLS termination, public host selection, reverse-proxy configuration, shared edge policy, security headers, and access-log redaction. Kong owns gateway authentication and route policy. Keycloak owns identity and token issuance. Middleware owns privileged cross-system commands and provider orchestration.
+Caddy owns TLS termination, host selection, request limits, transport policy, security headers, and sanitized edge logs. Kong owns gateway authentication, authorization, scopes, rate limits, and route policy. Keycloak owns identity and token issuance. Middleware owns privileged cross-system commands and provider effects.
 
-Repository ownership remains separated:
+Known shared API paths on both `api.codestra.co` and the legacy compatibility host are handed to Kong. Only the explicitly contracted realtime/health paths may use `CADDY_REALTIME_UPSTREAM`; every unknown path returns `404`. An unrestricted legacy API fallback is prohibited.
 
-- `appolon1908-hue/Caddy` — Caddy source and edge policy.
-- `appolon1908-hue/Kong` — gateway services, routes, plugins, scope and request policy.
-- `appolon1908-hue/Keycloak` — clients, scopes, roles, and token issuance.
-- `appolon1908-hue/Middleware-` — integration control plane and provider-effect policy.
-- `appolon1908-hue/codestra-production-platform` — protected release tuples and historical deployment evidence; not Caddy source authority.
+## Immutable runtime
 
-## Configuration states
+Production uses only:
 
-There is one deployable configuration authority:
+```text
+ghcr.io/appolon1908-hue/codestra-caddy@sha256:<approved-digest>
+```
 
-- `config/Caddyfile` plus `config/snippets/`, `config/sites/`, and `config/conf.d/` is the complete imported production configuration. Its files were formatted, secret-scanned, and checksum-matched to the running host before promotion. Deployment tooling reads only this tree.
+The release pipeline builds the patched Caddy binary, records the upstream source and module overrides, scans for HIGH/CRITICAL vulnerabilities, tests non-root privileged-port binding, runs an isolated edge canary, emits SBOM and provenance, signs the binary attestation and image digest, and uploads release evidence.
 
-The future Caddy-to-Kong convergence contract is deliberately non-deployable:
+The production container is fixed as `codestra-caddy`, runs as UID/GID `65532`, has a read-only root filesystem, drops all capabilities except `NET_BIND_SERVICE`, and uses host networking so reviewed public/private binds remain explicit. `scripts/caddy_readonly_validator.py` validates the actual container, image digest, OCI labels, configuration hash, environment contract, modules, listeners, health, and effective Caddy configuration without printing raw configuration or secret values.
 
-- `candidate/Caddyfile`, `candidate/snippets/`, and `candidate/sites/` contain reviewed migration candidates and are validated in CI, but deployment tooling never reads them. They may replace the deployable tree only after route parity and exact-digest staging certification pass.
+## Promotion
 
-This distinction prevents the incomplete migration candidate from replacing the complete live configuration.
+All accepted work follows:
 
-## Branch model
+```text
+feature|fix|chore|docs|refactor -> development -> test -> staging -> production -> main
+```
 
-Promotion is pull-request-only:
+The repository defines exact-head, synthetic merge-result, promotion-chain, and immutable-release checks. The declarative branch ruleset is `config/github/protected-branches-ruleset.json`; it has no bypass actors and prohibits deletion and non-fast-forward updates.
 
-`feature/*` -> `development` -> `test` -> `staging` -> `production` -> `main`
+## Runtime activation and rollback
 
-- `development` — active integration.
-- `test` — automated and integration testing.
-- `staging` — pre-production certification source.
-- `production` — approved live-configuration source.
-- `main` — reviewed canonical history.
+A source merge never authorizes a live reload. Before activation, the operator must verify the exact protected production SHA and signed image digest, preserve the current release as the rollback baseline, validate the complete image configuration, and run the bounded canary. `scripts/run-immutable-runtime.sh` fails closed and invokes the immutable rollback path if the new container does not become healthy. `scripts/rollback-runtime.sh` accepts no arguments and restores only the signed digest recorded in `config/release-baseline.v1.json`.
 
-## Safety rules
-
-1. Never commit TLS private keys, API tokens, credentials, passwords, `.env` files, ACME account data, or Caddy data-directory contents.
-2. Validate the complete deployable configuration before a reload.
-3. Keep the Caddy admin API private; never expose it publicly.
-4. Caddy must not manufacture trusted application-identity headers.
-5. Shared API routes move to Caddy -> Kong only after Kong parity is proven.
-6. Back up the active configuration before replacement.
-7. Failed validation or reload must preserve or restore the previous configuration.
-8. A source merge does not authorize a live reload, DNS/TLS cutover, or capability activation.
-9. Production deployment uses the exact reviewed production commit and never a dirty server worktree.
-10. SSH configuration is outside this repository and must not be changed.
-
-Before runtime cutover, capture live checksums, certify Caddy -> Kong -> Middleware in isolated staging, verify negative authentication cases, create a current backup, and rehearse rollback.
+SSH configuration, firewall policy, DNS ownership, unrelated workloads, and application secrets are outside this repository and must not be changed by a Caddy release.
