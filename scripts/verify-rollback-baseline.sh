@@ -36,7 +36,7 @@ image_user="$("$DOCKER_BIN" image inspect --format '{{.Config.User}}' "$baseline
 
 work="$(mktemp -d)"
 container="caddy-rollback-evidence-${GITHUB_RUN_ID:-local}-$$"
-cleanup(){ "$DOCKER_BIN" rm -f "$container" >/dev/null 2>&1 || true; rm -rf -- "$work"; }
+cleanup(){ "$DOCKER_BIN" rm -f "$container" >/dev/null 2>&1 || true; rm -rf -- "$work" 2>/dev/null || sudo -n rm -rf -- "$work" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 mkdir -p "$work/config"
 "$DOCKER_BIN" create --name "$container" "$baseline_image" >/dev/null
@@ -45,17 +45,17 @@ config_sha256="$(python3 "$ROOT/scripts/hash_config_tree.py" "$work/config")"
 [[ "$config_sha256" =~ ^[0-9a-f]{64}$ ]] || { echo CADDY_ROLLBACK_BASELINE=FAIL:config_hash >&2; exit 2; }
 
 mkdir -p "$work/pki/middleware" "$work/pki/klyrow"
+chmod 0755 "$work" "$work/pki" "$work/pki/middleware" "$work/pki/klyrow"
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=rollback-validation.invalid' \
   -keyout "$work/pki/validation.key" -out "$work/pki/validation.crt" >/dev/null 2>&1
-install -m 0600 "$work/pki/validation.key" "$work/pki/middleware/server.key"
-install -m 0600 "$work/pki/validation.key" "$work/pki/middleware/staging-server.key"
+install -m 0644 "$work/pki/validation.key" "$work/pki/middleware/server.key"
+install -m 0644 "$work/pki/validation.key" "$work/pki/middleware/staging-server.key"
 install -m 0644 "$work/pki/validation.crt" "$work/pki/middleware/server.crt"
 install -m 0644 "$work/pki/validation.crt" "$work/pki/middleware/staging-server.crt"
 install -m 0644 "$work/pki/validation.crt" "$work/pki/middleware/client-ca.crt"
-install -m 0600 "$work/pki/validation.key" "$work/pki/klyrow/tls.key"
+install -m 0644 "$work/pki/validation.key" "$work/pki/klyrow/tls.key"
 install -m 0644 "$work/pki/validation.crt" "$work/pki/klyrow/tls-fullchain.crt"
 install -m 0644 "$work/pki/validation.crt" "$work/pki/klyrow/klyrow-client.crt"
-find "$work/pki" -type f -name '*.key' -exec chmod 0644 {} +
 
 "$DOCKER_BIN" run --rm --network none \
   --mount "type=bind,src=$work/pki/middleware,dst=/etc/codestra/pki/middleware-private-ingress,readonly" \
@@ -78,6 +78,7 @@ done < "$ROOT/config/runtime-values.example"
 
 printf '%s\n' \
   'CADDY_ROLLBACK_BASELINE=PASS' \
+  'CADDY_ROLLBACK_REHEARSAL=PASS' \
   "ROLLBACK_SOURCE_SHA=$baseline_source" \
   "ROLLBACK_IMAGE=$baseline_image" \
   "ROLLBACK_CONFIG_SHA256=$config_sha256" \
