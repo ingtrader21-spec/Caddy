@@ -57,7 +57,16 @@ install -m 0644 "$work/pki/validation.key" "$work/pki/klyrow/tls.key"
 install -m 0644 "$work/pki/validation.crt" "$work/pki/klyrow/tls-fullchain.crt"
 install -m 0644 "$work/pki/validation.crt" "$work/pki/klyrow/klyrow-client.crt"
 
+# Provision the same writable paths that the non-root production runtime uses.
+# Without this disposable sandbox, Caddy can fail during log-writer provisioning
+# before the baseline configuration is actually validated.
 "$DOCKER_BIN" run --rm --network none \
+  --env XDG_DATA_HOME=/data --env XDG_CONFIG_HOME=/config \
+  --tmpfs /run/caddy:uid=65532,gid=65532,mode=0700 \
+  --tmpfs /tmp:uid=65532,gid=65532,mode=0700 \
+  --tmpfs /var/log/caddy:uid=65532,gid=65532,mode=0700 \
+  --tmpfs /data:uid=65532,gid=65532,mode=0700 \
+  --tmpfs /config:uid=65532,gid=65532,mode=0700 \
   --mount "type=bind,src=$work/pki/middleware,dst=/etc/codestra/pki/middleware-private-ingress,readonly" \
   --mount "type=bind,src=$work/pki/klyrow,dst=/etc/caddy/private/klyrow-events,readonly" \
   "$baseline_image" validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
