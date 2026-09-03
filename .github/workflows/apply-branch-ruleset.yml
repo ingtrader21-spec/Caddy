@@ -20,7 +20,7 @@ jobs:
           persist-credentials: false
       - name: Apply and verify canonical no-bypass ruleset
         env:
-          GH_TOKEN: ${{ secrets.CODESTRA_GITHUB_ADMIN_TOKEN || secrets.GITHUB_ADMIN_TOKEN || secrets.GH_ADMIN_TOKEN || secrets.CODESTRA_GITHUB_TOKEN || secrets.CODESTRA_RULESET_TOKEN || secrets.RULESET_TOKEN || secrets.BRANCH_PROTECTION_TOKEN || secrets.REPO_ADMIN_TOKEN || secrets.GITHUB_AUTOMATION_TOKEN || secrets.GH_PAT || secrets.GITHUB_PAT || secrets.PAT || secrets.PERSONAL_ACCESS_TOKEN || github.token }}
+          GH_TOKEN: ${{ secrets.CODESTRA_REPOSITORY_ADMIN_TOKEN || secrets.CODESTRA_GITHUB_ADMIN_TOKEN || secrets.GITHUB_ADMIN_TOKEN || secrets.GH_ADMIN_TOKEN || secrets.CODESTRA_GITHUB_TOKEN || secrets.CODESTRA_RULESET_TOKEN || secrets.RULESET_TOKEN || secrets.BRANCH_PROTECTION_TOKEN || secrets.REPO_ADMIN_TOKEN || secrets.GITHUB_AUTOMATION_TOKEN || secrets.GH_PAT || secrets.GITHUB_PAT || secrets.PAT || secrets.PERSONAL_ACCESS_TOKEN || github.token }}
         run: |
           set -Eeuo pipefail
           test -n "$GH_TOKEN"

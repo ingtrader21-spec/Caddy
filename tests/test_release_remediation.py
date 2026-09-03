@@ -130,6 +130,7 @@ class ReleaseRemediationTests(unittest.TestCase):
         )
         apply_workflow = (ROOT / ".github/workflows/apply-branch-ruleset.yml").read_text()
         for token in (
+            "CODESTRA_REPOSITORY_ADMIN_TOKEN",
             "Protect Caddy promotion branches",
             "AI automated production gates",
             "Protect main",
