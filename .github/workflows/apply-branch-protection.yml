@@ -1,0 +1,35 @@
+name: Apply Caddy branch protection
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apply-branch-protection:
+    name: apply-branch-protection
+    runs-on: ubuntu-24.04
+    environment: repository-administration
+    steps:
+      - name: Check out exact governance source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Require repository-administration token
+        env:
+          GH_TOKEN: ${{ secrets.CODESTRA_GITHUB_ADMIN_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$GH_TOKEN"
+          gh api /user --jq .login >/dev/null
+      - name: Apply and read back protected promotion branches
+        env:
+          GH_TOKEN: ${{ secrets.CODESTRA_GITHUB_ADMIN_TOKEN }}
+        run: bash governance/apply-branch-protection.sh "$GITHUB_REPOSITORY" | tee branch-protection-readback.jsonl
+      - name: Upload governance readback
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caddy-branch-protection-readback-${{ github.sha }}
+          path: branch-protection-readback.jsonl
+          if-no-files-found: error
