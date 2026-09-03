@@ -1,10 +1,18 @@
 {
 	admin unix//run/caddy/admin.sock
 	email admin@codestra.agency
-	default_bind 65.109.65.169 127.0.0.1
+	default_bind {$CADDY_PUBLIC_BIND} 127.0.0.1
 	skip_install_trust
+	metrics
 }
 
 import snippets/*.caddy
+
+:2020 {
+	bind {$CADDY_PRIVATE_METRICS_BIND}
+	metrics /metrics
+	respond /healthz "ok" 200
+}
+
 import sites/*.caddy
 import conf.d/*.caddy

@@ -1,14 +1,13 @@
 {
-  "schema": "codestra.caddy-kong-edge.v1",
+  "schema": "codestra.caddy-kong-edge.v2",
   "principalRepository": "appolon1908-hue/Caddy",
   "gatewayRepository": "appolon1908-hue/Kong",
   "identityRepository": "appolon1908-hue/Keycloak",
   "writeBoundaryRepository": "appolon1908-hue/Middleware-",
   "referenceRepository": "appolon1908-hue/codestra-production-platform",
   "canonicalHost": "api.codestra.co",
+  "legacyHost": "api.codestra.agency",
   "kongUpstreamEnvironmentVariable": "CADDY_KONG_UPSTREAM",
-  "kongReferenceListener": "127.0.0.1:8000",
-  "legacyApiUpstreamEnvironmentVariable": "CADDY_LEGACY_API_UPSTREAM",
   "realtimeUpstreamEnvironmentVariable": "CADDY_REALTIME_UPSTREAM",
   "identityBoundary": {
     "caddyAuthenticatesUsersOrServices": false,
@@ -35,24 +34,28 @@
     "/v1/webhooks",
     "/v1/intake"
   ],
-  "transitionalPaths": [
+  "explicitCompatibilityPaths": [
     "/ws/agent",
     "/api/v1/realtime/sessions",
     "/healthz",
     "/readyz",
     "/version"
   ],
+  "legacyApiFallback": {
+    "enabled": false,
+    "unrestrictedCatchAllAllowed": false,
+    "unknownPathsReturn": 404
+  },
   "migration": {
-    "legacyFallbackTemporarilyAllowed": true,
-    "fullKongRouteParityRequiredBeforeRemovingFallback": true,
     "runtimeInventoryRequiredBeforeCutover": true,
     "rollbackRehearsalRequiredBeforeCutover": true,
     "productionCutoverAuthorizedBySource": false
   },
   "editorHost": {
     "host": "automation.codestra.co",
-    "purpose": "n8n Community Edition editor, human administrative surface",
+    "purpose": "n8n Community Edition editor",
     "adminCidrEnvironmentVariable": "CADDY_EDITOR_ADMIN_CIDRS",
+    "gateway": "Kong",
     "gatewayEnforcesKeycloakBrowserFlow": true,
     "caddyAuthenticatesEditorSessions": false,
     "directUpstreamToN8nAllowed": false,

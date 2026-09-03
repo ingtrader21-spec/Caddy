@@ -1,2 +1,26 @@
-# Site-specific logs must explicitly delete sensitive request and response headers.
-# Existing production sites retain their current destinations during migration.
+# Every access logger imports this filter. It removes credentials, browser
+# sessions, OIDC material, API keys, and response cookies before encoding.
+(sanitized_access_log) {
+	format filter {
+		request>headers>Authorization delete
+		request>headers>Cookie delete
+		request>headers>Proxy-Authorization delete
+		request>headers>Apikey delete
+		request>headers>X-Api-Key delete
+		request>headers>X-Vault-Token delete
+		request>headers>X-Bao-Token delete
+		request>uri query {
+			delete access_token
+			delete apikey
+			delete code
+			delete id_token
+			delete rd
+			delete refresh_token
+			delete session_state
+			delete state
+			delete token
+		}
+		resp_headers>Set-Cookie delete
+		resp_headers>X-Auth-Request-Access-Token delete
+	}
+}

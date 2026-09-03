@@ -1,0 +1,136 @@
+phone.codestra.agency {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Robots-Tag "noindex, nofollow"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options SAMEORIGIN
+		Permissions-Policy "camera=(), geolocation=(), microphone=(self)"
+		Content-Security-Policy "default-src 'self'; connect-src 'self' wss://wss.codestra.agency:8089 wss://api.codestra.agency; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; frame-ancestors 'none'"
+	}
+
+	@oauth path /oauth2/*
+	handle @oauth {
+		reverse_proxy {$CADDY_AGENT_GATEWAY_UPSTREAM} {
+			import proxy_common
+		}
+	}
+
+	@webphone path /webphone-api/* /ws/agent
+	handle @webphone {
+		request_body {
+			max_size 16KB
+		}
+		reverse_proxy {$CADDY_AGENT_GATEWAY_UPSTREAM} {
+			import proxy_common
+		}
+	}
+
+	handle_path /realtime-api/* {
+		request_body {
+			max_size 16KB
+		}
+		route {
+			forward_auth {$CADDY_AGENT_GATEWAY_UPSTREAM} {
+				uri /oauth2/auth
+				header_up X-Real-IP {remote_host}
+				copy_headers X-Auth-Request-Access-Token
+			}
+			request_header Authorization "Bearer {http.request.header.X-Auth-Request-Access-Token}"
+			reverse_proxy {$CADDY_REALTIME_UPSTREAM} {
+				import proxy_common
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy {$CADDY_AGENT_UI_UPSTREAM} {
+			import proxy_common
+			header_down -Content-Security-Policy
+		}
+	}
+
+	log {
+		output file /var/log/caddy/phone-codestra-agency-access.log {
+			roll_size 20MiB
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		import sanitized_access_log
+	}
+}
+
+dialer.codestra.agency {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Robots-Tag "noindex, nofollow"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options SAMEORIGIN
+		Permissions-Policy "camera=(), geolocation=(), microphone=(self)"
+		Content-Security-Policy "default-src 'self'; connect-src 'self' wss://wss.codestra.agency:8089 wss://api.codestra.agency; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; frame-ancestors 'none'"
+	}
+
+	@oauth path /oauth2/*
+	handle @oauth {
+		reverse_proxy {$CADDY_AGENT_GATEWAY_UPSTREAM} {
+			import proxy_common
+		}
+	}
+
+	@dialer_protected not path /oauth2/*
+	forward_auth @dialer_protected {$CADDY_AGENT_GATEWAY_UPSTREAM} {
+		uri /oauth2/auth
+		header_up X-Real-IP {remote_host}
+		copy_headers X-Auth-Request-User
+		@unauthenticated status 401
+		handle_response @unauthenticated {
+			redir * /oauth2/sign_in?rd={scheme}://{host}{uri} 302
+		}
+	}
+
+	@webphone path /webphone-api/* /ws/agent
+	handle @webphone {
+		request_body {
+			max_size 16KB
+		}
+		reverse_proxy {$CADDY_AGENT_GATEWAY_UPSTREAM} {
+			import proxy_common
+		}
+	}
+
+	handle_path /realtime-api/* {
+		request_body {
+			max_size 16KB
+		}
+		route {
+			forward_auth {$CADDY_AGENT_GATEWAY_UPSTREAM} {
+				uri /oauth2/auth
+				header_up X-Real-IP {remote_host}
+				copy_headers X-Auth-Request-Access-Token
+			}
+			request_header Authorization "Bearer {http.request.header.X-Auth-Request-Access-Token}"
+			reverse_proxy {$CADDY_REALTIME_UPSTREAM} {
+				import proxy_common
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy {$CADDY_AGENT_UI_UPSTREAM} {
+			import proxy_common
+			header_down -Content-Security-Policy
+		}
+	}
+
+	log {
+		output file /var/log/caddy/dialer-codestra-agency-access.log {
+			roll_size 20MiB
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		import sanitized_access_log
+	}
+}
