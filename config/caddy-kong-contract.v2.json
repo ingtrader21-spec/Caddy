@@ -1,0 +1,51 @@
+{
+  "schema": "codestra.caddy-kong-contract.v2",
+  "authority": {
+    "edge_repository": "appolon1908-hue/Caddy",
+    "source_root": "config/Caddyfile",
+    "gateway_repository": "appolon1908-hue/Kong",
+    "identity_repository": "appolon1908-hue/Keycloak",
+    "command_boundary_repository": "appolon1908-hue/Middleware-"
+  },
+  "request_chain": [
+    "client",
+    "caddy",
+    "kong",
+    "middleware",
+    "owned-downstream-service"
+  ],
+  "canonical_host": "api.codestra.co",
+  "kong_upstream_variable": "CADDY_KONG_UPSTREAM",
+  "known_kong_path_families": [
+    "/api/v1/control*",
+    "/api/v1/messages*",
+    "/api/v1/events*",
+    "/api/v1/results*",
+    "/api/v1/reconciliation*",
+    "/api/v1/health*",
+    "/api/v1/callbacks*",
+    "/api/v1/automation/policy-check",
+    "/api/v1/integrations/n8n/results",
+    "/v1/integrations/n8n*",
+    "/v1/admin/system*",
+    "/v1/crm*",
+    "/v1/email*",
+    "/v1/sms*",
+    "/v1/webhooks*",
+    "/v1/intake*"
+  ],
+  "unknown_path_action": "deny-404",
+  "legacy_fallback_authority": "config/legacy-fallbacks.v1.json",
+  "unrestricted_legacy_catch_all": false,
+  "direct_caddy_to_middleware_for_known_routes": false,
+  "preserve_authorization_for_kong": true,
+  "trusted_identity_headers_created_by_caddy": false,
+  "access_log_filter": "secure_log_filter",
+  "runtime": {
+    "container_name": "codestra-caddy-edge",
+    "image_repository": "ghcr.io/appolon1908-hue/codestra-caddy",
+    "image_identity": "digest-only",
+    "source_root_label": "config/Caddyfile",
+    "configuration_digest_label": "co.codestra.caddy.config-sha256"
+  }
+}
