@@ -17,6 +17,10 @@ class UnifiedComposeAuthorityTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
         self.assertIn("CADDY_UNIFIED_COMPOSE=PASS", result.stdout)
         self.assertIn("CADDY_COMPOSE_RUNTIME_OWNERS=1", result.stdout)
