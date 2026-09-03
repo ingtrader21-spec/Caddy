@@ -1,0 +1,19 @@
+{
+  "schema": "codestra.caddy.observability-exposure.v2",
+  "authority": "appolon1908-hue/Caddy",
+  "source_root": "config/Caddyfile",
+  "public_ui_routes": [
+    {"host": "grafana.codestra.media", "upstream_variable": "CADDY_GRAFANA_UPSTREAM", "native_oidc_required": true},
+    {"host": "supe.codestra.media", "upstream_variable": "CADDY_SUPERSET_UPSTREAM", "native_oidc_required": true},
+    {"host_variable": "CADDY_OPENBAO_HOST", "upstream_variable": "CADDY_OPENBAO_UPSTREAM", "source_cidr_variable": "CADDY_OPENBAO_ALLOWED_CIDRS", "native_oidc_required": true, "unmatched_action": "404"}
+  ],
+  "private_only": [
+    "prometheus", "alertmanager", "loki", "tempo", "opentelemetry-collector",
+    "alloy", "cadvisor", "node-exporter", "postgres-exporter", "redis-exporter",
+    "blackbox-exporter", "caddy-metrics"
+  ],
+  "caddy_metrics": {"listener": "127.0.0.1:2020", "path": "/metrics", "public_route": false},
+  "prohibited_public_hosts": ["pgex.codestra.media"],
+  "access_log_filter": "secure_log_filter",
+  "activation_requires_live_readback": true
+}
