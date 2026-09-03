@@ -1,0 +1,107 @@
+name: Auto-promote certified Caddy authority
+
+on:
+  push:
+    branches: [development, test, staging, production]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: caddy-auto-promote-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: auto-promote
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Check out exact promoted branch head
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate exact source and select target
+        id: target
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 scripts/validate_single_authority.py >/dev/null
+          case "$GITHUB_REF_NAME" in
+            development) target=test ;;
+            test) target=staging ;;
+            staging) target=production ;;
+            production) target=main ;;
+            *) exit 1 ;;
+          esac
+          printf 'source=%s\ntarget=%s\nsource_sha=%s\n' \
+            "$GITHUB_REF_NAME" "$target" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+      - name: Require non-recursive repository administration token
+        env:
+          GH_TOKEN: ${{ secrets.CODESTRA_GITHUB_ADMIN_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$GH_TOKEN"
+          gh api /user --jq .login >/dev/null
+      - name: Open or reuse exact promotion pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.CODESTRA_GITHUB_ADMIN_TOKEN }}
+          SOURCE: ${{ steps.target.outputs.source }}
+          TARGET: ${{ steps.target.outputs.target }}
+          SOURCE_SHA: ${{ steps.target.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          remote_sha="$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${SOURCE}" --jq .object.sha)"
+          test "$remote_sha" = "$SOURCE_SHA"
+          pr="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open \
+            --head "$SOURCE" --base "$TARGET" --json number --jq '.[0].number // empty')"
+          if [[ -z "$pr" ]]; then
+            gh pr create --repo "$GITHUB_REPOSITORY" \
+              --head "$SOURCE" --base "$TARGET" \
+              --title "promote: certified Caddy ${SOURCE} to ${TARGET}" \
+              --body "Automated immutable promotion of exact source SHA \`${SOURCE_SHA}\`. Merge is blocked by exact-head validation, synthetic merge-result validation, promotion guard, immutable image/security/rollback gates, staging certification for production, and the production read-only canary for main. No check or administrator protection is bypassed." \
+              >/dev/null
+            pr="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open \
+              --head "$SOURCE" --base "$TARGET" --json number --jq '.[0].number')"
+          fi
+          test -n "$pr"
+          actual_sha="$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)"
+          test "$actual_sha" = "$SOURCE_SHA"
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+      - name: Wait for every protected machine gate
+        env:
+          GH_TOKEN: ${{ secrets.CODESTRA_GITHUB_ADMIN_TOKEN }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          set -Eeuo pipefail
+          timeout 8400 gh pr checks "$PR" --repo "$GITHUB_REPOSITORY" \
+            --watch --fail-fast --interval 20
+      - name: Merge only the exact certified head
+        env:
+          GH_TOKEN: ${{ secrets.CODESTRA_GITHUB_ADMIN_TOKEN }}
+          PR: ${{ steps.pr.outputs.number }}
+          SOURCE_SHA: ${{ steps.target.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          response="$(gh api --method PUT \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/pulls/${PR}/merge" \
+            -f merge_method=merge -f sha="$SOURCE_SHA")"
+          test "$(jq -r .merged <<<"$response")" = true
+          printf 'MERGED_PR=%s\nSOURCE_SHA=%s\n' "$PR" "$SOURCE_SHA"
+      - name: Close superseded work after canonical main promotion
+        if: steps.target.outputs.target == 'main'
+        env:
+          GH_TOKEN: ${{ secrets.CODESTRA_GITHUB_ADMIN_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          for pr in 24 5 7 10 45; do
+            state="$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json state --jq .state 2>/dev/null || true)"
+            if [[ "$state" = OPEN ]]; then
+              gh pr close "$pr" --repo "$GITHUB_REPOSITORY" \
+                --comment "Superseded by the protected single-authority Caddy production promotion." >/dev/null
+            fi
+          done
