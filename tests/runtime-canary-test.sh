@@ -4,7 +4,17 @@ umask 077
 IMAGE_REF="${1:?usage: runtime-canary-test.sh IMAGE_REF}"
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 name="codestra-caddy-canary-${GITHUB_RUN_ID:-local}-$$"; work="$(mktemp -d)"; mock_pid=""
-cleanup(){ docker logs "$name" >"$work/caddy-container.log" 2>&1 || true; docker rm -f "$name" >/dev/null 2>&1 || true; [[ -z "$mock_pid" ]] || kill "$mock_pid" >/dev/null 2>&1 || true; rm -rf -- "$work"; }
+cleanup(){
+  docker logs "$name" >"$work/caddy-container.log" 2>&1 || true
+  docker rm -f "$name" >/dev/null 2>&1 || true
+  [[ -z "$mock_pid" ]] || kill "$mock_pid" >/dev/null 2>&1 || true
+  if ! rm -rf -- "$work" 2>/dev/null; then
+    if command -v sudo >/dev/null 2>&1; then
+      sudo -n rm -rf -- "$work" >/dev/null 2>&1 || true
+    fi
+  fi
+  return 0
+}
 trap cleanup EXIT
 cp -a "$ROOT/config" "$work/config"
 python3 - "$work/config/Caddyfile" <<'PY'
