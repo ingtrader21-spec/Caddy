@@ -30,8 +30,9 @@ Each system keeps its own source authority:
 ## Canonical source layout
 
 - `Caddyfile` — complete root source; Caddy admin API is loopback-only.
-- `snippets/security_headers.caddy` — shared security-header snippet owned here.
+- `snippets/security_headers.caddy` — shared security-header snippet owned here, including HSTS. Every site block must import it; `scripts/validate_repository.py` fails the build if one does not.
 - `sites/api.codestra.co.caddy` — shared API-edge routing source.
+- `sites/automation.codestra.co.caddy` — administrative editor host gated by Kong's Keycloak browser flow (see "Two editor hosts, two gates").
 - `config/caddy-kong-contract.v1.json` — machine-readable Caddy/Kong/Keycloak/Middleware boundary.
 - `config/runtime-values.example` — non-secret runtime variable names and repository-backed reference listeners.
 - `docs/CADDY_KONG_INTEGRATION.md` — migration and validation gates.
@@ -51,6 +52,40 @@ The runtime identity remains the canonical Keycloak-managed `n8n-automation`
 client. The editor gateway uses the existing `n8n_operator` and `n8n_admin`
 roles. Until OpenBao is commissioned, its client and cookie material is supplied
 as root-owned Docker secret files; only paths and rotation metadata belong here.
+
+## Two editor hosts, two gates
+
+This repository deliberately ships two n8n editor edges. They are different
+hosts with different audiences and different authentication gates, and both are
+current source authority. Neither supersedes the other.
+
+| Host | Chain | Gate | Audience |
+| --- | --- | --- | --- |
+| `automation.codestra.co` | Caddy -> Kong -> n8n | Kong runs the Keycloak authorization-code browser flow; n8n's native owner login stays enabled behind it | Codestra platform administrators |
+| `{$CADDY_N8N_EDITOR_HOST}` | Caddy -> oauth2-proxy -> n8n | oauth2-proxy owns the Keycloak OIDC session and injects identity | Community-edition editor users |
+
+`automation.codestra.co` additionally applies a `CADDY_EDITOR_ADMIN_CIDRS`
+source-range gate ahead of the browser flow. Caddy authenticates nobody on
+either host: it terminates TLS, strips spoofable identity headers, and hands off
+to the gate that owns identity for that host. Adding a third editor edge, or
+pointing either host directly at n8n on `:5678`, is prohibited.
+
+## Runtime values that must be supplied before deployment
+
+`config/runtime-values.example` ships deliberately unusable defaults. They fail
+closed — Caddy refuses to load or the host answers `404`/`403` — so a missing
+value can never widen access. None of them are deployable as written:
+
+| Variable | Shipped value | Why it cannot ship as-is |
+| --- | --- | --- |
+| `CADDY_EDITOR_ADMIN_CIDRS` | `REPLACE_WITH_VERIFIED_ADMIN_CIDRS` | Not a CIDR; Caddy fails to parse the `remote_ip` matcher and refuses the config. |
+| `CADDY_N8N_EDITOR_HOST` | `n8n-editor.invalid` | Reserved TLD; no DNS, no ACME certificate. |
+| `CADDY_OPENBAO_ALLOWED_CIDRS` | `192.0.2.0/24 198.51.100.0/24` | TEST-NET-1/TEST-NET-2 documentation ranges; no real client matches, so OpenBao answers `403`. |
+| `CADDY_GRAFANA_UPSTREAM`, `CADDY_SUPERSET_UPSTREAM`, `CADDY_OPENBAO_UPSTREAM` | loopback high ports | Repository-only validation references; they assert no production listener. |
+
+Supplying real values is a deployment-review step performed outside Git, and
+`validate_observability_exposure.py` fails if the committed examples are ever
+replaced with routable ranges.
 
 ## Caddy -> Kong integration
 

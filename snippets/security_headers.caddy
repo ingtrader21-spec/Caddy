@@ -1,5 +1,11 @@
+# Shared response-header policy imported by every public site block.
+#
+# Strict-Transport-Security lives here rather than in individual sites so that
+# adding a site cannot silently omit it. `preload` is deliberately absent: it is
+# a one-way submission to browser vendors and needs its own reviewed change.
 (security_headers) {
 	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
