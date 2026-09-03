@@ -29,4 +29,14 @@ Both hosted and bounded-staging redaction gates now:
 4. distinguish `grep` result 0 (secret found), 1 (secret absent), and all error states;
 5. fail on missing logs, unreadable logs, or search errors.
 
+## ERR-trap correction
+
+The first fail-closed implementation captured `grep` status after `set +e`. Bash still invokes an inherited `ERR` trap for a failing simple command, so a normal `grep` result of 1—meaning the secret was absent—stopped the canary before the status could be classified.
+
+The final implementation evaluates `grep` as the condition of an `if` statement. This suppresses the `ERR` trap only for the intentional status inspection and then preserves the required three-way decision:
+
+- result 0: the credential was found and certification fails;
+- result 1: the credential is absent and validation continues;
+- any other result: log inspection failed and certification fails.
+
 No production image, baseline SHA or digest, Caddy process, DNS, firewall, SSH, certificate, secret, unrelated workload, or traffic allocation was changed.
