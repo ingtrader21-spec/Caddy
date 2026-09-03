@@ -26,13 +26,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Verify, materialize, test, and commit canonical tree
+      - name: Verify, materialize, test, and commit non-workflow tree
         env:
           EXPECTED_BASE64_SHA256: a356aeb31d418cd36a4cafe731777136f35e12b0db351fe58836f29a5866b4dc
           EXPECTED_ARCHIVE_SHA256: 718b8f34fb4b1b7b8e25f489e9c96b715ecb22fb4dcbc39909968030edf67d52
         run: |
           set -Eeuo pipefail
           umask 077
+          export PYTHONDONTWRITEBYTECODE=1
 
           cat .reconciliation/part-* > /tmp/caddy-desired.tar.gz.b64
           test "$(sha256sum /tmp/caddy-desired.tar.gz.b64 | cut -d' ' -f1)" = "$EXPECTED_BASE64_SHA256"
@@ -40,7 +41,9 @@ jobs:
           test "$(sha256sum /tmp/caddy-desired.tar.gz | cut -d' ' -f1)" = "$EXPECTED_ARCHIVE_SHA256"
 
           materialized="$(mktemp -d)"
+          original_workflows="$(mktemp -d)"
           tar -xzf /tmp/caddy-desired.tar.gz -C "$materialized"
+          cp -a .github/workflows/. "$original_workflows"/
 
           rm -rf \
             .reconciliation \
@@ -49,8 +52,6 @@ jobs:
             sites \
             snippets
           rm -f \
-            .github/workflows/caddy-validate.yml \
-            .github/workflows/materialize-caddy-reconciliation.yml \
             config/caddy-kong-contract.v1.json \
             config/n8n-editor-community.v1.json \
             config/sites/current-production.caddy \
@@ -58,8 +59,12 @@ jobs:
             scripts/import-live-config.sh \
             scripts/validate.sh
 
-          cp -a "$materialized"/. ./
-          rm -rf "$materialized" /tmp/caddy-desired.tar.gz /tmp/caddy-desired.tar.gz.b64
+          tar -C "$materialized" --exclude='./.github/workflows' -cf - . | tar -xf -
+
+          # Use the desired workflows only while proving the complete intended tree.
+          rm -rf .github/workflows
+          mkdir -p .github/workflows
+          cp -a "$materialized/.github/workflows/." .github/workflows/
 
           python3 -m pip install --disable-pip-version-check --no-cache-dir PyYAML==6.0.3
           python3 - <<'PY'
@@ -76,15 +81,22 @@ jobs:
               py_compile.compile(str(path), doraise=True)
           print('CADDY_MATERIALIZED_STATIC_VALIDATION=PASS')
           PY
-
           find scripts tests -type f -name '*.sh' -exec bash -n {} +
           python3 scripts/validate_repository.py
           python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+          # Restore the existing workflow tree so this Actions token never writes workflows.
+          rm -rf .github/workflows
+          mkdir -p .github/workflows
+          cp -a "$original_workflows/." .github/workflows/
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          rm -rf "$materialized" "$original_workflows" /tmp/caddy-desired.tar.gz /tmp/caddy-desired.tar.gz.b64
 
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
           git diff --cached --check
           test -n "$(git diff --cached --name-only)"
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
           git commit -m 'fix: materialize canonical Caddy production authority'
           git push origin HEAD:fix/caddy-production-authority-reconciliation-20260903
