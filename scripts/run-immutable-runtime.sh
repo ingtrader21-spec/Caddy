@@ -11,6 +11,7 @@ COSIGN_BIN='/usr/local/bin/cosign'
 DOCKER_BIN='/usr/bin/docker'
 PYTHON_BIN='/usr/bin/python3'
 ATTESTATION_VERIFIER="$ROOT/scripts/verify-image-attestation.py"
+PKI_PREPARER="$ROOT/scripts/prepare-runtime-pki-permissions.sh"
 CERTIFICATE_IDENTITY='https://github.com/appolon1908-hue/Caddy/.github/workflows/immutable-release.yml@refs/heads/production'
 CERTIFICATE_ISSUER='https://token.actions.githubusercontent.com'
 CADDY_DATA_DIR="${CADDY_DATA_DIR:-/var/lib/codestra/caddy/data}"
@@ -34,6 +35,7 @@ trusted_executable() {
 }
 
 [[ $# -eq 0 ]] || fail arguments_not_allowed
+[[ "$(id -u)" -eq 0 ]] || fail root_required
 [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]] || fail invalid_source_sha
 [[ "$IMAGE_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail invalid_image_digest
 IMAGE_REF="${IMAGE_REPOSITORY}@sha256:${IMAGE_SHA256}"
@@ -41,6 +43,7 @@ IMAGE_REF="${IMAGE_REPOSITORY}@sha256:${IMAGE_SHA256}"
 for binary in "$COSIGN_BIN" "$DOCKER_BIN" "$PYTHON_BIN"; do
   trusted_executable "$binary"
 done
+[[ -x "$PKI_PREPARER" && ! -L "$PKI_PREPARER" ]] || fail pki_preparer_unavailable
 
 [[ -z "$(git -C "$ROOT" status --porcelain)" ]] || fail dirty_worktree
 [[ "$(git -C "$ROOT" branch --show-current)" == production ]] || fail wrong_branch
@@ -57,8 +60,16 @@ for state_dir in "$CADDY_DATA_DIR" "$CADDY_CONFIG_DIR"; do
   (( (mode_value & 0200) != 0 && (mode_value & 0022) == 0 )) || fail "state_mode:$state_dir"
 done
 
+# This changes metadata only on the fixed Caddy PKI files. It neither rotates
+# certificates nor changes their content, DNS, firewall, SSH, or unrelated
+# workloads. The non-root runtime must be able to traverse and read them.
+"$PKI_PREPARER"
 for trust_dir in /etc/caddy/private/klyrow-events /etc/codestra/pki/middleware-private-ingress; do
   [[ -d "$trust_dir" && ! -L "$trust_dir" ]] || fail "trust_path:$trust_dir"
+  [[ "$(stat -c '%u:%g:%a' -- "$trust_dir")" == '0:65532:750' ]] || fail "trust_directory_mode:$trust_dir"
+  while IFS= read -r trust_file; do
+    [[ "$(stat -c '%u:%g:%a' -- "$trust_file")" == '0:65532:440' ]] || fail "trust_file_mode:$trust_file"
+  done < <(find "$trust_dir" -mindepth 1 -maxdepth 1 -type f -print | sort)
 done
 
 export CADDY_CONFIG_SHA256
@@ -93,6 +104,8 @@ image_config="$("$DOCKER_BIN" image inspect --format '{{index .Config.Labels "io
 [[ "$image_source" == 'https://github.com/appolon1908-hue/Caddy' ]] || fail image_source
 [[ "$image_config" == "$CADDY_CONFIG_SHA256" ]] || fail image_config
 
+# Validate the exact mounted production configuration as the same non-root
+# identity before touching the running edge.
 "$DOCKER_BIN" compose -f "$COMPOSE" run --rm --no-deps \
   caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 "$DOCKER_BIN" compose -f "$COMPOSE" up -d --pull never --no-build caddy
