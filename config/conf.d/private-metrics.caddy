@@ -1,0 +1,9 @@
+# Private-only Caddy metrics and liveness. This listener is loopback-bound and
+# must never receive a public route or host-port mapping.
+http://127.0.0.1:2020 {
+	route {
+		metrics /metrics
+		respond /healthz 200
+		respond 404
+	}
+}
