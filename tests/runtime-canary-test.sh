@@ -200,13 +200,48 @@ curl -ksS --resolve api.codestra.co:443:127.0.0.2 \
   -H "Authorization: $auth_value" -H "Cookie: $cookie_value" -H "X-Api-Key: $api_key_value" \
   'https://api.codestra.co/api/v1/health?apikey=caddy-canary-query-secret&code=caddy-canary-code-secret&state=caddy-canary-state-secret' >/dev/null
 docker stop --time 10 "$NAME" >/dev/null
+
+# A redaction test is valid only when every generated access log is present and
+# readable. Normalize ownership in this disposable runner sandbox; never treat
+# grep's permission/error exit code as proof that a secret is absent.
+if ! find "$WORK/logs" -type f -print -quit | grep -q .; then
+  echo CADDY_CANARY_LOGS=FAIL:no_access_logs >&2
+  exit 1
+fi
+if find "$WORK/logs" -type f ! -readable -print -quit | grep -q .; then
+  command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1 || {
+    echo CADDY_CANARY_LOGS=FAIL:read_access_logs >&2
+    exit 1
+  }
+  sudo -n chown -R "$(id -u):$(id -g)" "$WORK/logs"
+fi
+while IFS= read -r -d '' log_file; do
+  [[ -r "$log_file" ]] || {
+    echo CADDY_CANARY_LOGS=FAIL:unreadable_access_log >&2
+    exit 1
+  }
+done < <(find "$WORK/logs" -type f -print0)
+
 for secret in \
   caddy-canary-auth-secret caddy-canary-cookie-secret caddy-canary-api-key-secret \
   caddy-canary-query-secret caddy-canary-code-secret caddy-canary-state-secret; do
-  ! grep -R -F "$secret" "$WORK/logs" || {
-    echo "CADDY_CANARY_REDACTION=FAIL:$secret" >&2
-    exit 1
-  }
+  if grep -R -F --quiet -- "$secret" "$WORK/logs"; then
+  grep_status=0
+else
+  grep_status=$?
+fi
+  case "$grep_status" in
+    0)
+      echo "CADDY_CANARY_REDACTION=FAIL:$secret" >&2
+      exit 1
+      ;;
+    1)
+      ;;
+    *)
+      echo CADDY_CANARY_LOGS=FAIL:grep_error >&2
+      exit 1
+      ;;
+  esac
 done
 
 grep -q '"port": 8000' "$WORK/mock-upstreams.jsonl"

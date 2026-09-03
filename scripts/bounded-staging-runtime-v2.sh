@@ -275,9 +275,43 @@ with_cert="$($CURL --noproxy '*' -ksS --output /dev/null --write-out '%{http_cod
   >/dev/null
 
 docker_cmd stop --time 15 "$CANDIDATE" >/dev/null
+
+if ! find "$work/logs" -type f -print -quit | grep -q .; then
+  echo BOUNDED_STAGING_LOGS=FAIL:no_access_logs >&2
+  exit 2
+fi
+if find "$work/logs" -type f ! -readable -print -quit | grep -q .; then
+  if [[ "$(id -u)" -eq 0 ]]; then
+    chown -R "$(id -u):$(id -g)" "$work/logs"
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    sudo -n chown -R "$(id -u):$(id -g)" "$work/logs"
+  else
+    echo BOUNDED_STAGING_LOGS=FAIL:read_access_logs >&2
+    exit 2
+  fi
+fi
+while IFS= read -r -d '' log_file; do
+  [[ -r "$log_file" ]] || {
+    echo BOUNDED_STAGING_LOGS=FAIL:unreadable_access_log >&2
+    exit 2
+  }
+done < <(find "$work/logs" -type f -print0)
+
 for secret in bounded-staging-auth-secret bounded-staging-cookie-secret bounded-staging-api-key-secret bounded-staging-query-secret bounded-staging-code-secret bounded-staging-state-secret; do
-  ! grep -R -F "$secret" "$work/logs" || fail log_redaction
- done
+  if grep -R -F --quiet -- "$secret" "$work/logs"; then
+  grep_status=0
+else
+  grep_status=$?
+fi
+  case "$grep_status" in
+    0) fail log_redaction ;;
+    1) ;;
+    *)
+      echo BOUNDED_STAGING_LOGS=FAIL:grep_error >&2
+      exit 2
+      ;;
+  esac
+done
 
 docker_cmd cp "$CANDIDATE:/etc/caddy/." "$work/config-copy"
 as_root rm -rf -- "$work/config-copy/private"
