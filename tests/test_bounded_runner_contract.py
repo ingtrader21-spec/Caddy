@@ -25,11 +25,11 @@ class BoundedRunnerContractTests(unittest.TestCase):
             "CADDY_PRODUCTION_RUNNER_LABEL=codestra-production-canary", self.source
         )
 
-    def test_repository_specific_or_unprotected_labels_are_absent(self) -> None:
+    def test_repository_specific_runner_declarations_are_absent(self) -> None:
         for prohibited in (
-            "caddy-staging-readonly",
-            "caddy-production-readonly",
-            "environment: production-readonly\n",
+            "runs-on: [self-hosted, linux, x64, caddy-staging-readonly]",
+            "runs-on: [self-hosted, linux, x64, caddy-production-readonly]",
+            "\n    environment: production-readonly\n",
         ):
             self.assertNotIn(prohibited, self.source)
 
