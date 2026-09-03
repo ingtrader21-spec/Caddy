@@ -16,6 +16,14 @@ cleanup(){
   return 0
 }
 trap cleanup EXIT
+on_error(){
+  local rc=$?
+  trap - ERR
+  printf 'CADDY_CANARY_FAILURE=line=%s rc=%s\n' "${BASH_LINENO[0]:-$LINENO}" "$rc" >&2
+  docker inspect --format 'CADDY_CANARY_CONTAINER_STATE=running={{.State.Running}} exit={{.State.ExitCode}} error={{json .State.Error}}' "$name" >&2 2>/dev/null || true
+  exit "$rc"
+}
+trap on_error ERR
 cp -a "$ROOT/config" "$work/config"
 python3 - "$work/config/Caddyfile" <<'PY'
 from pathlib import Path
