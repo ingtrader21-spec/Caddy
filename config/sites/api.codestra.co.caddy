@@ -1,0 +1,72 @@
+# Canonical shared API edge. Kong owns authentication, authorization, scopes,
+# rate limits and the handoff to Middleware for every accepted route family.
+api.codestra.co {
+	import security_headers
+	encode zstd gzip
+
+	request_body {
+		max_size 10MB
+	}
+
+	route {
+		@kong path /api/v1/control* /api/v1/messages* /api/v1/events* /api/v1/results* /api/v1/reconciliation* /api/v1/health* /api/v1/callbacks* /api/v1/automation/policy-check /api/v1/integrations/n8n/results /v1/integrations/n8n* /v1/admin/system* /v1/crm* /v1/email* /v1/sms* /v1/webhooks* /v1/intake*
+		handle @kong {
+			header X-Codestra-Upstream-Class "kong"
+			reverse_proxy {$CADDY_KONG_UPSTREAM} {
+				header_up Host {host}
+				header_up X-Real-IP {remote_host}
+			}
+		}
+
+		# The only temporary fallback is explicitly enumerated in
+		# config/legacy-fallbacks.v1.json. No catch-all legacy proxy is allowed.
+		@legacy_ws {
+			method GET
+			path /ws/agent
+		}
+		handle @legacy_ws {
+			header X-Codestra-Upstream-Class "realtime-legacy-v1"
+			reverse_proxy {$CADDY_REALTIME_UPSTREAM} {
+				header_up Host {host}
+				header_up X-Real-IP {remote_host}
+			}
+		}
+
+		@legacy_session {
+			method GET HEAD POST
+			path /api/v1/realtime/sessions
+		}
+		handle @legacy_session {
+			header X-Codestra-Upstream-Class "realtime-legacy-v1"
+			reverse_proxy {$CADDY_REALTIME_UPSTREAM} {
+				header_up Host {host}
+				header_up X-Real-IP {remote_host}
+			}
+		}
+
+		@legacy_status {
+			method GET HEAD
+			path /healthz /readyz /version
+		}
+		handle @legacy_status {
+			header X-Codestra-Upstream-Class "realtime-legacy-v1"
+			reverse_proxy {$CADDY_REALTIME_UPSTREAM} {
+				header_up Host {host}
+				header_up X-Real-IP {remote_host}
+			}
+		}
+
+		# Unknown paths fail closed rather than bypassing Kong.
+		handle {
+			respond "Not Found" 404
+		}
+	}
+
+	log {
+		output file /var/log/caddy/api-codestra-co-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		import secure_log_filter
+	}
+}
