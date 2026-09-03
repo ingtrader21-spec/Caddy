@@ -22,14 +22,27 @@ temporary="$(mktemp)"
 trap 'rm -f -- "$temporary"' EXIT
 python3 "$VALIDATOR" >"$temporary"
 python3 - "$temporary" <<'PY'
-import json,sys
+import json
+import sys
+
 data=json.load(open(sys.argv[1],encoding='utf-8'))
 assert data.get('schema')=='codestra.caddy-container-validation.v2'
 assert data.get('config_validation')=='PASS'
 assert data.get('config_identity')=='PASS'
 assert data.get('container_running') is True
 assert data.get('container_health')=='healthy'
-assert {'tcp/80','tcp/443','udp/443','tcp/2020-private'} <= set(data.get('listeners') or [])
+assert data.get('caddy_process_count')==1
+assert data.get('listener_ownership')=='CADDY_PROCESS_ONLY'
+listeners=set(data.get('listeners') or [])
+requirements=(
+    ('tcp/', ':80@caddy-pid'),
+    ('tcp/', ':443@caddy-pid'),
+    ('udp/', ':443@caddy-pid'),
+    ('tcp/', ':2020@caddy-pid'),
+    ('tcp/', ':18080@caddy-pid'),
+)
+for prefix,suffix in requirements:
+    assert any(item.startswith(prefix) and item.endswith(suffix) for item in listeners), (prefix,suffix,listeners)
 PY
 as_root install -d -m 0700 "$EVIDENCE_DIR"
 final="$EVIDENCE_DIR/caddy-production-canary-$stamp.json"
@@ -40,4 +53,4 @@ rm -f -- "$temporary"; trap - EXIT
 actual_image="$("$DOCKER_BIN" inspect --format '{{.Config.Image}}' codestra-caddy)"
 actual_source="$("$DOCKER_BIN" inspect --format '{{index .Config.Labels "io.codestra.caddy.source.sha"}}' codestra-caddy)"
 actual_config="$("$DOCKER_BIN" inspect --format '{{index .Config.Labels "io.codestra.caddy.config.sha256"}}' codestra-caddy)"
-printf 'CADDY_PRODUCTION_CANARY=PASS\nEVIDENCE=%s\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\n' "$final" "$actual_source" "$actual_image" "$actual_config"
+printf 'CADDY_PRODUCTION_CANARY=PASS\nEVIDENCE=%s\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nLISTENER_OWNERSHIP=CADDY_PROCESS_ONLY\n' "$final" "$actual_source" "$actual_image" "$actual_config"
