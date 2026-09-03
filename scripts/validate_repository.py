@@ -241,6 +241,30 @@ for token in (
 if "preload" in SHARED_HEADER_DIRECTIVES:
     raise SystemExit("CADDY_AUTHORITY_ERROR=hsts_preload_requires_separate_review")
 
+# The governance script is the only thing that rewrites live branch protection.
+# It previously set zero approvals on every branch (weaker than
+# config/github/main-ruleset.json), required contexts no workflow reports, and
+# sent org-only fields that GitHub rejects on a user-owned repository. Guard all
+# three so a dispatch of apply-branch-protection.yml cannot silently weaken or
+# deadlock the promotion chain.
+GOVERNANCE_SCRIPT = ROOT / "governance" / "apply-branch-protection.sh"
+if not GOVERNANCE_SCRIPT.exists():
+    raise SystemExit("CADDY_AUTHORITY_ERROR=missing_required_file:governance/apply-branch-protection.sh")
+GOVERNANCE = "\n".join(
+    line for line in GOVERNANCE_SCRIPT.read_text(encoding="utf-8").splitlines()
+    if not line.lstrip().startswith("#")
+)
+if "required_approving_review_count:1" not in GOVERNANCE.replace(" ", ""):
+    raise SystemExit("CADDY_AUTHORITY_ERROR=governance_requires_one_approval")
+if "required_approving_review_count:0" in GOVERNANCE.replace(" ", ""):
+    raise SystemExit("CADDY_AUTHORITY_ERROR=governance_zero_approval_prohibited")
+for phantom in ("exact-head-validation", "merge-result-validation"):
+    if phantom in GOVERNANCE:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=governance_unreported_status_context:{phantom}")
+for org_only in ("dismissal_restrictions", "bypass_pull_request_allowances"):
+    if org_only in GOVERNANCE:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=governance_org_only_field:{org_only}")
+
 secret_patterns = (
     r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
     r"(?i)client_secret\s*[=:]\s*[^<\s][^\s]*",
