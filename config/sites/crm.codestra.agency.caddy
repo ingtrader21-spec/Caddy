@@ -1,0 +1,27 @@
+crm.codestra.agency {
+	import security_headers
+	encode gzip
+
+	@reseller path /reseller /reseller/*
+	handle @reseller {
+		uri strip_prefix /reseller
+		reverse_proxy {$CADDY_CRM_RESELLER_UPSTREAM} {
+			import proxy_common
+		}
+	}
+
+	handle {
+		reverse_proxy {$CADDY_CRM_UPSTREAM} {
+			import proxy_common
+		}
+	}
+
+	log {
+		output file /var/log/caddy/crm-codestra-agency-access.log {
+			roll_size 20MiB
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		import sanitized_access_log
+	}
+}

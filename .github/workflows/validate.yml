@@ -1,15 +1,16 @@
-name: Validate Caddy source authority
+name: Validate Caddy production authority
 
 on:
   pull_request:
+    branches: [development, test, staging, production, main]
   push:
-    branches: [main, development, test, production]
+    branches: [development, test, staging, production, main]
 
 permissions:
   contents: read
 
 concurrency:
-  group: caddy-validate-${{ github.workflow }}-${{ github.ref }}
+  group: caddy-authority-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -19,72 +20,152 @@ defaults:
 jobs:
   validate-source:
     name: validate-source
-    runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     env:
       EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
     steps:
-      - name: Check out exact source SHA
+      - name: Check out the exact source SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          fetch-depth: 1
-          persist-credentials: false
           ref: ${{ env.EXPECTED_SHA }}
-      - name: Verify exact source identity
-        run: |
-          set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          echo "SOURCE_SHA=$EXPECTED_SHA"
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove exact source identity
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Pin validation Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.13'
-      - name: Validate exact source and immutable Caddy configuration
+      - name: Validate the sole deployable Caddy tree
         run: bash scripts/validate-ci.sh
 
   validate-merge-result:
     name: validate-merge-result
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     env:
       EXPECTED_SHA: ${{ github.sha }}
     steps:
-      - name: Check out exact merge-result SHA
+      - name: Check out the exact synthetic merge result
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          fetch-depth: 1
-          persist-credentials: false
           ref: ${{ env.EXPECTED_SHA }}
-      - name: Verify exact merge-result identity
-        run: |
-          set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          echo "MERGE_RESULT_SHA=$EXPECTED_SHA"
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove exact merge-result identity
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Pin validation Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.13'
-      - name: Validate exact merge result and immutable Caddy configuration
+      - name: Validate the exact merge result
         run: bash scripts/validate-ci.sh
+
+  promotion-guard:
+    name: promotion-guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Enforce the reviewed promotion chain
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          set -Eeuo pipefail
+          if [[ "$EVENT_NAME" != pull_request ]]; then
+            echo PROMOTION_GUARD=PASS
+            exit 0
+          fi
+          case "$BASE" in
+            development)
+              [[ "$HEAD" =~ ^(feat|fix|chore|docs|refactor)/ ]] ;;
+            test)
+              [[ "$HEAD" == development ]] ;;
+            staging)
+              [[ "$HEAD" == test ]] ;;
+            production)
+              [[ "$HEAD" == staging ]] ;;
+            main)
+              [[ "$HEAD" == production ]] ;;
+            *)
+              exit 1 ;;
+          esac
+          echo "PROMOTION_GUARD=PASS route=$HEAD->$BASE"
+
+  immutable-release-gate:
+    name: immutable-release-gate
+    needs: [validate-source]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      LOCAL_IMAGE: local/codestra-caddy:${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      CADDY_UPSTREAM_SHA: e2eee6a7fce366321294c9c2a79f3146891dcbdf
+    steps:
+      - name: Check out the exact source SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.EXPECTED_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove exact source identity
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Pin Go toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.26.6'
+          cache: false
+      - name: Build immutable release inputs
+        run: bash scripts/build-release-inputs.sh
+      - name: Build exact-head image
+        run: |
+          set -Eeuo pipefail
+          CONFIG_SHA256="$(cat build/config-sha256.txt)"
+          docker build \
+            --build-arg "BUILD_CREATED=${{ github.event.pull_request.updated_at || github.event.head_commit.timestamp }}" \
+            --build-arg "SOURCE_URL=${{ github.server_url }}/${{ github.repository }}" \
+            --build-arg "VCS_REF=$EXPECTED_SHA" \
+            --build-arg "VERSION=$EXPECTED_SHA" \
+            --build-arg "CONFIG_SHA256=$CONFIG_SHA256" \
+            --build-arg "CADDY_UPSTREAM_SHA=$CADDY_UPSTREAM_SHA" \
+            --tag "$LOCAL_IMAGE" .
+      - name: Prove non-root privileged-port binding
+        run: tests/runtime-bind-test.sh "$LOCAL_IMAGE"
+      - name: Run isolated route, TLS, mTLS, denial, and redaction canary
+        run: tests/runtime-canary-test.sh "$LOCAL_IMAGE"
+      - name: Scan exact image for HIGH and CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: false
+          exit-code: '1'
 
   validate:
     name: validate
     if: always()
-    needs: [validate-source, validate-merge-result]
-    runs-on: ubuntu-22.04
+    needs: [validate-source, validate-merge-result, promotion-guard, immutable-release-gate]
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
-      - name: Preserve the protected legacy aggregate context
+      - name: Preserve the protected aggregate context
         env:
           EVENT_NAME: ${{ github.event_name }}
-          SOURCE_RESULT: ${{ needs.validate-source.result }}
+          SOURCE: ${{ needs.validate-source.result }}
           MERGE_RESULT: ${{ needs.validate-merge-result.result }}
+          PROMOTION: ${{ needs.promotion-guard.result }}
+          IMMUTABLE: ${{ needs.immutable-release-gate.result }}
         run: |
           set -Eeuo pipefail
-          test "$SOURCE_RESULT" = success
+          test "$SOURCE" = success
+          test "$PROMOTION" = success
+          test "$IMMUTABLE" = success
           if [[ "$EVENT_NAME" == pull_request ]]; then
             test "$MERGE_RESULT" = success
           else
             test "$MERGE_RESULT" = skipped
           fi
+          echo CADDY_PROTECTED_AGGREGATE=PASS

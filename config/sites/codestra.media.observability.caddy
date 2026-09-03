@@ -1,9 +1,7 @@
-# Repository-only Codestra observability UI routes. Native monitoring services
-# are intentionally absent: the validator rejects any public Caddy route for them.
-
+# Only browser-facing observability applications are public. Prometheus,
+# Alertmanager, Loki, Tempo, OTel, Alloy, exporters, and cAdvisor stay private.
 graf.codestra.media {
 	import security_headers
-	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	encode zstd gzip
 
 	request_body {
@@ -35,26 +33,14 @@ graf.codestra.media {
 		output file /var/log/caddy/graf-codestra-media-access.log {
 			roll_size 20MiB
 			roll_keep 5
+			roll_keep_for 720h
 		}
-		format filter {
-			request>headers>Authorization delete
-			request>headers>Cookie delete
-			request>uri query {
-				delete access_token
-				delete code
-				delete id_token
-				delete session_state
-				delete state
-				delete token
-			}
-			resp_headers>Set-Cookie delete
-		}
+		import sanitized_access_log
 	}
 }
 
 supe.codestra.media {
 	import security_headers
-	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	encode zstd gzip
 
 	request_body {
@@ -86,30 +72,17 @@ supe.codestra.media {
 		output file /var/log/caddy/supe-codestra-media-access.log {
 			roll_size 20MiB
 			roll_keep 5
+			roll_keep_for 720h
 		}
-		format filter {
-			request>headers>Authorization delete
-			request>headers>Cookie delete
-			request>uri query {
-				delete access_token
-				delete code
-				delete id_token
-				delete session_state
-				delete state
-				delete token
-			}
-			resp_headers>Set-Cookie delete
-		}
+		import sanitized_access_log
 	}
 }
 
 bao.codestra.media {
 	import security_headers
-	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	encode zstd gzip
 
 	@openbao_allowed remote_ip {$CADDY_OPENBAO_ALLOWED_CIDRS}
-
 	handle @openbao_allowed {
 		request_body {
 			max_size 2MB
@@ -145,21 +118,8 @@ bao.codestra.media {
 		output file /var/log/caddy/bao-codestra-media-access.log {
 			roll_size 20MiB
 			roll_keep 10
+			roll_keep_for 720h
 		}
-		format filter {
-			request>headers>Authorization delete
-			request>headers>Cookie delete
-			request>headers>X-Vault-Token delete
-			request>headers>X-Bao-Token delete
-			request>uri query {
-				delete access_token
-				delete code
-				delete id_token
-				delete session_state
-				delete state
-				delete token
-			}
-			resp_headers>Set-Cookie delete
-		}
+		import sanitized_access_log
 	}
 }

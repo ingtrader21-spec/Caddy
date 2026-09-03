@@ -8,315 +8,303 @@ from pathlib import Path
 from caddy_kong_contract import validate_exact_kong_routes
 
 ROOT = Path(__file__).resolve().parents[1]
-README_PATH = ROOT / "README.md"
-SITE_PATH = ROOT / "candidate" / "sites" / "api.codestra.co.caddy"
-N8N_SITE_PATH = ROOT / "candidate" / "sites" / "n8n-editor.community.caddy"
-ROOT_CADDYFILE = ROOT / "candidate" / "Caddyfile"
-SECURITY_HEADERS = ROOT / "candidate" / "snippets" / "security_headers.caddy"
-CONTRACT_PATH = ROOT / "config" / "caddy-kong-contract.v1.json"
-N8N_CONTRACT_PATH = ROOT / "config" / "n8n-editor-community.v1.json"
-RUNTIME_EXAMPLE = ROOT / "config" / "runtime-values.example"
-INTEGRATION_DOC = ROOT / "docs" / "CADDY_KONG_INTEGRATION.md"
-N8N_DOC = ROOT / "docs" / "N8N_COMMUNITY_EDITOR_PROTECTION.md"
-DEPLOY_SCRIPT = ROOT / "scripts" / "deploy-production.sh"
-RUNTIME_COMPOSE = ROOT / "deploy" / "compose.runtime.yaml"
-RUNTIME_LAUNCHER = ROOT / "scripts" / "run-immutable-runtime.sh"
-RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "immutable-release.yml"
+CONFIG = ROOT / "config"
+SITE_DIR = CONFIG / "sites"
+CONF_DIR = CONFIG / "conf.d"
+WORKFLOWS = ROOT / ".github/workflows"
 
-for path in (
-    README_PATH,
-    SITE_PATH,
-    N8N_SITE_PATH,
-    ROOT_CADDYFILE,
-    SECURITY_HEADERS,
-    CONTRACT_PATH,
-    N8N_CONTRACT_PATH,
-    RUNTIME_EXAMPLE,
-    INTEGRATION_DOC,
-    N8N_DOC,
-    DEPLOY_SCRIPT,
-    RUNTIME_COMPOSE,
-    RUNTIME_LAUNCHER,
-    RELEASE_WORKFLOW,
-):
-    if not path.exists():
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=missing_required_file:{path.relative_to(ROOT)}")
-
-README = README_PATH.read_text(encoding="utf-8")
-SITE = SITE_PATH.read_text(encoding="utf-8")
-N8N_SITE = N8N_SITE_PATH.read_text(encoding="utf-8")
-CADDYFILE = ROOT_CADDYFILE.read_text(encoding="utf-8")
-CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-N8N_CONTRACT = json.loads(N8N_CONTRACT_PATH.read_text(encoding="utf-8"))
-RUNTIME = RUNTIME_EXAMPLE.read_text(encoding="utf-8")
-DEPLOY = DEPLOY_SCRIPT.read_text(encoding="utf-8")
-COMPOSE = RUNTIME_COMPOSE.read_text(encoding="utf-8")
-RUNTIME_RUNNER = RUNTIME_LAUNCHER.read_text(encoding="utf-8")
-RELEASE = RELEASE_WORKFLOW.read_text(encoding="utf-8")
-
-for token in (
-    "CADDY_REVIEWED_SHA",
-    "refs/remotes/origin/production",
-    'git -C "$ROOT" archive --format=tar "$REVIEWED_SHA" -- config',
-    '--strip-components=1',
-    'cp -a -- "$TARGET_DIR/private" "$staged/private"',
-    'mv "$TARGET_DIR" "$failed"',
-    'validate --config "$staged/Caddyfile"',
-):
-    if token not in DEPLOY:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=deployment_gate_missing:{token}")
-
-for token in (
-    'read_only: true',
-    '/run/caddy:uid=65532,gid=65532,mode=0700',
-    '/var/log/caddy:uid=65532,gid=65532,mode=0700',
-    'user: "65532:65532"',
-    'XDG_DATA_HOME: /data',
-    'XDG_CONFIG_HOME: /config',
-    'network_mode: host',
-    'cap_drop:',
-    'cap_add:',
-    'NET_BIND_SERVICE',
-    'no-new-privileges:true',
-    'source: /etc/caddy/private/klyrow-events',
-    'source: /etc/codestra/pki/middleware-private-ingress',
-    'ghcr.io/appolon1908-hue/codestra-caddy@sha256:${CADDY_IMAGE_SHA256:',
-):
-    if token not in COMPOSE:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=nonroot_runtime_mount_missing:{token}")
-
-if "CADDY_IMAGE:?" in COMPOSE or "ports:" in COMPOSE:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=mutable_or_bridged_runtime")
-
-for token in (
-    '[[ ! "$IMAGE_SHA256" =~ ^[0-9a-f]{64}$ ]]',
-    '[[ "$(git -C "$ROOT" branch --show-current)" != "production" ]]',
-    'refs/remotes/origin/production',
-    'stat -c \'%u:%g\'',
-    '[[ "$owner" != "65532:65532" ]]',
-    'mode_value=$((8#$mode))',
-    '"$DOCKER_BIN" compose -f "$COMPOSE" config --quiet',
-    '"$COSIGN_BIN" verify',
-    '"$COSIGN_BIN" verify-attestation',
-    'scripts/verify-image-attestation.py',
-    '--certificate-identity "$CERTIFICATE_IDENTITY"',
-    '--certificate-oidc-issuer "$CERTIFICATE_ISSUER"',
-    '"$DOCKER_BIN" pull "$IMAGE_REF"',
-    'org.opencontainers.image.revision',
-    '[[ "$image_revision" != "$REVIEWED_SHA" ]]',
-    'run --rm --no-deps caddy',
-    'up -d --pull never --no-build',
-):
-    if token not in RUNTIME_RUNNER:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=runtime_launcher_gate_missing:{token}")
-
-for token in (
-    "caddy-binary-build-attestation.json",
-    "cosign sign-blob",
-    "cosign verify-blob",
-    "BINARY_BUILD_ATTESTATION=PASS",
-    "cosign attest --yes",
-    "https://codestra.co/attestations/caddy-source/v1",
-    "SOURCE_PROVENANCE=PASS",
-    "tests/runtime-bind-test.sh",
-    "build/codestra-set-bind-capability",
-    "branches: [production]",
-    "refs/heads/production$",
-):
-    if token not in RELEASE:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=binary_attestation_missing:{token}")
-
-if "branches: [main]" in RELEASE or "refs/heads/main$" in RELEASE:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=image_release_not_bound_to_production")
-
-required_repositories = (
-    "appolon1908-hue/Caddy",
-    "appolon1908-hue/Kong",
-    "appolon1908-hue/Keycloak",
-    "appolon1908-hue/Middleware-",
-    "appolon1908-hue/codestra-production-platform",
+REQUIRED_PATHS = (
+    CONFIG / "Caddyfile",
+    CONFIG / "caddy-kong-contract.v2.json",
+    CONFIG / "n8n-editor-community.v2.json",
+    CONFIG / "observability-exposure.v2.json",
+    CONFIG / "release-baseline.v1.json",
+    CONFIG / "runtime-values.example",
+    CONFIG / "github/protected-branches-ruleset.json",
+    CONFIG / "snippets/security.caddy",
+    CONFIG / "snippets/logging.caddy",
+    SITE_DIR / "api.codestra.co.caddy",
+    SITE_DIR / "legacy-api.codestra.agency.caddy",
+    SITE_DIR / "automation.codestra.co.caddy",
+    SITE_DIR / "codestra.media.observability.caddy",
+    ROOT / "Dockerfile",
+    ROOT / "deploy/compose.runtime.yaml",
+    ROOT / "scripts/caddy_readonly_validator.py",
+    ROOT / "scripts/run-immutable-runtime.sh",
+    ROOT / "scripts/rollback-runtime.sh",
+    ROOT / "scripts/verify-rollback-baseline.sh",
+    ROOT / "scripts/production-canary.sh",
+    ROOT / "scripts/hash_config_tree.py",
+    ROOT / "scripts/verify-image-attestation.py",
+    ROOT / "scripts/validate_complete_redaction.py",
+    WORKFLOWS / "validate.yml",
+    WORKFLOWS / "immutable-release.yml",
+    WORKFLOWS / "promotion-guard.yml",
+    WORKFLOWS / "apply-branch-ruleset.yml",
 )
-for value in required_repositories:
-    if value not in README:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=missing_reference:{value}")
 
-if CONTRACT.get("schema") != "codestra.caddy-kong-edge.v1":
-    raise SystemExit("CADDY_AUTHORITY_ERROR=unsupported_contract_schema")
-if CONTRACT.get("principalRepository") != "appolon1908-hue/Caddy":
-    raise SystemExit("CADDY_AUTHORITY_ERROR=caddy_not_principal")
-if CONTRACT.get("gatewayRepository") != "appolon1908-hue/Kong":
-    raise SystemExit("CADDY_AUTHORITY_ERROR=wrong_gateway_principal")
-if CONTRACT.get("referenceRepository") != "appolon1908-hue/codestra-production-platform":
-    raise SystemExit("CADDY_AUTHORITY_ERROR=wrong_reference_repository")
-if CONTRACT.get("canonicalHost") != "api.codestra.co":
-    raise SystemExit("CADDY_AUTHORITY_ERROR=wrong_canonical_host")
 
-identity = CONTRACT.get("identityBoundary") or {}
-expected_identity = {
-    "caddyAuthenticatesUsersOrServices": False,
-    "authorizationHeaderForwardedToKong": True,
-    "caddyCreatesTrustedApplicationIdentityHeaders": False,
-    "kongPerformsOidcJwtAndScopePolicy": True,
-    "middlewareRevalidatesPrivilegedAuthorization": True,
-}
-for key, expected in expected_identity.items():
-    if identity.get(key) is not expected:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=identity_boundary:{key}")
+def require_tokens(source: str, tokens: tuple[str, ...], scope: str) -> None:
+    for token in tokens:
+        if token not in source:
+            raise SystemExit(f"CADDY_REPOSITORY_ERROR={scope}:{token}")
 
-migration = CONTRACT.get("migration") or {}
-if migration.get("productionCutoverAuthorizedBySource") is not False:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=source_must_not_authorize_cutover")
-if migration.get("runtimeInventoryRequiredBeforeCutover") is not True:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=runtime_inventory_gate_missing")
-if migration.get("rollbackRehearsalRequiredBeforeCutover") is not True:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=rollback_gate_missing")
 
-if "historical deployment evidence" not in README:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=platform_not_reference_only")
-if "operations/caddy/api.codestra.co.caddy" not in SITE:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=missing_import_provenance")
-if "api.codestra.co {" not in SITE:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=missing_api_site")
-if "{$CADDY_KONG_UPSTREAM}" not in SITE:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=kong_handoff_missing")
-if "header_up Host {host}" not in SITE:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=kong_host_preservation_missing")
-if "Authorization delete" not in SITE:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=authorization_log_redaction_missing")
-if "header_up Authorization" in SITE or "header_up -Authorization" in SITE:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=authorization_forwarding_modified")
+def main() -> int:
+    for path in REQUIRED_PATHS:
+        if not path.is_file():
+            raise SystemExit(f"CADDY_REPOSITORY_ERROR=missing:{path.relative_to(ROOT)}")
 
-for forbidden_header in (
-    "X-Authenticated-Client",
-    "X-Authenticated-Tenant",
-    "X-Authenticated-Role",
-    "X-Codestra-Gateway-Secret",
-):
-    if forbidden_header in SITE:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=trusted_identity_header_in_caddy:{forbidden_header}")
+    if (ROOT / "candidate").exists():
+        raise SystemExit("CADDY_REPOSITORY_ERROR=competing_candidate_tree")
+    if (SITE_DIR / "current-production.caddy").exists():
+        raise SystemExit("CADDY_REPOSITORY_ERROR=legacy_aggregate_site_tree")
 
-for forbidden_target in (
-    "codestra-middleware-integration-api-1",
-    ":8095",
-    "http://middleware",
-    "https://middleware",
-):
-    if forbidden_target in SITE:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=direct_middleware_target:{forbidden_target}")
+    caddyfile = (CONFIG / "Caddyfile").read_text(encoding="utf-8")
+    require_tokens(
+        caddyfile,
+        (
+            "admin unix//run/caddy/admin.sock",
+            "default_bind {$CADDY_PUBLIC_BIND} 127.0.0.1",
+            "metrics",
+            "bind {$CADDY_PRIVATE_METRICS_BIND}",
+            "metrics /metrics",
+            "import snippets/*.caddy",
+            "import sites/*.caddy",
+            "import conf.d/*.caddy",
+        ),
+        "root_contract",
+    )
+    if "0.0.0.0:2019" in caddyfile or "admin :2019" in caddyfile:
+        raise SystemExit("CADDY_REPOSITORY_ERROR=public_admin_api")
 
-managed_paths = CONTRACT.get("kongManagedPathPrefixes")
-if not isinstance(managed_paths, list) or not managed_paths:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=missing_kong_managed_paths")
-for path_prefix in managed_paths:
-    if not isinstance(path_prefix, str) or not path_prefix.startswith("/"):
-        raise SystemExit("CADDY_AUTHORITY_ERROR=invalid_kong_path")
-try:
-    validate_exact_kong_routes(SITE, managed_paths)
-except ValueError as exc:
-    raise SystemExit(f"CADDY_AUTHORITY_ERROR={exc}") from exc
+    contract = json.loads((CONFIG / "caddy-kong-contract.v2.json").read_text())
+    if (
+        contract.get("schema") != "codestra.caddy-kong-edge.v2"
+        or contract.get("principalRepository") != "appolon1908-hue/Caddy"
+    ):
+        raise SystemExit("CADDY_REPOSITORY_ERROR=contract_authority")
+    if contract.get("legacyApiFallback") != {
+        "enabled": False,
+        "unrestrictedCatchAllAllowed": False,
+        "unknownPathsReturn": 404,
+    }:
+        raise SystemExit("CADDY_REPOSITORY_ERROR=legacy_fallback_not_closed")
 
-# n8n Community editor boundary. Caddy terminates TLS but oauth2-proxy owns
-# Keycloak OIDC; the editor is never routed directly to n8n.
-if N8N_CONTRACT.get("schema_version") != "1.0":
-    raise SystemExit("CADDY_AUTHORITY_ERROR=unsupported_n8n_editor_contract")
-if N8N_CONTRACT.get("contract_id") != "codestra.n8n-community-editor-edge":
-    raise SystemExit("CADDY_AUTHORITY_ERROR=wrong_n8n_editor_contract")
-expected_n8n_contract = {
-    "status": "PREPARED_NOT_APPLIED",
-    "principal_repository": "appolon1908-hue/Caddy",
-    "runtime_repository": "appolon1908-hue/N8N",
-    "identity_repository": "appolon1908-hue/Keycloak",
-    "identity_provider": "Keycloak",
-    "authentication_gateway": "oauth2-proxy",
-    "issuer": "https://auth.codestra.co/realms/codestra",
-    "authorization_code_flow": True,
-    "pkce_method": "S256",
-    "native_n8n_owner_login_required": True,
-    "enterprise_n8n_sso_required": False,
-    "direct_n8n_public_exposure": False,
-    "spoofable_identity_headers_stripped": True,
-    "secrets_in_repository": False,
-    "deployment_authorized": False,
-}
-for key, expected in expected_n8n_contract.items():
-    if N8N_CONTRACT.get(key) != expected:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=n8n_editor_contract:{key}")
-if set(N8N_CONTRACT.get("required_any_roles") or []) != {"n8n_operator", "n8n_admin"}:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=n8n_editor_roles")
-if N8N_CONTRACT.get("edge_chain") != ["Caddy", "oauth2-proxy", "n8n"]:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=n8n_editor_chain")
+    managed = contract.get("kongManagedPathPrefixes") or []
+    compatibility = contract.get("explicitCompatibilityPaths") or []
+    for site_name in ("api.codestra.co.caddy", "legacy-api.codestra.agency.caddy"):
+        source = (SITE_DIR / site_name).read_text(encoding="utf-8")
+        validate_exact_kong_routes(source, managed)
+        if "{$CADDY_KONG_UPSTREAM}" not in source:
+            raise SystemExit(f"CADDY_REPOSITORY_ERROR=kong_missing:{site_name}")
+        if "CADDY_LEGACY_API_UPSTREAM" in source or "127.0.0.1:18101" in source:
+            raise SystemExit(f"CADDY_REPOSITORY_ERROR=legacy_catchall:{site_name}")
+        if 'respond "Not Found" 404' not in source:
+            raise SystemExit(f"CADDY_REPOSITORY_ERROR=unknown_path_not_closed:{site_name}")
+        match = re.search(r"(?m)^\s*@realtime\s+path\s+([^\n#]+)$", source)
+        if not match:
+            raise SystemExit(f"CADDY_REPOSITORY_ERROR=realtime_matcher_missing:{site_name}")
+        routed = {
+            token[:-1] if token.endswith("*") else token
+            for token in match.group(1).split()
+        }
+        if routed != set(compatibility):
+            raise SystemExit(f"CADDY_REPOSITORY_ERROR=realtime_contract_drift:{site_name}")
 
-for token in (
-    "{$CADDY_N8N_EDITOR_HOST}",
-    "{$CADDY_N8N_OAUTH2_PROXY_UPSTREAM}",
-    "max_size {$CADDY_N8N_EDITOR_MAX_REQUEST_BODY}",
-    "reverse_proxy {$CADDY_N8N_OAUTH2_PROXY_UPSTREAM}",
-    "request_header -X-Auth-Request-User",
-    "request_header -X-Auth-Request-Email",
-    "request_header -X-Auth-Request-Groups",
-    "request>headers>Authorization delete",
-    "request>headers>Cookie delete",
-    "delete code",
-    "delete state",
-    "delete session_state",
-):
-    if token not in N8N_SITE:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=n8n_editor_site_missing:{token}")
-for forbidden in (
-    "CADDY_N8N_UPSTREAM",
-    "N8N_EDITOR_UPSTREAM",
-    ":5678",
-    "max_size 2MB",
-    "max_size 2MiB",
-    "header_up X-Auth-Request-User",
-    "header_up X-Forwarded-User",
-):
-    if forbidden in N8N_SITE:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=n8n_editor_direct_or_spoofable:{forbidden}")
+    logging = (CONFIG / "snippets/logging.caddy").read_text(encoding="utf-8")
+    require_tokens(
+        logging,
+        (
+            "request>headers>Authorization delete",
+            "request>headers>Proxy-Authorization delete",
+            "request>headers>Cookie delete",
+            "request>headers>Apikey delete",
+            "request>headers>X-Api-Key delete",
+            "request>headers>X-Auth-Request-Access-Token delete",
+            "request>headers>X-Access-Token delete",
+            "request>headers>X-Id-Token delete",
+            "request>headers>X-Refresh-Token delete",
+            "request>headers>X-Vault-Token delete",
+            "request>headers>X-Bao-Token delete",
+            "delete api-key",
+            "delete api_key",
+            "delete apikey",
+            "delete client_secret",
+            "delete code",
+            "delete id_token",
+            "delete refresh_token",
+            "delete session_state",
+            "delete state",
+            "resp_headers>Authorization delete",
+            "resp_headers>Set-Cookie delete",
+            "resp_headers>X-Auth-Request-Access-Token delete",
+        ),
+        "redaction",
+    )
 
-for env_name in (
-    "CADDY_KONG_UPSTREAM",
-    "CADDY_LEGACY_API_UPSTREAM",
-    "CADDY_REALTIME_UPSTREAM",
-    "CADDY_N8N_EDITOR_HOST",
-    "CADDY_N8N_OAUTH2_PROXY_UPSTREAM",
-    "CADDY_N8N_EDITOR_MAX_REQUEST_BODY",
-):
-    if env_name not in RUNTIME:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=runtime_variable_missing:{env_name}")
-if "CADDY_N8N_EDITOR_MAX_REQUEST_BODY=16777216" not in RUNTIME:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=n8n_editor_body_limit_example_drift")
+    for path in sorted([*SITE_DIR.glob("*.caddy"), *CONF_DIR.glob("*.caddy")]):
+        source = path.read_text(encoding="utf-8")
+        if "log {" in source and "import sanitized_access_log" not in source:
+            raise SystemExit(f"CADDY_REPOSITORY_ERROR=unsanitized_log:{path.relative_to(ROOT)}")
+        if "response>headers>" in source:
+            raise SystemExit(f"CADDY_REPOSITORY_ERROR=invalid_log_field:{path.relative_to(ROOT)}")
+        if (
+            "tls internal" not in source
+            and "tls /etc/" not in source
+            and "import security_headers" not in source
+            and "Strict-Transport-Security" not in source
+        ):
+            raise SystemExit(f"CADDY_REPOSITORY_ERROR=missing_hsts:{path.relative_to(ROOT)}")
 
-if "admin 127.0.0.1:2019" not in CADDYFILE:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=admin_api_not_private")
-if "import snippets/*.caddy" not in CADDYFILE or "import sites/*.caddy" not in CADDYFILE:
-    raise SystemExit("CADDY_AUTHORITY_ERROR=canonical_imports_missing")
+    all_source = "\n".join(path.read_text() for path in CONFIG.rglob("*.caddy"))
+    for header in (
+        "X-Authenticated-Client",
+        "X-Authenticated-Tenant",
+        "X-Authenticated-Role",
+        "X-Codestra-Gateway-Secret",
+    ):
+        if re.search(rf"header_up\s+{re.escape(header)}\b", all_source):
+            raise SystemExit(f"CADDY_REPOSITORY_ERROR=trusted_identity_header:{header}")
 
-secret_patterns = (
-    r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
-    r"(?i)client_secret\s*[=:]\s*[^<\s][^\s]*",
-    r"(?i)authorization:\s*bearer\s+[A-Za-z0-9._~-]+",
-)
-for path in ROOT.rglob("*"):
-    if not path.is_file() or ".git" in path.parts:
-        continue
-    try:
-        text = path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        continue
-    for pattern in secret_patterns:
-        if re.search(pattern, text):
-            raise SystemExit(f"CADDY_AUTHORITY_ERROR=possible_secret:{path.relative_to(ROOT)}")
+    compose = (ROOT / "deploy/compose.runtime.yaml").read_text(encoding="utf-8")
+    require_tokens(
+        compose,
+        (
+            "container_name: codestra-caddy",
+            "ghcr.io/appolon1908-hue/codestra-caddy@sha256:${CADDY_IMAGE_SHA256:",
+            'user: "65532:65532"',
+            "read_only: true",
+            "cap_drop:\n      - ALL",
+            "cap_add:\n      - NET_BIND_SERVICE",
+            "no-new-privileges:true",
+            "network_mode: host",
+            "io.codestra.caddy.source.sha",
+            "io.codestra.caddy.image.digest",
+            "io.codestra.caddy.config.sha256",
+            "healthcheck:",
+        ),
+        "runtime",
+    )
+    if "ports:" in compose or "latest" in compose:
+        raise SystemExit("CADDY_REPOSITORY_ERROR=mutable_or_bridged_runtime")
 
-print("CADDY_REPOSITORY_AUTHORITY=PASS")
-print("CADDY_PRINCIPAL=appolon1908-hue/Caddy")
-print("CADDY_TO_KONG_CONTRACT=PASS")
-print("KONG_ROUTE_CONTRACT_BIDIRECTIONAL=PASS")
-print("KONG_PRINCIPAL=appolon1908-hue/Kong")
-print("N8N_COMMUNITY_EDITOR_EDGE=PREPARED_NOT_APPLIED")
-print("N8N_DIRECT_PUBLIC_UPSTREAM=DENIED")
-print("N8N_EDITOR_BODY_LIMIT=RUNTIME_ALIGNED")
-print("KEYCLOAK_OIDC_GATE=OAUTH2_PROXY")
-print("PRODUCTION_PLATFORM=REFERENCE_ONLY")
-print("DIRECT_MIDDLEWARE_FOR_KONG_PATHS=DENIED")
-print("LIVE_RELOAD_AUTHORIZED=NO")
+    validator = (ROOT / "scripts/caddy_readonly_validator.py").read_text(encoding="utf-8")
+    require_tokens(
+        validator,
+        (
+            'CONTAINER = "codestra-caddy"',
+            '[DOCKER, "inspect", CONTAINER]',
+            '[DOCKER, "image", "inspect", image_reference]',
+            '[DOCKER, "exec", CONTAINER',
+            '[DOCKER, "cp"',
+            '[DOCKER, "top", CONTAINER',
+            "org.opencontainers.image.revision",
+            "io.codestra.caddy.config.sha256",
+            "list-modules",
+            "caddy_host_pid",
+            "listener_ownership",
+            'require_listener(sockets, "tcp", public_bind, 80, runtime_pid)',
+            'require_listener(sockets, "tcp", public_bind, 443, runtime_pid)',
+            'require_listener(sockets, "udp", public_bind, 443, runtime_pid)',
+            'require_listener(sockets, "tcp", metrics_bind, 2020, runtime_pid)',
+            'require_listener(sockets, "tcp", private_bind, 18080, runtime_pid)',
+        ),
+        "container_validator",
+    )
+    if "/usr/bin/systemctl" in validator or "caddy.service" in validator:
+        raise SystemExit("CADDY_REPOSITORY_ERROR=host_systemd_validator")
+
+    workflow = (WORKFLOWS / "validate.yml").read_text(encoding="utf-8")
+    require_tokens(
+        workflow,
+        (
+            "validate-source:",
+            "validate-merge-result:",
+            "promotion-guard:",
+            "immutable-release-gate:",
+            "github.event.pull_request.head.sha",
+            "github.sha",
+            "scripts/validate-ci.sh",
+            "tests/runtime-canary-test.sh",
+        ),
+        "validation_workflow",
+    )
+
+    release = (WORKFLOWS / "immutable-release.yml").read_text(encoding="utf-8")
+    require_tokens(
+        release,
+        (
+            "branches: [production]",
+            "scripts/build-release-inputs.sh",
+            "CONFIG_SHA256=",
+            "tests/runtime-bind-test.sh",
+            "tests/runtime-canary-test.sh",
+            "severity: CRITICAL,HIGH",
+            "sbom: true",
+            "provenance: mode=max",
+            "cosign sign-blob",
+            "cosign sign --yes",
+            "cosign attest --yes",
+            "BINARY_BUILD_ATTESTATION=PASS",
+            "CANARY_CERTIFICATION=PASS",
+            "ROLLBACK_BASELINE=PASS",
+            "scripts/verify-rollback-baseline.sh",
+        ),
+        "release_workflow",
+    )
+    if "branches: [main]" in release:
+        raise SystemExit("CADDY_REPOSITORY_ERROR=release_not_bound_to_production")
+
+    ruleset = json.loads((CONFIG / "github/protected-branches-ruleset.json").read_text())
+    refs = set(ruleset["conditions"]["ref_name"]["include"])
+    expected_refs = {
+        f"refs/heads/{name}"
+        for name in ("development", "test", "staging", "production", "main")
+    }
+    if refs != expected_refs or ruleset.get("bypass_actors"):
+        raise SystemExit("CADDY_REPOSITORY_ERROR=ruleset_scope_or_bypass")
+    checks: set[str] = set()
+    for rule in ruleset["rules"]:
+        if rule["type"] == "required_status_checks":
+            checks = {
+                item["context"]
+                for item in rule["parameters"]["required_status_checks"]
+            }
+    if checks != {
+        "validate-source",
+        "validate-merge-result",
+        "promotion-guard",
+        "immutable-release-gate",
+    }:
+        raise SystemExit("CADDY_REPOSITORY_ERROR=ruleset_checks")
+
+    secret_patterns = (
+        r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+        r"(?i)client_secret\s*[=:]\s*[^<\s$][^\s]*",
+        r"(?i)authorization:\s*bearer\s+[A-Za-z0-9._~-]+",
+    )
+    for path in ROOT.rglob("*"):
+        if not path.is_file() or ".git" in path.parts:
+            continue
+        try:
+            text = path.read_text()
+        except UnicodeDecodeError:
+            continue
+        for pattern in secret_patterns:
+            if re.search(pattern, text):
+                raise SystemExit(f"CADDY_REPOSITORY_ERROR=possible_secret:{path.relative_to(ROOT)}")
+
+    print("CADDY_SINGLE_CONFIGURATION_AUTHORITY=PASS")
+    print("CADDY_TO_KONG_CONTRACT=PASS")
+    print("CADDY_UNRESTRICTED_LEGACY_FALLBACK=ABSENT")
+    print("CADDY_CREDENTIAL_REDACTION=PASS")
+    print("CADDY_CONTAINER_RUNTIME_CONTRACT=PASS")
+    print("CADDY_CONTAINER_LISTENER_OWNERSHIP=PASS")
+    print("CADDY_BRANCH_RULESET_CONTRACT=PASS")
+    print("CADDY_REPOSITORY_READINESS=PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

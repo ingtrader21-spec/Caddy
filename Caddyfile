@@ -1,6 +1,0 @@
-{
-	admin 127.0.0.1:2019
-}
-
-import snippets/*.caddy
-import sites/*.caddy
