@@ -209,6 +209,38 @@ if "admin 127.0.0.1:2019" not in CADDYFILE:
 if "import snippets/*.caddy" not in CADDYFILE or "import sites/*.caddy" not in CADDYFILE:
     raise SystemExit("CADDY_AUTHORITY_ERROR=canonical_imports_missing")
 
+# Every public site block must import the shared header snippet. HSTS and the
+# other shared response headers are defined once in snippets/security_headers.caddy,
+# so a site that forgets the import silently ships without them.
+SITES_DIR = ROOT / "sites"
+SITE_ADDRESS = re.compile(r"(?m)^\S.*\{\s*$")
+for site_path in sorted(SITES_DIR.glob("*.caddy")):
+    source = site_path.read_text(encoding="utf-8")
+    blocks = len(SITE_ADDRESS.findall(source))
+    imports = source.count("import security_headers")
+    if blocks == 0:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=no_site_block:{site_path.name}")
+    if imports != blocks:
+        raise SystemExit(
+            f"CADDY_AUTHORITY_ERROR=security_headers_not_imported:{site_path.name}:{imports}/{blocks}"
+        )
+
+SHARED_HEADERS = SECURITY_HEADERS.read_text(encoding="utf-8")
+SHARED_HEADER_DIRECTIVES = "\n".join(
+    line for line in SHARED_HEADERS.splitlines() if not line.lstrip().startswith("#")
+)
+for token in (
+    'Strict-Transport-Security "max-age=31536000; includeSubDomains"',
+    'X-Content-Type-Options "nosniff"',
+    'X-Frame-Options "DENY"',
+    "Referrer-Policy",
+    "Permissions-Policy",
+):
+    if token not in SHARED_HEADER_DIRECTIVES:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=shared_security_header_missing:{token}")
+if "preload" in SHARED_HEADER_DIRECTIVES:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=hsts_preload_requires_separate_review")
+
 secret_patterns = (
     r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
     r"(?i)client_secret\s*[=:]\s*[^<\s][^\s]*",
@@ -238,3 +270,5 @@ print("PRODUCTION_PLATFORM=REFERENCE_ONLY")
 print("DIRECT_MIDDLEWARE_FOR_KONG_PATHS=DENIED")
 print("LIVE_RELOAD_AUTHORIZED=NO")
 print("CADDY_READONLY_VALIDATOR=SOURCE_ONLY")
+print("SHARED_SECURITY_HEADERS=ALL_SITES")
+print("HSTS_SCOPE=EVERY_PUBLIC_SITE")

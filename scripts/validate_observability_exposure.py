@@ -284,7 +284,6 @@ def validate(contract: dict[str, Any], site: str, all_sites: str, runtime: str, 
         block = site_block(site, host)
         required = (
             "import security_headers",
-            'Strict-Transport-Security "max-age=31536000; includeSubDomains"',
             "request>headers>Authorization delete",
             "request>headers>Cookie delete",
             "resp_headers>Set-Cookie delete",
@@ -340,7 +339,13 @@ def validate(contract: dict[str, Any], site: str, all_sites: str, runtime: str, 
         raise ExposureError("OpenBao example must use documentation-only CIDRs")
     if "0.0.0.0/0" in runtime or "::/0" in runtime:
         raise ExposureError("broad OpenBao source range prohibited")
-    for token in ("X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy", "Permissions-Policy"):
+    for token in (
+        'Strict-Transport-Security "max-age=31536000; includeSubDomains"',
+        "X-Content-Type-Options",
+        "X-Frame-Options",
+        "Referrer-Policy",
+        "Permissions-Policy",
+    ):
         if token not in headers:
             raise ExposureError(f"shared security header missing: {token}")
 
@@ -348,11 +353,11 @@ def validate(contract: dict[str, Any], site: str, all_sites: str, runtime: str, 
 def configuration_checksum(contract: dict[str, Any], site: str, runtime: str, headers: str) -> str:
     overrides = {SITE_PATH: site, HEADERS_PATH: headers}
     payloads = [
-        (str(CONTRACT_PATH.relative_to(ROOT)), json.dumps(contract, sort_keys=True, separators=(",", ":")) + "\n"),
-        (str(RUNTIME_PATH.relative_to(ROOT)), runtime),
+        (CONTRACT_PATH.relative_to(ROOT).as_posix(), json.dumps(contract, sort_keys=True, separators=(",", ":")) + "\n"),
+        (RUNTIME_PATH.relative_to(ROOT).as_posix(), runtime),
     ]
     payloads.extend(
-        (str(path.relative_to(ROOT)), overrides.get(path, path.read_text(encoding="utf-8")))
+        (path.relative_to(ROOT).as_posix(), overrides.get(path, path.read_text(encoding="utf-8")))
         for path in root_caddy_source_paths()
     )
     material = b"".join(path.encode() + b"\0" + payload.encode() for path, payload in payloads)
@@ -370,7 +375,10 @@ def run(write: bool) -> str:
     expected = f"{checksum}  caddy-observability-source-bundle\n"
     if write:
         CHECKSUM_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CHECKSUM_PATH.write_text(expected, encoding="utf-8")
+        # newline="\n" keeps the committed checksum byte-identical no matter
+        # which platform regenerated it; the default translation would write
+        # CRLF on Windows and diff against the Linux CI runner.
+        CHECKSUM_PATH.write_text(expected, encoding="utf-8", newline="\n")
     else:
         try:
             actual = CHECKSUM_PATH.read_text(encoding="utf-8")

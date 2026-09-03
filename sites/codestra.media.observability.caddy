@@ -3,7 +3,6 @@
 
 graf.codestra.media {
 	import security_headers
-	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	encode zstd gzip
 
 	request_body {
@@ -54,7 +53,6 @@ graf.codestra.media {
 
 supe.codestra.media {
 	import security_headers
-	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	encode zstd gzip
 
 	request_body {
@@ -105,7 +103,6 @@ supe.codestra.media {
 
 bao.codestra.media {
 	import security_headers
-	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	encode zstd gzip
 
 	@openbao_allowed remote_ip {$CADDY_OPENBAO_ALLOWED_CIDRS}
