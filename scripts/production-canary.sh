@@ -33,6 +33,8 @@ assert data.get('container_running') is True
 assert data.get('container_health')=='healthy'
 assert data.get('caddy_process_count')==1
 assert data.get('listener_ownership')=='CADDY_PROCESS_ONLY'
+assert data.get('effective_access_log_redaction')=='PASS'
+assert int(data.get('effective_access_log_count') or 0)>=5
 listeners=set(data.get('listeners') or [])
 requirements=(
     ('tcp/', ':80@caddy-pid'),
@@ -53,4 +55,4 @@ rm -f -- "$temporary"; trap - EXIT
 actual_image="$("$DOCKER_BIN" inspect --format '{{.Config.Image}}' codestra-caddy)"
 actual_source="$("$DOCKER_BIN" inspect --format '{{index .Config.Labels "io.codestra.caddy.source.sha"}}' codestra-caddy)"
 actual_config="$("$DOCKER_BIN" inspect --format '{{index .Config.Labels "io.codestra.caddy.config.sha256"}}' codestra-caddy)"
-printf 'CADDY_PRODUCTION_CANARY=PASS\nEVIDENCE=%s\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nLISTENER_OWNERSHIP=CADDY_PROCESS_ONLY\n' "$final" "$actual_source" "$actual_image" "$actual_config"
+printf 'CADDY_PRODUCTION_CANARY=PASS\nEVIDENCE=%s\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nLISTENER_OWNERSHIP=CADDY_PROCESS_ONLY\nEFFECTIVE_LOG_REDACTION=PASS\n' "$final" "$actual_source" "$actual_image" "$actual_config"
