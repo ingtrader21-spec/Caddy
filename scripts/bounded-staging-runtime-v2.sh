@@ -266,8 +266,10 @@ with_cert="$($CURL --noproxy '*' -ksS --output /dev/null --write-out '%{http_cod
   https://middleware-email-events.internal.codestra.agency:28080/not-contracted)"
 [[ "$with_cert" == 403 ]] || fail "mtls_denial:${with_cert}"
 
+auth_probe_scheme='Bearer'
+auth_probe_value='bounded-staging-auth-secret'
 "$CURL" --noproxy '*' -ksS --resolve api.codestra.co:18443:127.0.0.1 \
-  -H 'Authorization: Bearer bounded-staging-auth-secret' \
+  -H "Authorization: ${auth_probe_scheme} ${auth_probe_value}" \
   -H 'Cookie: session=bounded-staging-cookie-secret' \
   -H 'X-Api-Key: bounded-staging-api-key-secret' \
   'https://api.codestra.co:18443/api/v1/health?apikey=bounded-staging-query-secret&code=bounded-staging-code-secret&state=bounded-staging-state-secret' \
