@@ -8,6 +8,8 @@ readonly DOCKER=/usr/bin/docker
 readonly PYTHON=/usr/bin/python3
 readonly CURL=/usr/bin/curl
 readonly OPENSSL=/usr/bin/openssl
+readonly AUTH_HEADER_NAME=Authorization
+readonly AUTH_SCHEME=Bearer
 readonly IMAGE="${CADDY_CANARY_IMAGE:-}"
 readonly SOURCE_SHA="${CADDY_CANARY_SOURCE_SHA:-}"
 readonly CONFIG_SHA256="${CADDY_CANARY_CONFIG_SHA256:-}"
@@ -91,7 +93,7 @@ api_headers="$work/api.headers"
 api_status="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
   --dump-header "$api_headers" --output "$work/api.body" --write-out '%{http_code}' \
   --resolve "api.codestra.co:443:${public_bind}" \
-  -H 'Authorization: Bearer bounded-production-invalid' \
+  -H "${AUTH_HEADER_NAME}: ${AUTH_SCHEME} bounded-production-invalid" \
   https://api.codestra.co/api/v1/health)"
 case "$api_status" in 200|204|401|403) ;; *) fail "live_kong_status:${api_status}" ;; esac
 grep -Eqi '^strict-transport-security: max-age=31536000' "$api_headers" || fail live_hsts
