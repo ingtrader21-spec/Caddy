@@ -17,6 +17,9 @@ class RollbackBaselineBindHarnessTests(unittest.TestCase):
         self.verify = (ROOT / "scripts/verify-rollback-baseline.sh").read_text(
             encoding="utf-8"
         )
+        self.workflow = (ROOT / ".github/workflows/validate.yml").read_text(
+            encoding="utf-8"
+        )
 
     def test_current_image_proof_stays_network_isolated(self) -> None:
         self.assertIn("--network none", self.current)
@@ -64,6 +67,20 @@ class RollbackBaselineBindHarnessTests(unittest.TestCase):
         self.assertIn("ROLLBACK_UNIFIED_COMPOSE_RENDER=PASS", self.verify)
         self.assertNotIn(
             '"$ROOT/tests/runtime-bind-test.sh" "$baseline_image"', self.verify
+        )
+
+    def test_pull_request_ci_rehearses_and_preserves_rollback_evidence(self) -> None:
+        for token in (
+            "packages: read",
+            "Install Cosign for rollback verification",
+            "Authenticate to GHCR for the exact rollback baseline",
+            "scripts/verify-rollback-baseline.sh | tee rollback-baseline-ci.txt",
+            "caddy-rollback-ci-${{ env.EXPECTED_SHA }}",
+        ):
+            self.assertIn(token, self.workflow)
+        self.assertLess(
+            self.workflow.index("Scan exact image for HIGH and CRITICAL vulnerabilities"),
+            self.workflow.index("Rehearse the signed historical rollback baseline"),
         )
 
 
