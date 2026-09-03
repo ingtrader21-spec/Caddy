@@ -21,6 +21,12 @@ on_error(){
   trap - ERR
   printf 'CADDY_CANARY_FAILURE=line=%s rc=%s\n' "${BASH_LINENO[0]:-$LINENO}" "$rc" >&2
   docker inspect --format 'CADDY_CANARY_CONTAINER_STATE=running={{.State.Running}} exit={{.State.ExitCode}} error={{json .State.Error}}' "$name" >&2 2>/dev/null || true
+  if [[ "$(docker inspect --format '{{.State.Running}}' "$name" 2>/dev/null || true)" == false ]]; then
+    docker logs --tail 120 "$name" 2>&1 |
+      sed -E \
+        -e 's/(Authorization|Proxy-Authorization|Cookie|Apikey|X-Api-Key|X-Auth-Request-Access-Token|X-Access-Token|X-Id-Token|X-Refresh-Token|X-Vault-Token|X-Bao-Token)([^[:space:]]*)/\1=REDACTED/Ig' \
+        -e 's/(access_token|api-key|api_key|apikey|client_secret|code|id_token|oauth_token|refresh_token|session_state|state|token)=([^&[:space:]"}]+)/\1=REDACTED/Ig' >&2 || true
+  fi
   exit "$rc"
 }
 trap on_error ERR
