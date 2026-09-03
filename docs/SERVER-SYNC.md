@@ -1,111 +1,25 @@
-# Server ↔ GitHub controller setup
+# Production container synchronization
 
-This repository is intended to become the source of truth for Caddy. The first sync is special because the server currently owns the authoritative live configuration.
+The production host uses a read-only checkout of the `production` branch and the immutable container launcher. The host must not maintain a separate Caddy route authority or edit `/etc/caddy` as the normal release path.
 
-## Phase 1 — install the controller checkout
+Required release tuple:
 
-On the Caddy server, use a dedicated checkout such as `/srv/caddy-controller`.
-
-```bash
-sudo mkdir -p /srv/caddy-controller
-sudo chown "$USER":"$USER" /srv/caddy-controller
-
-git clone git@github.com:appolon1908-hue/Caddy.git /srv/caddy-controller
-cd /srv/caddy-controller
-
-git fetch --all --prune
-git checkout development
-git pull --ff-only origin development
+```text
+CADDY_REVIEWED_SHA=<exact protected production SHA>
+CADDY_IMAGE_SHA256=<signed GHCR digest without sha256: prefix>
+CADDY_CONFIG_SHA256=<deterministic config/ hash>
 ```
 
-Use a read/write deploy key only for the one-time import if the server must push the import branch. After bootstrap, prefer a read-only deployment credential and perform normal edits/PRs away from the production host.
+The bounded activation sequence is:
 
-## Phase 2 — import the current live configuration
+1. fetch `origin/production` and check out the exact approved SHA with a clean worktree;
+2. verify the signed image and v2 source attestation;
+3. verify OCI source/revision/config labels against the reviewed SHA and `config/` hash;
+4. validate the image's `/etc/caddy/Caddyfile` without starting it;
+5. start `codestra-caddy` from `deploy/compose.runtime.yaml` with no build or mutable pull;
+6. require healthy container read-back and the fixed no-argument production canary;
+7. retain root-owned mode `0600` evidence.
 
-Create a dedicated import branch from `development`:
+The fixed runtime is non-root UID/GID `65532`, read-only, and has only `NET_BIND_SERVICE`. The Caddy data and runtime-config directories are host-owned persistent state; Klyrow and Middleware certificate directories are fixed read-only mounts. No deployment step changes SSH, firewall rules, DNS ownership, or unrelated workloads.
 
-```bash
-cd /srv/caddy-controller
-git checkout development
-git pull --ff-only origin development
-git checkout -b feat/import-live-caddy
-
-./scripts/import-live-config.sh
-./scripts/validate.sh
-git diff --check
-git status
-```
-
-Before committing, manually inspect `config/Caddyfile`. Remove inline credentials and replace them with environment-variable references or another protected runtime-secret mechanism.
-
-Then commit and push the import branch:
-
-```bash
-git add config/Caddyfile
-git commit -m "chore: import live Caddy configuration"
-git push -u origin feat/import-live-caddy
-```
-
-Open a PR from `feat/import-live-caddy` to `development` and promote in order:
-
-`development` → `test` → `staging` → `production` → `main`
-
-Do not skip an environment.
-
-## Phase 3 — switch the server to pull-only production control
-
-After the imported configuration reaches `production`:
-
-```bash
-cd /srv/caddy-controller
-git fetch origin
-git checkout production
-git reset --hard origin/production
-git config pull.ff only
-
-CADDY_REVIEWED_SHA="$(git rev-parse origin/production)" ./scripts/deploy-production.sh
-```
-
-After this cutover, normal production flow is:
-
-1. change `config/Caddyfile` on a feature/fix branch based on `development`;
-2. PR to `development`;
-3. promote to `test`;
-4. promote to `staging` and record smoke evidence;
-5. promote to `production`;
-6. server fetches the exact reviewed production commit;
-7. an operator supplies the explicitly approved 40-character `CADDY_REVIEWED_SHA`;
-8. `scripts/deploy-production.sh` proves that SHA equals both `HEAD` and
-   `origin/production`, validates and atomically backs up/installs the complete
-   `config/` tree (including imported fragments), reloads, and checks Caddy;
-9. after deployment evidence, promote `production` to `main`.
-
-For the immutable container runtime, pre-create the persistent state paths for
-the exact non-root UID, then use the reviewed launcher:
-
-```bash
-sudo install -d -o 65532 -g 65532 -m 0700 \
-  /var/lib/codestra/caddy/data /var/lib/codestra/caddy/config
-export CADDY_REVIEWED_SHA="$(git rev-parse origin/production)"
-export CADDY_IMAGE_SHA256='<approved 64-character sha256 value>'
-./scripts/run-immutable-runtime.sh
-```
-
-The launcher rejects mutable image identities and binds the fixed
-`ghcr.io/appolon1908-hue/codestra-caddy@sha256:` repository identity to that digest. The
-compose runtime uses host networking because the reviewed Caddyfile binds the
-host's public and private addresses, sets `/data` and `/config` as the Caddy XDG
-state paths, and mounts the Klyrow and Middleware host-managed certificate trees
-read-only. It never copies those certificates into the image or repository.
-
-## Drift rule
-
-Do not edit `/etc/caddy/Caddyfile` manually after cutover except for an emergency rollback/recovery. If an emergency server edit occurs, immediately capture the difference and reconcile it through a Git PR before another release.
-
-Useful drift check:
-
-```bash
-sudo diff -u /srv/caddy-controller/config/Caddyfile /etc/caddy/Caddyfile
-```
-
-An empty diff is the desired state.
+On activation failure, `scripts/run-immutable-runtime.sh` invokes the fixed rollback command. That command selects only the signed digest recorded in `config/release-baseline.v1.json`, computes the baseline image's exact embedded configuration checksum, restores the container, and verifies image/config read-back and health.
