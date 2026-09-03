@@ -6,6 +6,7 @@ cd "$ROOT"
 python3 -m compileall -q scripts tests
 python3 scripts/test_caddy_kong_contract.py
 python3 scripts/validate_repository.py
+python3 scripts/validate_complete_redaction.py
 python3 scripts/validate_community_n8n.py
 python3 -m unittest discover -s tests -p 'test_*.py'
 python3 - <<'PY'
