@@ -57,9 +57,8 @@ install -m 0644 "$work/pki/validation.key" "$work/pki/klyrow/tls.key"
 install -m 0644 "$work/pki/validation.crt" "$work/pki/klyrow/tls-fullchain.crt"
 install -m 0644 "$work/pki/validation.crt" "$work/pki/klyrow/klyrow-client.crt"
 
-# Provision the same writable paths that the non-root production runtime uses.
-# Without this disposable sandbox, Caddy can fail during log-writer provisioning
-# before the baseline configuration is actually validated.
+# Provision the writable paths used by the non-root runtime while validating
+# the baseline's complete immutable embedded configuration without networking.
 "$DOCKER_BIN" run --rm --network none \
   --env XDG_DATA_HOME=/data --env XDG_CONFIG_HOME=/config \
   --tmpfs /run/caddy:uid=65532,gid=65532,mode=0700 \
@@ -75,15 +74,19 @@ export CADDY_IMAGE_SHA256="$baseline_digest"
 export CADDY_REVIEWED_SHA="$baseline_source"
 export CADDY_CONFIG_SHA256="$config_sha256"
 export CADDY_RELEASE_ID="rollback-evidence-$baseline_source"
-# Non-secret placeholders are supplied only so Compose renders the same immutable
-# runtime selection that the fixed rollback command will use.
+# Non-secret placeholders are supplied only so the one canonical Compose file
+# renders the same immutable runtime selection used by rollback.
 while IFS='=' read -r name value; do
   [[ "$name" =~ ^CADDY_[A-Z0-9_]+$ ]] || continue
   [[ "$name" == CADDY_IMAGE_SHA256 || "$name" == CADDY_REVIEWED_SHA || "$name" == CADDY_CONFIG_SHA256 || "$name" == CADDY_RELEASE_ID ]] && continue
   export "$name=$value"
 done < "$ROOT/config/runtime-values.example"
 "$DOCKER_BIN" compose -f "$ROOT/deploy/compose.runtime.yaml" config --quiet
-"$ROOT/tests/runtime-bind-test.sh" "$baseline_image" >/dev/null
+
+# The current candidate's generic bind test is intentionally network-isolated.
+# The signed historical baseline is separately proven using the same serialized
+# host-network bind contract that its original successful release certified.
+DOCKER_BIN="$DOCKER_BIN" bash "$ROOT/tests/rollback-baseline-bind-test.sh"
 
 printf '%s\n' \
   'CADDY_ROLLBACK_BASELINE=PASS' \
@@ -93,4 +96,5 @@ printf '%s\n' \
   "ROLLBACK_CONFIG_SHA256=$config_sha256" \
   'ROLLBACK_SIGNATURE=PASS' \
   'ROLLBACK_CONFIG_VALIDATION=PASS' \
-  'ROLLBACK_NONROOT_BIND=PASS'
+  'ROLLBACK_HISTORICAL_BIND=PASS' \
+  'ROLLBACK_UNIFIED_COMPOSE_RENDER=PASS'
