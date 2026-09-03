@@ -5,17 +5,16 @@ import subprocess
 import tempfile
 import unittest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 VERIFIER = ROOT / "scripts/verify-image-attestation.py"
 DIGEST = "a" * 64
 REVISION = "b" * 40
+CONFIG = "c" * 64
 REPOSITORY = "https://github.com/appolon1908-hue/Caddy"
 WORKFLOW = REPOSITORY + "/.github/workflows/immutable-release.yml@refs/heads/production"
 
-
 class ImageAttestationTests(unittest.TestCase):
-    def verify(self, *, digest=DIGEST, revision=REVISION, repository=REPOSITORY):
+    def verify(self, *, digest=DIGEST, revision=REVISION, repository=REPOSITORY, config=CONFIG):
         statement = {
             "subject": [{"name": "ghcr.io/appolon1908-hue/codestra-caddy", "digest": {"sha256": digest}}],
             "predicate": {
@@ -23,6 +22,7 @@ class ImageAttestationTests(unittest.TestCase):
                 "revision": revision,
                 "workflow_identity": WORKFLOW,
                 "release_identity": revision,
+                "config_sha256": config,
             },
         }
         envelope = [{"payload": base64.b64encode(json.dumps(statement).encode()).decode()}]
@@ -30,7 +30,7 @@ class ImageAttestationTests(unittest.TestCase):
             json.dump(envelope, stream)
             stream.flush()
             return subprocess.run(
-                [str(VERIFIER), stream.name, DIGEST, REPOSITORY, REVISION],
+                [str(VERIFIER), stream.name, DIGEST, REPOSITORY, REVISION, CONFIG],
                 text=True,
                 capture_output=True,
                 check=False,
@@ -39,16 +39,16 @@ class ImageAttestationTests(unittest.TestCase):
     def test_exact_tuple_passes(self):
         self.assertEqual(self.verify().returncode, 0)
 
-    def test_old_new_other_repo_and_wrong_digest_fail(self):
+    def test_wrong_tuple_fields_fail(self):
         cases = (
-            {"revision": "c" * 40},
+            {"revision": "d" * 40},
             {"repository": "https://github.com/example/Caddy"},
-            {"digest": "d" * 64},
+            {"digest": "e" * 64},
+            {"config": "f" * 64},
         )
         for case in cases:
             with self.subTest(case=case):
                 self.assertNotEqual(self.verify(**case).returncode, 0)
-
 
 if __name__ == "__main__":
     unittest.main()

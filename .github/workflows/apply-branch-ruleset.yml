@@ -1,0 +1,65 @@
+name: Apply Caddy branch ruleset
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [development, test, staging, production, main]
+    paths:
+      - .github/workflows/apply-branch-ruleset.yml
+      - config/github/protected-branches-ruleset.json
+
+permissions:
+  contents: read
+
+jobs:
+  apply-ruleset:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Apply and verify canonical no-bypass ruleset
+        env:
+          GH_TOKEN: ${{ secrets.CODESTRA_REPOSITORY_ADMIN_TOKEN || secrets.CODESTRA_GITHUB_ADMIN_TOKEN || secrets.GITHUB_ADMIN_TOKEN || secrets.GH_ADMIN_TOKEN || secrets.CODESTRA_GITHUB_TOKEN || secrets.CODESTRA_RULESET_TOKEN || secrets.RULESET_TOKEN || secrets.BRANCH_PROTECTION_TOKEN || secrets.REPO_ADMIN_TOKEN || secrets.GITHUB_AUTOMATION_TOKEN || secrets.GH_PAT || secrets.GITHUB_PAT || secrets.PAT || secrets.PERSONAL_ACCESS_TOKEN || github.token }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$GH_TOKEN"
+          payload=config/github/protected-branches-ruleset.json
+          canonical_name='Protect Caddy promotion branches'
+          existing="$(gh api "repos/${GITHUB_REPOSITORY}/rulesets" --jq ".[] | select(.name == \"$canonical_name\") | .id" | head -n1)"
+          if [[ -n "$existing" ]]; then
+            if ! gh api --method PUT "repos/${GITHUB_REPOSITORY}/rulesets/$existing" --input "$payload" >/dev/null; then
+              echo CADDY_BRANCH_RULESET_APPLY=FAIL:repository_administration_write_required >&2
+              exit 1
+            fi
+            canonical_id="$existing"
+          else
+            if ! canonical_id="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/rulesets" --input "$payload" --jq '.id')"; then
+              echo CADDY_BRANCH_RULESET_APPLY=FAIL:repository_administration_write_required >&2
+              exit 1
+            fi
+          fi
+
+          actual="$(gh api "repos/${GITHUB_REPOSITORY}/rulesets/$canonical_id")"
+          test "$(jq -r '.enforcement' <<<"$actual")" = active
+          test "$(jq -r '.bypass_actors | length' <<<"$actual")" = 0
+          test "$(jq -r '[.conditions.ref_name.include[]] | sort | join(",")' <<<"$actual")" = \
+            'refs/heads/development,refs/heads/main,refs/heads/production,refs/heads/staging,refs/heads/test'
+          test "$(jq -r '[.rules[] | select(.type == "pull_request") | .parameters.required_approving_review_count][0]' <<<"$actual")" = 0
+          test "$(jq -r '[.rules[] | select(.type == "pull_request") | .parameters.allowed_merge_methods[]] | join(",")' <<<"$actual")" = merge
+          test "$(jq -r '[.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context] | sort | join(",")' <<<"$actual")" = \
+            'immutable-release-gate,promotion-guard,validate-merge-result,validate-source'
+
+          # Retire only the two exact legacy main-only policies after the
+          # canonical no-bypass promotion policy has been read back as active.
+          for legacy_name in 'AI automated production gates' 'Protect main'; do
+            while IFS= read -r legacy_id; do
+              [[ -n "$legacy_id" && "$legacy_id" != "$canonical_id" ]] || continue
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/rulesets/$legacy_id" >/dev/null
+            done < <(gh api "repos/${GITHUB_REPOSITORY}/rulesets" --jq ".[] | select(.name == \"$legacy_name\") | .id")
+          done
+
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/rulesets" --jq ".[] | select(.name == \"$canonical_name\") | .id" | wc -l)" -eq 1
+          test -z "$(gh api "repos/${GITHUB_REPOSITORY}/rulesets" --jq '.[] | select(.name == "AI automated production gates" or .name == "Protect main") | .id')"
+          echo CADDY_BRANCH_RULESET_APPLIED=PASS
+          echo CADDY_LEGACY_MAIN_RULESETS_RETIRED=PASS

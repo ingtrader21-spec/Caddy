@@ -1,64 +1,32 @@
-name: Promotion guard
+name: Reusable Caddy promotion guard
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, edited]
-    branches:
-      - development
-      - test
-      - staging
-      - production
-      - main
+  workflow_call:
+    inputs:
+      base:
+        required: true
+        type: string
+      head:
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  enforce-chain:
-    runs-on: ubuntu-latest
+  promotion-contract:
+    runs-on: ubuntu-24.04
     steps:
-      - name: Verify source and target branches
-        shell: bash
+      - name: Validate requested promotion
         env:
-          BASE: ${{ github.base_ref }}
-          HEAD: ${{ github.head_ref }}
+          BASE: ${{ inputs.base }}
+          HEAD: ${{ inputs.head }}
         run: |
-          set -euo pipefail
-          echo "Promotion: $HEAD -> $BASE"
-
-          case "$BASE" in
-            development)
-              if [[ ! "$HEAD" =~ ^(feat|fix|chore|docs|refactor)/ ]]; then
-                echo "development accepts only feature/fix/chore/docs/refactor branches." >&2
-                exit 1
-              fi
-              ;;
-            test)
-              [[ "$HEAD" == "development" ]] || {
-                echo "test accepts promotion only from development." >&2
-                exit 1
-              }
-              ;;
-            staging)
-              [[ "$HEAD" == "test" ]] || {
-                echo "staging accepts promotion only from test." >&2
-                exit 1
-              }
-              ;;
-            production)
-              [[ "$HEAD" == "staging" ]] || {
-                echo "production accepts promotion only from staging." >&2
-                exit 1
-              }
-              ;;
-            main)
-              [[ "$HEAD" == "production" ]] || {
-                echo "main accepts promotion only from production." >&2
-                exit 1
-              }
-              ;;
+          set -Eeuo pipefail
+          case "$BASE:$HEAD" in
+            development:feat/*|development:fix/*|development:chore/*|development:docs/*|development:refactor/*|test:development|staging:test|production:staging|main:production)
+              echo PROMOTION_CONTRACT=PASS ;;
             *)
-              echo "Unexpected protected target branch: $BASE" >&2
-              exit 1
-              ;;
+              echo "Invalid promotion: $HEAD -> $BASE" >&2
+              exit 1 ;;
           esac
