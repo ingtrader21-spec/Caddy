@@ -33,6 +33,20 @@ class CertificationEvidenceFailClosedTests(unittest.TestCase):
             self.assertIn(token, script)
         self.assertNotIn('! grep -R -F "$secret"', script)
 
+    def test_bounded_staging_redaction_rejects_log_read_errors(self):
+        script = (ROOT / "scripts/bounded-staging-runtime-v2.sh").read_text()
+        for token in (
+            "BOUNDED_STAGING_LOGS=FAIL:no_access_logs",
+            "BOUNDED_STAGING_LOGS=FAIL:read_access_logs",
+            "BOUNDED_STAGING_LOGS=FAIL:unreadable_access_log",
+            "BOUNDED_STAGING_LOGS=FAIL:grep_error",
+            "grep -R -F --quiet",
+            "grep_status=$?",
+            'case "$grep_status" in',
+        ):
+            self.assertIn(token, script)
+        self.assertNotIn('! grep -R -F "$secret"', script)
+
 
 if __name__ == "__main__":
     unittest.main()
