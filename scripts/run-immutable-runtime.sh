@@ -94,7 +94,7 @@ export CADDY_DATA_DIR CADDY_CONFIG_DIR CADDY_IMAGE_SHA256
 attestation_output="$(mktemp)"
 trap 'rm -f -- "$attestation_output"' EXIT
 "$COSIGN_BIN" verify-attestation \
-  --type codestra.caddy.source.v1 \
+  --type https://codestra.co/attestations/caddy-source/v1 \
   --certificate-identity "$CERTIFICATE_IDENTITY" \
   --certificate-oidc-issuer "$CERTIFICATE_ISSUER" \
   --output json \

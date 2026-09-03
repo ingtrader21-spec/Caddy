@@ -77,7 +77,7 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: false
           exit-code: '1'
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         if: github.event_name == 'push'
         with:
           registry: ghcr.io
@@ -131,10 +131,10 @@ jobs:
             > caddy-source-provenance.json
           cosign attest --yes \
             --predicate caddy-source-provenance.json \
-            --type codestra.caddy.source.v1 \
+            --type https://codestra.co/attestations/caddy-source/v1 \
             "$SUBJECT"
           cosign verify-attestation \
-            --type codestra.caddy.source.v1 \
+            --type https://codestra.co/attestations/caddy-source/v1 \
             --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "$SUBJECT" > caddy-source-provenance.verified.json

@@ -63,6 +63,7 @@ class ReleaseRemediationTests(unittest.TestCase):
             "(mode_value & 0022) != 0",
             '"$COSIGN_BIN" verify',
             '"$COSIGN_BIN" verify-attestation',
+            '--type https://codestra.co/attestations/caddy-source/v1',
             'scripts/verify-image-attestation.py',
             '--certificate-identity "$CERTIFICATE_IDENTITY"',
             '--certificate-oidc-issuer "$CERTIFICATE_ISSUER"',
@@ -100,7 +101,9 @@ class ReleaseRemediationTests(unittest.TestCase):
         self.assertIn('google.golang.org/grpc@v1.83.1', workflow)
         self.assertNotIn('google.golang.org/grpc@v1.82.1', workflow)
         self.assertIn('RUN ["/usr/bin/codestra-set-bind-capability"]', dockerfile)
-        self.assertIn('codestra.caddy.source.v1', workflow)
+        self.assertIn('https://codestra.co/attestations/caddy-source/v1', workflow)
+        self.assertNotIn('--type codestra.caddy.source.v1', workflow)
+        self.assertIn('docker/login-action@dbcb813823bdd20940b903addbd779551569679f', workflow)
         self.assertIn('branches: [production]', workflow)
         self.assertNotIn('branches: [main]', workflow)
         self.assertEqual(workflow.count('refs/heads/production$'), 3)
