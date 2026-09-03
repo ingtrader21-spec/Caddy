@@ -15,6 +15,20 @@ config/conf.d/*.caddy
 
 The image build, CI validation, immutable launcher, container validator, canary, and rollback controls all consume that same tree. There is no separate candidate configuration and no server-owned route authority.
 
+## Unified Compose and CI
+
+The sole Caddy runtime composition is:
+
+```text
+deploy/compose.runtime.yaml
+```
+
+It owns the fixed `codestra-caddy` service, immutable GHCR digest, source/configuration/release labels, non-root identity, read-only filesystem, capability boundary, health check, state mounts, and host-network listener model. Activation, rollback, rollback rehearsal, and CI all consume this exact file. No second Compose file may define the Caddy image, service, or container identity.
+
+`deploy/community-n8n/compose.security.yaml` is a separate n8n security overlay and is not a Caddy runtime authority. CI fails if that overlay or any future Compose file introduces a competing Caddy service.
+
+Both exact-source and synthetic-merge CI execute the unified-Compose authority test and render `deploy/compose.runtime.yaml` with the complete non-secret runtime contract before a release gate can pass.
+
 ## Request boundary
 
 The governed shared API path is:

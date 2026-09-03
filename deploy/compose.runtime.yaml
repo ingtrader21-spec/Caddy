@@ -1,3 +1,11 @@
+name: codestra-caddy-edge
+
+x-codestra-runtime-authority:
+  schema: codestra.caddy-compose.v1
+  canonical_file: deploy/compose.runtime.yaml
+  service: caddy
+  configuration_root: config
+
 services:
   caddy:
     container_name: codestra-caddy
