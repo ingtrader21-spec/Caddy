@@ -298,10 +298,11 @@ while IFS= read -r -d '' log_file; do
 done < <(find "$work/logs" -type f -print0)
 
 for secret in bounded-staging-auth-secret bounded-staging-cookie-secret bounded-staging-api-key-secret bounded-staging-query-secret bounded-staging-code-secret bounded-staging-state-secret; do
-  set +e
-  grep -R -F --quiet -- "$secret" "$work/logs"
+  if grep -R -F --quiet -- "$secret" "$work/logs"; then
+  grep_status=0
+else
   grep_status=$?
-  set -e
+fi
   case "$grep_status" in
     0) fail log_redaction ;;
     1) ;;

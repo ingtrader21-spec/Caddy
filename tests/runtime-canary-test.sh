@@ -225,10 +225,11 @@ done < <(find "$WORK/logs" -type f -print0)
 for secret in \
   caddy-canary-auth-secret caddy-canary-cookie-secret caddy-canary-api-key-secret \
   caddy-canary-query-secret caddy-canary-code-secret caddy-canary-state-secret; do
-  set +e
-  grep -R -F --quiet -- "$secret" "$WORK/logs"
+  if grep -R -F --quiet -- "$secret" "$WORK/logs"; then
+  grep_status=0
+else
   grep_status=$?
-  set -e
+fi
   case "$grep_status" in
     0)
       echo "CADDY_CANARY_REDACTION=FAIL:$secret" >&2
