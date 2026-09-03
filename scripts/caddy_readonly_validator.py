@@ -14,6 +14,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from validate_adapted_config import validate_access_logs
+
 CONTAINER = "codestra-caddy"
 DOCKER = "/usr/bin/docker"
 CURL = "/usr/bin/curl"
@@ -266,6 +268,10 @@ def main() -> int:
     adapted = json.loads(
         run([DOCKER, "exec", CONTAINER, "/usr/bin/caddy", "adapt", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"])
     )
+    try:
+        access_log_count = validate_access_logs(adapted)
+    except SystemExit as exc:
+        raise ValidationError(f"effective access-log redaction failed: {exc}") from exc
     modules = {
         line.split()[0]
         for line in run([DOCKER, "exec", CONTAINER, "/usr/bin/caddy", "list-modules", "--packages"]).splitlines()
@@ -328,6 +334,8 @@ def main() -> int:
         "image_signature_identity_required": True,
         "config_validation": "PASS",
         "config_identity": "PASS",
+        "effective_access_log_redaction": "PASS",
+        "effective_access_log_count": access_log_count,
         "runtime_environment": sorted(REQUIRED_ENVIRONMENT),
         "module_set_sha256": hashlib.sha256("\n".join(sorted(modules)).encode()).hexdigest(),
         "adapted": adapted_summary(adapted),
