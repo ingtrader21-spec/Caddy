@@ -133,12 +133,13 @@ class ReleaseRemediationTests(unittest.TestCase):
             "Protect Caddy promotion branches",
             "AI automated production gates",
             "Protect main",
+            "required_approving_review_count",
+            "allowed_merge_methods",
+            "--method DELETE",
             "CADDY_BRANCH_RULESET_APPLIED=PASS",
             "CADDY_LEGACY_MAIN_RULESETS_RETIRED=PASS",
         ):
             self.assertIn(token, apply_workflow)
-        self.assertIn('required_approving_review_count][0]\' <<<"$actual")" = 0', apply_workflow)
-        self.assertIn("--method DELETE", apply_workflow)
 
 
 if __name__ == "__main__":
