@@ -15,7 +15,7 @@ concurrency:
 jobs:
   bounded-staging-runtime:
     name: bounded-staging-runtime
-    runs-on: [self-hosted, linux, x64, caddy-staging-readonly]
+    runs-on: [self-hosted, codestra-staging]
     environment: staging-readonly
     timeout-minutes: 90
     outputs:
@@ -32,6 +32,12 @@ jobs:
       CADDY_STAGING_MTLS_CLIENT_KEY: ${{ vars.CADDY_STAGING_MTLS_CLIENT_KEY }}
       CADDY_STAGING_MTLS_CA_CERT: ${{ vars.CADDY_STAGING_MTLS_CA_CERT }}
     steps:
+      - name: Record canonical staging runner contract
+        run: |
+          set -Eeuo pipefail
+          echo CADDY_STAGING_RUNNER_LABEL=codestra-staging
+          echo CADDY_STAGING_ENVIRONMENT=staging-readonly
+
       - name: Require bounded staging paths
         run: |
           set -Eeuo pipefail
@@ -144,8 +150,8 @@ jobs:
   production-readonly-canary:
     name: production-readonly-canary
     needs: bounded-staging-runtime
-    runs-on: [self-hosted, linux, x64, caddy-production-readonly]
-    environment: production-readonly
+    runs-on: [self-hosted, codestra-production-canary]
+    environment: production-readonly-canary
     timeout-minutes: 45
     env:
       CADDY_CANARY_SOURCE_SHA: ${{ needs.bounded-staging-runtime.outputs.source_sha }}
@@ -157,6 +163,12 @@ jobs:
       CADDY_PRODUCTION_MTLS_CLIENT_KEY: ${{ vars.CADDY_PRODUCTION_MTLS_CLIENT_KEY }}
       CADDY_PRODUCTION_MTLS_CA_CERT: ${{ vars.CADDY_PRODUCTION_MTLS_CA_CERT }}
     steps:
+      - name: Record canonical production canary runner contract
+        run: |
+          set -Eeuo pipefail
+          echo CADDY_PRODUCTION_RUNNER_LABEL=codestra-production-canary
+          echo CADDY_PRODUCTION_ENVIRONMENT=production-readonly-canary
+
       - name: Require production read-only probe paths
         run: |
           set -Eeuo pipefail
