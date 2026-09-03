@@ -12,7 +12,7 @@ class Http3AndPkiTests(unittest.TestCase):
         self.assertIn("CADDY_HTTP3_CANARY=PASS", source)
 
         build = (ROOT / "scripts/build-release-inputs.sh").read_text()
-        self.assertIn("build/codestra-http3-probe", build)
+        self.assertIn("$BUILD/codestra-http3-probe", build)
         self.assertIn("http3_probe_sha256", build)
 
         dockerfile = (ROOT / "Dockerfile").read_text()
