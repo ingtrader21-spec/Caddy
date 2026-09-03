@@ -1,0 +1,63 @@
+n8n.codestra.agency {
+	import security_headers
+	encode gzip
+
+	@health path /healthz /healthz/readiness
+	handle @health {
+		reverse_proxy {$CADDY_N8N_UPSTREAM} {
+			import proxy_common
+		}
+	}
+
+	@staff_private remote_ip private_ranges
+	handle @staff_private {
+		reverse_proxy {$CADDY_N8N_UPSTREAM} {
+			import proxy_common
+		}
+	}
+
+	handle {
+		respond "Staff identity network required" 403
+	}
+
+	log {
+		output file /var/log/caddy/n8n-codestra-agency-access.log {
+			roll_size 20MiB
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		import sanitized_access_log
+	}
+}
+
+n8n-staging.codestra.agency {
+	import security_headers
+	encode gzip
+
+	@health path /healthz /healthz/readiness
+	handle @health {
+		reverse_proxy {$CADDY_N8N_STAGING_UPSTREAM} {
+			import proxy_common
+		}
+	}
+
+	@staff_private remote_ip private_ranges
+	handle @staff_private {
+		reverse_proxy {$CADDY_N8N_STAGING_UPSTREAM} {
+			import proxy_common
+		}
+	}
+
+	handle {
+		respond "Staff identity network required" 403
+	}
+
+	log {
+		output file /var/log/caddy/n8n-staging-codestra-agency-access.log {
+			roll_size 20MiB
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		import sanitized_access_log
+	}
+}

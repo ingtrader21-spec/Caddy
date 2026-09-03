@@ -1,61 +1,16 @@
-# Caddy Repository Operating Rules
+# Caddy repository operating rules
 
-## Authority
-
-This repository is the configuration authority for Caddy. The live server is not allowed to become the undocumented source of truth after the initial import.
-
-## Branch contract
-
-- Work starts on `feat/*`, `fix/*`, or `chore/*` branches based on `development`.
-- Feature/fix PRs target `development`.
-- Promote `development` to `test` only by PR.
-- Promote `test` to `staging` only by PR after automated validation.
-- Promote `staging` to `production` only by PR after smoke, TLS, routing, WebSocket, and upstream evidence.
-- Promote `production` to `main` only after deployment evidence is recorded.
-- Never force-push `main`, `production`, `staging`, or `test`.
-- Never deploy a feature branch directly to a live server.
-
-## Configuration rules
-
-- `config/Caddyfile` is the canonical configuration path on every environment branch.
-- The branch is the environment boundary; do not keep duplicate environment Caddyfiles in one commit.
-- Do not invent, rename, remove, or redirect domains/upstreams without evidence from the current configuration or an approved change.
-- The initial live `/etc/caddy/Caddyfile` must be imported and reviewed before production deployment is enabled.
-- Run `scripts/validate.sh` before every PR update.
-- Prefer reload over restart.
-- A failed validation or reload must leave or restore the previously working configuration.
-- Production deployment must use the exact reviewed Git commit.
-- Manual server edits are drift; reconcile them through Git before the next release.
-
-## Secret rules
-
-Never commit:
-
-- TLS private keys or certificate state
-- `.env` files
-- API tokens
-- DNS provider credentials
-- passwords or bearer tokens
-- Caddy `/data` or `/config` runtime state
-- SSH private keys
-
-Use environment variables or the deployment host's secret store for runtime credentials.
-
-## Network/security rules
-
-- Caddy admin API must remain local/private.
-- Do not expose port 2019 publicly.
-- Do not use `tls_insecure_skip_verify` as a workaround.
-- Do not widen trusted proxy ranges without an explicit network requirement.
-- Preserve HTTP/3/UDP 443 only where intentionally supported.
-
-## Required PR evidence
-
-Every configuration PR must identify:
-
-1. changed hosts/routes/upstreams;
-2. validation result;
-3. expected HTTP/TLS behavior;
-4. rollback impact;
-5. whether the change affects authentication, API ingress, WebSockets, or internal services;
-6. environment promotion source and destination.
+1. `appolon1908-hue/Caddy` is the sole source authority for shared Caddy edge configuration.
+2. `config/` is the only deployable and validated Caddy tree. Never add a competing candidate/live tree.
+3. Shared API traffic follows Caddy -> Kong -> Middleware. Do not add direct Caddy -> Middleware/provider routes for Kong-managed paths.
+4. Unknown API paths fail closed. Compatibility routes must be enumerated in `config/caddy-kong-contract.v2.json`.
+5. Every access log imports `sanitized_access_log`; never log Authorization, cookies, API keys, OIDC codes/state, vault tokens, or response cookies.
+6. Never commit private keys, passwords, tokens, `.env` files, ACME data, runtime data, or host-managed certificate material.
+7. Work starts from `development` and promotes only by PR: development -> test -> staging -> production -> main.
+8. No force push, non-fast-forward update, admin bypass, or direct protected-branch write is allowed.
+9. Production images are digest-pinned, signed, attested, vulnerability-scanned, and tied to the exact production SHA and configuration hash.
+10. Production runtime is the fixed `codestra-caddy` container; do not certify a separate host-systemd Caddy process as the release runtime.
+11. Runtime validation and canary commands are fixed-target/read-only and must not print raw configuration or secret values.
+12. A failed activation must preserve or restore the previous immutable image and configuration identity.
+13. Do not change SSH, firewall rules, DNS ownership, or unrelated workloads from this repository.
+14. Do not declare production PASS without collected runtime, listener, TLS, routing, mTLS, denial, log-redaction, and rollback evidence.

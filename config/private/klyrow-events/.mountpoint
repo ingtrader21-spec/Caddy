@@ -1,0 +1,1 @@
+Runtime bind-mount target only. This path is excluded from the signed configuration hash and is replaced by the root-owned Klyrow mTLS directory at runtime.
