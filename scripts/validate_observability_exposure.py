@@ -375,7 +375,10 @@ def run(write: bool) -> str:
     expected = f"{checksum}  caddy-observability-source-bundle\n"
     if write:
         CHECKSUM_PATH.parent.mkdir(parents=True, exist_ok=True)
-        CHECKSUM_PATH.write_text(expected, encoding="utf-8")
+        # newline="\n" keeps the committed checksum byte-identical no matter
+        # which platform regenerated it; the default translation would write
+        # CRLF on Windows and diff against the Linux CI runner.
+        CHECKSUM_PATH.write_text(expected, encoding="utf-8", newline="\n")
     else:
         try:
             actual = CHECKSUM_PATH.read_text(encoding="utf-8")
