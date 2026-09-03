@@ -18,6 +18,8 @@ N8N_CONTRACT_PATH = ROOT / "config" / "n8n-editor-community.v1.json"
 RUNTIME_EXAMPLE = ROOT / "config" / "runtime-values.example"
 INTEGRATION_DOC = ROOT / "docs" / "CADDY_KONG_INTEGRATION.md"
 N8N_DOC = ROOT / "docs" / "N8N_COMMUNITY_EDITOR_PROTECTION.md"
+READONLY_VALIDATOR = ROOT / "scripts" / "caddy_readonly_validator.py"
+READONLY_DOC = ROOT / "docs" / "READONLY_PRODUCTION_VALIDATION.md"
 
 for path in (
     README_PATH,
@@ -30,6 +32,8 @@ for path in (
     RUNTIME_EXAMPLE,
     INTEGRATION_DOC,
     N8N_DOC,
+    READONLY_VALIDATOR,
+    READONLY_DOC,
 ):
     if not path.exists():
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=missing_required_file:{path.relative_to(ROOT)}")
@@ -233,3 +237,4 @@ print("KEYCLOAK_OIDC_GATE=OAUTH2_PROXY")
 print("PRODUCTION_PLATFORM=REFERENCE_ONLY")
 print("DIRECT_MIDDLEWARE_FOR_KONG_PATHS=DENIED")
 print("LIVE_RELOAD_AUTHORIZED=NO")
+print("CADDY_READONLY_VALIDATOR=SOURCE_ONLY")
