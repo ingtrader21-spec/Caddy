@@ -12,8 +12,8 @@ class Http3AndPkiTests(unittest.TestCase):
         self.assertIn("CADDY_HTTP3_CANARY=PASS", source)
 
         build = (ROOT / "scripts/build-release-inputs.sh").read_text()
-        self.assertIn('build/codestra-http3-probe', build)
-        self.assertIn('http3_probe_sha256', build)
+        self.assertIn("build/codestra-http3-probe", build)
+        self.assertIn("http3_probe_sha256", build)
 
         dockerfile = (ROOT / "Dockerfile").read_text()
         self.assertIn(
@@ -33,6 +33,15 @@ class Http3AndPkiTests(unittest.TestCase):
         )
         self.assertIn("data['http3_canary']='PASS'", production)
         self.assertIn("HTTP3=PASS", production)
+
+    def test_mtls_canary_uses_the_contract_method(self):
+        canary = (ROOT / "tests/runtime-canary-test.sh").read_text()
+        self.assertGreaterEqual(canary.count("--request POST --data '{}'"), 2)
+        self.assertIn(
+            "middleware-email-events.internal.codestra.agency:18080/internal/provider-events/klyrow",
+            canary,
+        )
+        self.assertIn("CADDY_MTLS_CANARY=PASS", canary)
 
     def test_pki_preparer_has_fixed_paths_and_least_privilege_modes(self):
         preparer = (ROOT / "scripts/prepare-runtime-pki-permissions.sh").read_text()
