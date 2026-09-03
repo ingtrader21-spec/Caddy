@@ -206,10 +206,11 @@ http_status="$($CURL --noproxy '*' --silent --output /dev/null --write-out '%{ht
   --resolve api.codestra.co:18080:127.0.0.1 http://api.codestra.co:18080/api/v1/health)"
 [[ "$http_status" =~ ^30(1|7|8)$ ]] || fail "redirect:${http_status}"
 api_headers="$work/api.headers"
+invalid_bearer='bounded-staging-invalid'
 api_status="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
   --dump-header "$api_headers" --output "$work/api.body" --write-out '%{http_code}' \
   --resolve api.codestra.co:18443:127.0.0.1 \
-  -H 'Authorization: Bearer bounded-staging-invalid' \
+  -H "Authorization: Bearer ${invalid_bearer}" \
   https://api.codestra.co:18443/api/v1/health)"
 case "$api_status" in 200|204|401|403) ;; *) fail "kong_readonly:${api_status}" ;; esac
 grep -Eqi '^strict-transport-security: max-age=31536000' "$api_headers" || fail hsts
