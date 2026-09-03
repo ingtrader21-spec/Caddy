@@ -1,0 +1,67 @@
+# Public observability UIs retain native application OIDC. Metrics backends,
+# exporters and collectors are not exposed by Caddy.
+grafana.codestra.media {
+	import security_headers
+	encode zstd gzip
+	request_body {
+		max_size 2MB
+	}
+	reverse_proxy {$CADDY_GRAFANA_UPSTREAM} {
+		flush_interval -1
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+	log {
+		output file /var/log/caddy/grafana-codestra-media-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		import secure_log_filter
+	}
+}
+
+supe.codestra.media {
+	import security_headers
+	encode zstd gzip
+	request_body {
+		max_size 8MB
+	}
+	reverse_proxy {$CADDY_SUPERSET_UPSTREAM} {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+	log {
+		output file /var/log/caddy/superset-codestra-media-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		import secure_log_filter
+	}
+}
+
+{$CADDY_OPENBAO_HOST} {
+	import security_headers
+	encode zstd gzip
+	request_body {
+		max_size 2MB
+	}
+	@offnet not remote_ip {$CADDY_OPENBAO_ALLOWED_CIDRS}
+	route {
+		handle @offnet {
+			respond "Not Found" 404
+		}
+		handle {
+			reverse_proxy {$CADDY_OPENBAO_UPSTREAM} {
+				header_up Host {host}
+				header_up X-Real-IP {remote_host}
+			}
+		}
+	}
+	log {
+		output file /var/log/caddy/openbao-codestra-media-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		import secure_log_filter
+	}
+}
