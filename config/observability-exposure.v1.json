@@ -1,0 +1,54 @@
+{
+  "schema": "codestra.observability-exposure.v1",
+  "principalRepository": "appolon1908-hue/Caddy",
+  "publicRoutes": [
+    {
+      "host": "graf.codestra.media",
+      "service": "grafana",
+      "upstreamEnvironmentVariable": "CADDY_GRAFANA_UPSTREAM",
+      "authentication": "native-keycloak-oidc",
+      "authorization": "grafana-role-mapping",
+      "privateUpstreamRequired": true,
+      "publicNativePortAllowed": false
+    },
+    {
+      "host": "supe.codestra.media",
+      "service": "superset",
+      "upstreamEnvironmentVariable": "CADDY_SUPERSET_UPSTREAM",
+      "authentication": "native-keycloak-oidc",
+      "authorization": "superset-role-mapping",
+      "privateUpstreamRequired": true,
+      "publicNativePortAllowed": false
+    },
+    {
+      "host": "bao.codestra.media",
+      "service": "openbao",
+      "upstreamEnvironmentVariable": "CADDY_OPENBAO_UPSTREAM",
+      "authentication": "private-network-plus-native-keycloak-oidc",
+      "authorization": "openbao-policy",
+      "privateUpstreamRequired": true,
+      "publicNativePortAllowed": false
+    }
+  ],
+  "privateServices": [
+    {"service": "prometheus", "retainedPrivateName": "prom.codestra.media", "publicCaddyRouteAllowed": false},
+    {"service": "alertmanager", "retainedPrivateName": "aler.codestra.media", "publicCaddyRouteAllowed": false},
+    {"service": "loki", "retainedPrivateName": "loki.codestra.media", "publicCaddyRouteAllowed": false},
+    {"service": "tempo", "retainedPrivateName": "temp.codestra.media", "publicCaddyRouteAllowed": false},
+    {"service": "opentelemetry", "retainedPrivateName": "otel.codestra.media", "publicCaddyRouteAllowed": false},
+    {"service": "alloy", "retainedPrivateName": "allo.codestra.media", "publicCaddyRouteAllowed": false},
+    {"service": "node-exporter", "retainedPrivateName": "node.codestra.media", "publicCaddyRouteAllowed": false},
+    {"service": "cadvisor", "retainedPrivateName": "cadv.codestra.media", "publicCaddyRouteAllowed": false},
+    {"service": "postgres-exporter", "retainedPrivateName": null, "prohibitedPublicName": "pgex.codestra.media", "publicDnsHostnameAllowed": false, "publicCaddyRouteAllowed": false},
+    {"service": "redis-exporter", "retainedPrivateName": "rdex.codestra.media", "publicCaddyRouteAllowed": false},
+    {"service": "blackbox-exporter", "retainedPrivateName": "blac.codestra.media", "publicCaddyRouteAllowed": false}
+  ],
+  "activation": {
+    "repositoryConfigurationOnly": true,
+    "dnsStateRead": false,
+    "dnsChangeAuthorized": false,
+    "upstreamHealthVerified": false,
+    "liveCaddyReloadAuthorized": false,
+    "productionTrafficCutoverAuthorized": false
+  }
+}
