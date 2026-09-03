@@ -1,0 +1,166 @@
+name: Caddy production read-only canary
+
+on:
+  workflow_run:
+    workflows: [Immutable Caddy release gate]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact protected production source SHA
+        required: true
+        type: string
+      image_digest:
+        description: Exact sha256 image digest
+        required: true
+        type: string
+      config_sha256:
+        description: Exact canonical configuration SHA256
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+  id-token: write
+
+concurrency:
+  group: caddy-production-readonly-canary
+  cancel-in-progress: false
+
+jobs:
+  authorize-canary:
+    name: authorize-production-readonly-canary
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'production')
+    runs-on: ubuntu-24.04
+    environment: production-readonly
+    outputs:
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      image: ${{ steps.identity.outputs.image }}
+      image_digest: ${{ steps.identity.outputs.image_digest }}
+      config_sha256: ${{ steps.identity.outputs.config_sha256 }}
+    steps:
+      - name: Download protected release evidence
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pattern: caddy-release-evidence-*
+          path: release-evidence
+          merge-multiple: true
+      - id: identity
+        name: Validate immutable canary identity
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_SOURCE_SHA: ${{ inputs.source_sha }}
+          MANUAL_IMAGE_DIGEST: ${{ inputs.image_digest }}
+          MANUAL_CONFIG_SHA256: ${{ inputs.config_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          if [[ "$EVENT_NAME" == workflow_run ]]; then
+            evidence="$(find release-evidence -type f -name caddy-release-evidence.txt -print -quit)"
+            test -n "$evidence"
+            source_sha="$(sed -n 's/^SOURCE_SHA=//p' "$evidence")"
+            image="$(sed -n 's/^IMAGE=//p' "$evidence")"
+            image_digest="$(sed -n 's/^IMAGE_DIGEST=//p' "$evidence")"
+            config_sha256="$(sed -n 's/^CONFIG_SHA256=//p' "$evidence")"
+          else
+            source_sha="$MANUAL_SOURCE_SHA"
+            image_digest="$MANUAL_IMAGE_DIGEST"
+            config_sha256="$MANUAL_CONFIG_SHA256"
+            image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/codestra-caddy@${image_digest}"
+          fi
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$config_sha256" =~ ^[0-9a-f]{64}$ ]]
+          test "$image" = "ghcr.io/${GITHUB_REPOSITORY_OWNER}/codestra-caddy@${image_digest}"
+          printf 'source_sha=%s\nimage=%s\nimage_digest=%s\nconfig_sha256=%s\n' \
+            "$source_sha" "$image" "$image_digest" "$config_sha256" >> "$GITHUB_OUTPUT"
+      - name: Require protected environment paths
+        env:
+          ENV_FILE: ${{ vars.CADDY_CANARY_ENV_FILE }}
+          DATA_SOURCE: ${{ vars.CADDY_CANARY_DATA_SOURCE }}
+          MTLS_CLIENT_CERT: ${{ vars.CADDY_CANARY_MTLS_CLIENT_CERT }}
+          MTLS_CLIENT_KEY: ${{ vars.CADDY_CANARY_MTLS_CLIENT_KEY }}
+          MTLS_CA_CERT: ${{ vars.CADDY_CANARY_MTLS_CA_CERT }}
+        run: |
+          set -Eeuo pipefail
+          for value in "$ENV_FILE" "$DATA_SOURCE" "$MTLS_CLIENT_CERT" "$MTLS_CLIENT_KEY" "$MTLS_CA_CERT"; do
+            test -n "$value"
+            [[ "$value" = /* && "$value" != *..* && "$value" != *//* ]]
+          done
+
+  production-readonly-canary:
+    name: production-readonly-canary
+    needs: authorize-canary
+    runs-on: [self-hosted, linux, x64, caddy-production-readonly]
+    environment: production-readonly
+    timeout-minutes: 35
+    env:
+      CADDY_CANARY_SOURCE_SHA: ${{ needs.authorize-canary.outputs.source_sha }}
+      CADDY_CANARY_IMAGE: ${{ needs.authorize-canary.outputs.image }}
+      CADDY_CANARY_IMAGE_DIGEST: ${{ needs.authorize-canary.outputs.image_digest }}
+      CADDY_CANARY_CONFIG_SHA256: ${{ needs.authorize-canary.outputs.config_sha256 }}
+      CADDY_CANARY_ENV_FILE: ${{ vars.CADDY_CANARY_ENV_FILE }}
+      CADDY_CANARY_DATA_SOURCE: ${{ vars.CADDY_CANARY_DATA_SOURCE }}
+      CADDY_CANARY_MTLS_CLIENT_CERT: ${{ vars.CADDY_CANARY_MTLS_CLIENT_CERT }}
+      CADDY_CANARY_MTLS_CLIENT_KEY: ${{ vars.CADDY_CANARY_MTLS_CLIENT_KEY }}
+      CADDY_CANARY_MTLS_CA_CERT: ${{ vars.CADDY_CANARY_MTLS_CA_CERT }}
+    steps:
+      - name: Check out exact protected production source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ env.CADDY_CANARY_SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove exact current production authority
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$CADDY_CANARY_SOURCE_SHA"
+          git fetch origin production --depth=1
+          test "$(git rev-parse origin/production)" = "$CADDY_CANARY_SOURCE_SHA"
+          test "$(python3 scripts/config_digest.py)" = "$CADDY_CANARY_CONFIG_SHA256"
+      - name: Pin Go toolchain for HTTP3 probe
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: 1.26.6
+          cache: false
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - name: Authenticate to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify production signature and source attestation
+        run: |
+          set -Eeuo pipefail
+          cosign verify \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "$CADDY_CANARY_IMAGE" >/dev/null
+          cosign verify-attestation \
+            --type https://codestra.co/attestations/caddy-source/v2 \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "$CADDY_CANARY_IMAGE" > verified-production-attestation.json
+      - name: Run zero-public-traffic production canary
+        run: |
+          set -o pipefail
+          scripts/production_readonly_canary.sh | tee production-readonly-canary.txt
+      - name: Upload production canary evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caddy-production-readonly-canary-${{ env.CADDY_CANARY_SOURCE_SHA }}
+          path: |
+            production-canary-evidence.json
+            production-readonly-canary.txt
+            pre-canary-runtime.json
+            post-canary-runtime.json
+            verified-production-attestation.json
+          if-no-files-found: error
