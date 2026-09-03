@@ -21,6 +21,8 @@ COPY --chown=0:0 build/codestra-set-bind-capability /usr/bin/codestra-set-bind-c
 USER 0:0
 RUN ["/usr/bin/codestra-set-bind-capability"]
 COPY --chown=65532:65532 config/ /etc/caddy/
+COPY --chown=65532:65532 deploy/runtime-mountpoints/klyrow-events/ /etc/caddy/private/klyrow-events/
+COPY --chown=65532:65532 deploy/runtime-mountpoints/middleware-private-ingress/ /etc/codestra/pki/middleware-private-ingress/
 
 USER 65532:65532
 ENTRYPOINT ["/usr/bin/caddy"]
