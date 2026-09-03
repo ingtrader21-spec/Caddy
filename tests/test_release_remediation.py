@@ -76,6 +76,7 @@ class ReleaseRemediationTests(unittest.TestCase):
             "list-modules",
             "caddy_host_pid",
             "listener_ownership",
+            "effective_access_log_redaction",
             'require_listener(sockets, "udp", public_bind, 443, runtime_pid)',
             'require_listener(sockets, "tcp", metrics_bind, 2020, runtime_pid)',
         ):
@@ -110,7 +111,7 @@ class ReleaseRemediationTests(unittest.TestCase):
         self.assertIn("CADDY_ROLLBACK_BASELINE=PASS", baseline_check)
         self.assertIn("runtime-bind-test.sh", baseline_check)
 
-    def test_promotion_rules_have_no_bypass(self):
+    def test_promotion_rules_have_no_bypass_and_replace_legacy_policies(self):
         ruleset = json.loads(
             (ROOT / "config/github/protected-branches-ruleset.json").read_text()
         )
@@ -127,6 +128,17 @@ class ReleaseRemediationTests(unittest.TestCase):
                 "immutable-release-gate",
             },
         )
+        apply_workflow = (ROOT / ".github/workflows/apply-branch-ruleset.yml").read_text()
+        for token in (
+            "Protect Caddy promotion branches",
+            "AI automated production gates",
+            "Protect main",
+            "CADDY_BRANCH_RULESET_APPLIED=PASS",
+            "CADDY_LEGACY_MAIN_RULESETS_RETIRED=PASS",
+        ):
+            self.assertIn(token, apply_workflow)
+        self.assertIn('required_approving_review_count][0]\' <<<"$actual")" = 0', apply_workflow)
+        self.assertIn("--method DELETE", apply_workflow)
 
 
 if __name__ == "__main__":
