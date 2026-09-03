@@ -1,0 +1,141 @@
+name: Caddy staging certification
+
+on:
+  pull_request:
+    branches: [production]
+  push:
+    branches: [staging]
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact staging source SHA; defaults to the triggering SHA
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: caddy-staging-certification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  staging-certification:
+    name: staging-certification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: staging-readonly
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha) || github.sha }}
+    steps:
+      - name: Validate staging invocation and source identity
+        run: |
+          set -Eeuo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            test "$GITHUB_REF" = refs/heads/staging
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            test "${{ github.base_ref }}" = production
+            test "${{ github.head_ref }}" = staging
+          fi
+      - name: Check out the exact staging SHA
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Pin Go toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: 1.26.6
+          cache: false
+      - name: Validate the sole source authority
+        run: bash scripts/validate-ci.sh
+      - name: Build the canonical binary once
+        run: bash scripts/build-caddy.sh
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e
+      - name: Build exact staging image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
+        with:
+          context: .
+          load: true
+          push: false
+          tags: local/codestra-caddy-staging:${{ env.SOURCE_SHA }}
+          build-args: |
+            BUILD_CREATED=${{ github.event.pull_request.updated_at || github.event.head_commit.timestamp }}
+            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+            VCS_REF=${{ env.SOURCE_SHA }}
+            VERSION=${{ env.SOURCE_SHA }}
+            CONFIG_SHA256=${{ hashFiles('config/**') }}
+      - name: Verify OCI source and runtime labels
+        run: |
+          set -Eeuo pipefail
+          image="local/codestra-caddy-staging:${SOURCE_SHA}"
+          test "$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.source"}}')" = \
+            "https://github.com/${GITHUB_REPOSITORY}"
+          test "$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
+          test "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532:65532
+      - name: Prove privileged-port capability isolation
+        run: tests/runtime-bind-test.sh local/codestra-caddy-staging:${SOURCE_SHA}
+      - name: Scan exact staging image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: local/codestra-caddy-staging:${{ env.SOURCE_SHA }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: false
+          exit-code: '1'
+      - name: Certify TLS, HTTP2, HTTP3, routes, mTLS and sanitized logs
+        run: |
+          set -o pipefail
+          tests/disposable-edge-certification.sh local/codestra-caddy-staging:${SOURCE_SHA} | tee staging-edge-certification.txt
+      - name: Authenticate to GHCR for previous exact digest
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Rehearse rollback and forward recovery
+        run: |
+          set -o pipefail
+          tests/disposable-rollback-rehearsal.sh local/codestra-caddy-staging:${SOURCE_SHA} | tee staging-rollback-rehearsal.txt
+      - name: Write staging certification identity
+        run: |
+          set -Eeuo pipefail
+          config_sha256="$(python3 scripts/config_digest.py)"
+          cat > staging-certification.json <<EOF
+          {
+            "schema": "codestra.caddy.staging-certification.v1",
+            "source_sha": "${SOURCE_SHA}",
+            "config_sha256": "${config_sha256}",
+            "source_validation": "PASS",
+            "vulnerability_gate": "PASS",
+            "privileged_port_binding": "PASS",
+            "tls_http2_http3": "PASS",
+            "kong_keycloak_mtls": "PASS",
+            "request_limits": "PASS",
+            "sanitized_logs": "PASS",
+            "rollback_rehearsal": "PASS",
+            "live_traffic_changed": false,
+            "result": "PASS"
+          }
+          EOF
+      - name: Upload staging certification packet
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caddy-staging-certification-${{ env.SOURCE_SHA }}
+          path: |
+            staging-certification.json
+            staging-edge-certification.txt
+            staging-rollback-rehearsal.txt
+            rollback-rehearsal.json
+            build/config.sha256
+            build/caddy-binary-build-attestation.json
+            build/caddy-go-version.txt
+            build/caddy-modules.txt
+            build/caddy-module-overrides.patch
+          if-no-files-found: error
