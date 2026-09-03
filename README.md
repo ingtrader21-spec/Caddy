@@ -38,6 +38,14 @@ Each system keeps its own source authority:
 - `sites/n8n-editor.community.caddy` — Keycloak/oauth2-proxy boundary for the community-edition editor.
 - `deploy/community-n8n/` — fail-closed node and outbound-network policy overlay.
 - `config/community-n8n-credentials.v1.json` — metadata-only ownership and rotation contract.
+- `config/observability-exposure.v1.json` — repository-only public/private observability URL contract.
+- `sites/codestra.media.observability.caddy` — the only permitted observability UI/restricted-management routes.
+
+Grafana and Superset are the only public observability UI routes. OpenBao has a
+separate source-network gate in addition to native OIDC and policy enforcement.
+Prometheus, Alertmanager, Loki, Tempo, OpenTelemetry, Alloy, every exporter, and
+cAdvisor have no public Caddy site. In particular, `pgex.codestra.media` is a
+prohibited public name, not a denial page or certificate target.
 
 The runtime identity remains the canonical Keycloak-managed `n8n-automation`
 client. The editor gateway uses the existing `n8n_operator` and `n8n_admin`

@@ -4,6 +4,9 @@
 # oauth2-proxy performs Keycloak OIDC authorization and then proxies to the
 # private n8n editor. Caddy never routes this host directly to n8n.
 {$CADDY_N8N_EDITOR_HOST} {
+	@reserved_observability_host host aler.codestra.media allo.codestra.media blac.codestra.media cadv.codestra.media loki.codestra.media node.codestra.media otel.codestra.media pgex.codestra.media prom.codestra.media rdex.codestra.media temp.codestra.media
+	respond @reserved_observability_host "Not Found" 404
+
 	import security_headers
 	encode zstd gzip
 
