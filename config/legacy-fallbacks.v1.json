@@ -1,0 +1,28 @@
+{
+  "schema": "codestra.caddy.legacy-fallbacks.v1",
+  "authority": "appolon1908-hue/Caddy",
+  "approval_state": "source-approved-pending-runtime-certification",
+  "owner": "Codestra edge operations",
+  "review_by": "2026-09-30",
+  "default_action": "deny",
+  "monitoring": {
+    "response_header": "X-Codestra-Upstream-Class",
+    "legacy_value": "realtime-legacy-v1",
+    "required_alert": "codestra_caddy_legacy_fallback_requests_total > 0"
+  },
+  "approved_fallbacks": [
+    {
+      "name": "realtime-v1",
+      "upstream_variable": "CADDY_REALTIME_UPSTREAM",
+      "methods": ["GET"],
+      "paths": [
+        "/ws/agent",
+        "/api/v1/realtime/sessions",
+        "/healthz",
+        "/readyz",
+        "/version"
+      ],
+      "production_canary_only": true
+    }
+  ]
+}
