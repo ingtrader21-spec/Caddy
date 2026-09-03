@@ -109,7 +109,10 @@ class ReleaseRemediationTests(unittest.TestCase):
         self.assertIn("hash_config_tree.py", rollback)
         baseline_check = (ROOT / "scripts/verify-rollback-baseline.sh").read_text()
         self.assertIn("CADDY_ROLLBACK_BASELINE=PASS", baseline_check)
-        self.assertIn("runtime-bind-test.sh", baseline_check)
+        self.assertIn("rollback-baseline-bind-test.sh", baseline_check)
+        self.assertNotIn('"$ROOT/tests/runtime-bind-test.sh" "$baseline_image"', baseline_check)
+        self.assertIn("ROLLBACK_HISTORICAL_BIND=PASS", baseline_check)
+        self.assertIn("ROLLBACK_UNIFIED_COMPOSE_RENDER=PASS", baseline_check)
 
     def test_promotion_rules_have_no_bypass_and_replace_legacy_policies(self):
         ruleset = json.loads(
