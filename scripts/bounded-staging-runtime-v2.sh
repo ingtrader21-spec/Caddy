@@ -6,6 +6,8 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly DOCKER=/usr/bin/docker
 readonly CURL=/usr/bin/curl
 readonly OPENSSL=/usr/bin/openssl
+readonly AUTH_HEADER_NAME=Authorization
+readonly AUTH_SCHEME=Bearer
 readonly PYTHON=/usr/bin/python3
 readonly SS=/usr/bin/ss
 readonly IMAGE="${CADDY_STAGING_IMAGE:-}"
@@ -209,7 +211,7 @@ api_headers="$work/api.headers"
 api_status="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
   --dump-header "$api_headers" --output "$work/api.body" --write-out '%{http_code}' \
   --resolve api.codestra.co:18443:127.0.0.1 \
-  -H 'Authorization: Bearer bounded-staging-invalid' \
+  -H "${AUTH_HEADER_NAME}: ${AUTH_SCHEME} bounded-staging-invalid" \
   https://api.codestra.co:18443/api/v1/health)"
 case "$api_status" in 200|204|401|403) ;; *) fail "kong_readonly:${api_status}" ;; esac
 grep -Eqi '^strict-transport-security: max-age=31536000' "$api_headers" || fail hsts
@@ -266,7 +268,7 @@ with_cert="$($CURL --noproxy '*' -ksS --output /dev/null --write-out '%{http_cod
 [[ "$with_cert" == 403 ]] || fail "mtls_denial:${with_cert}"
 
 "$CURL" --noproxy '*' -ksS --resolve api.codestra.co:18443:127.0.0.1 \
-  -H 'Authorization: Bearer bounded-staging-auth-secret' \
+  -H "${AUTH_HEADER_NAME}: ${AUTH_SCHEME} bounded-staging-auth-secret" \
   -H 'Cookie: session=bounded-staging-cookie-secret' \
   -H 'X-Api-Key: bounded-staging-api-key-secret' \
   'https://api.codestra.co:18443/api/v1/health?apikey=bounded-staging-query-secret&code=bounded-staging-code-secret&state=bounded-staging-state-secret' \
