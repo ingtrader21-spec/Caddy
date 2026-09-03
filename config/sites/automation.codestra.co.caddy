@@ -1,0 +1,32 @@
+# n8n Community editor edge. Caddy applies a source-network gate and Kong owns
+# the Keycloak authorization-code flow; n8n native owner authentication remains
+# enabled behind Kong.
+automation.codestra.co {
+	import security_headers
+	encode zstd gzip
+
+	request_body {
+		max_size 4MB
+	}
+
+	@offnet not remote_ip {$CADDY_EDITOR_ADMIN_CIDRS}
+	route {
+		handle @offnet {
+			respond "Not Found" 404
+		}
+		handle {
+			reverse_proxy {$CADDY_KONG_UPSTREAM} {
+				header_up Host {host}
+				header_up X-Real-IP {remote_host}
+			}
+		}
+	}
+
+	log {
+		output file /var/log/caddy/automation-codestra-co-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		import secure_log_filter
+	}
+}
