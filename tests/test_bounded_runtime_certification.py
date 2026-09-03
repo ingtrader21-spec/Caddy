@@ -26,13 +26,15 @@ class BoundedRuntimeCertificationTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/bounded-runtime-certification.yml").read_text()
         for token in (
             "branches: [production]",
-            "runs-on: [self-hosted, linux, x64, caddy-staging-readonly]",
+            "runs-on: [self-hosted, codestra-staging]",
             "environment: staging-readonly",
+            "CADDY_STAGING_RUNNER_LABEL=codestra-staging",
             "bounded-staging-runtime-v2.sh",
             "staging_evidence_sha256",
             "needs: bounded-staging-runtime",
-            "runs-on: [self-hosted, linux, x64, caddy-production-readonly]",
-            "environment: production-readonly",
+            "runs-on: [self-hosted, codestra-production-canary]",
+            "environment: production-readonly-canary",
+            "CADDY_PRODUCTION_RUNNER_LABEL=codestra-production-canary",
             "bounded-production-readonly-canary-v2.sh",
             "cosign verify",
             "cosign verify-attestation",
