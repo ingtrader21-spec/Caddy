@@ -39,6 +39,10 @@ if needle not in text: raise SystemExit('canary renderer could not find global b
 path.write_text(text.replace(needle,needle+'\tlocal_certs\n',1))
 PY
 mkdir -p "$work/pki/middleware" "$work/pki/klyrow" "$work/logs" "$work/data" "$work/runtime-config"
+# The canary runs Caddy as UID/GID 65532. Keep the ephemeral PKI tree
+# traversable and key material readable only for the duration of this isolated
+# runner; the entire tree is removed by the EXIT trap.
+chmod 0755 "$work" "$work/pki" "$work/pki/middleware" "$work/pki/klyrow"
 chmod 0777 "$work/logs" "$work/data" "$work/runtime-config"
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=Codestra Canary CA' -keyout "$work/pki/ca.key" -out "$work/pki/ca.crt" >/dev/null 2>&1
 make_cert(){ local name="$1" dns="$2"; openssl req -newkey rsa:2048 -nodes -subj "/CN=$dns" -addext "subjectAltName=DNS:$dns" -keyout "$work/pki/$name.key" -out "$work/pki/$name.csr" >/dev/null 2>&1; openssl x509 -req -days 1 -in "$work/pki/$name.csr" -CA "$work/pki/ca.crt" -CAkey "$work/pki/ca.key" -CAcreateserial -copy_extensions copy -out "$work/pki/$name.crt" >/dev/null 2>&1; }
@@ -46,10 +50,10 @@ make_cert middleware middleware.internal.codestra.agency
 make_cert middleware-staging middleware-staging.internal.codestra.agency
 make_cert klyrow middleware-email-events.internal.codestra.agency
 make_cert client codestra-canary-client
-install -m 0644 "$work/pki/middleware.crt" "$work/pki/middleware/server.crt"; install -m 0600 "$work/pki/middleware.key" "$work/pki/middleware/server.key"
-install -m 0644 "$work/pki/middleware-staging.crt" "$work/pki/middleware/staging-server.crt"; install -m 0600 "$work/pki/middleware-staging.key" "$work/pki/middleware/staging-server.key"; install -m 0644 "$work/pki/ca.crt" "$work/pki/middleware/client-ca.crt"
-install -m 0644 "$work/pki/klyrow.crt" "$work/pki/klyrow/tls-fullchain.crt"; install -m 0600 "$work/pki/klyrow.key" "$work/pki/klyrow/tls.key"; install -m 0644 "$work/pki/ca.crt" "$work/pki/klyrow/klyrow-client.crt"
-find "$work/pki" -type f -name '*.key' -exec chmod 0644 {} +
+install -m 0644 "$work/pki/middleware.crt" "$work/pki/middleware/server.crt"; install -m 0644 "$work/pki/middleware.key" "$work/pki/middleware/server.key"
+install -m 0644 "$work/pki/middleware-staging.crt" "$work/pki/middleware/staging-server.crt"; install -m 0644 "$work/pki/middleware-staging.key" "$work/pki/middleware/staging-server.key"; install -m 0644 "$work/pki/ca.crt" "$work/pki/middleware/client-ca.crt"
+install -m 0644 "$work/pki/klyrow.crt" "$work/pki/klyrow/tls-fullchain.crt"; install -m 0644 "$work/pki/klyrow.key" "$work/pki/klyrow/tls.key"; install -m 0644 "$work/pki/ca.crt" "$work/pki/klyrow/klyrow-client.crt"
+chmod 0644 "$work/pki/client.crt" "$work/pki/client.key"
 export MOCK_UPSTREAM_LOG="$work/mock-upstreams.jsonl"; python3 "$ROOT/scripts/mock_upstreams.py" >"$work/mock.log" 2>&1 & mock_pid=$!
 for _ in $(seq 1 50); do grep -q MOCK_UPSTREAMS=READY "$work/mock.log" 2>/dev/null && break; sleep 0.1; done
 grep -q MOCK_UPSTREAMS=READY "$work/mock.log"
