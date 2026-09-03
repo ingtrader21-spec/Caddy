@@ -1,5 +1,7 @@
 name: Apply Caddy branch ruleset
 
+# Re-run the exact no-bypass ruleset after branch-history reconciliation.
+# The job fails closed before mutation when repository-admin authority is absent.
 on:
   workflow_dispatch:
   push:
