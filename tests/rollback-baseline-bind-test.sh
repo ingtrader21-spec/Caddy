@@ -126,7 +126,7 @@ has_socket() {
   for table in "$@"; do
     [[ -r "$table" ]] || continue
     if awk -v port="$port_hex" \
-      'NR > 1 {split($2, address, ":"); if (toupper(address[length(address)]) == port) found=1} END {exit !found}' \
+      'NR > 1 {split($2, address, ":"); if (toupper(address[2]) == port) found=1} END {exit !found}' \
       "$table" 2>/dev/null; then
       return 0
     fi
