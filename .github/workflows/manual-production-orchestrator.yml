@@ -1,0 +1,437 @@
+name: Manual one-click Caddy production orchestrator
+
+run-name: Manual Caddy production orchestration by ${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_production_sha:
+        description: Optional exact production SHA; blank freezes the current production head
+        required: false
+        default: ""
+        type: string
+      rebuild_signed_image:
+        description: Rebuild, sign, and attest even when this exact production SHA already has successful evidence
+        required: true
+        default: false
+        type: boolean
+      runtime_wait_minutes:
+        description: Maximum wait for bounded staging and production read-only runner capacity
+        required: true
+        default: "120"
+        type: choice
+        options:
+          - "30"
+          - "60"
+          - "120"
+          - "180"
+      confirm_readonly_orchestration:
+        description: Run the fail-closed staging and production read-only chain
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: caddy-manual-production-orchestrator
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  preflight:
+    name: freeze-exact-production-authority
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      source_sha: ${{ steps.freeze.outputs.source_sha }}
+      config_sha256: ${{ steps.freeze.outputs.config_sha256 }}
+      staging_relation: ${{ steps.freeze.outputs.staging_relation }}
+      controller_sha: ${{ steps.freeze.outputs.controller_sha }}
+    steps:
+      - name: Check out the exact protected controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: control
+
+      - name: Check out the current production candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: production
+          fetch-depth: 0
+          persist-credentials: false
+          path: candidate
+
+      - id: freeze
+        name: Freeze exact source, branch, staging, Compose, and configuration identity
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_PRODUCTION_SHA: ${{ inputs.expected_production_sha }}
+          CONFIRM_READONLY: ${{ inputs.confirm_readonly_orchestration }}
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$CONFIRM_READONLY" = true
+          controller_sha="$(git -C control rev-parse HEAD)"
+          test "$controller_sha" = "$GITHUB_SHA"
+          test -z "$(git -C control status --porcelain)"
+
+          git -C candidate fetch origin production staging --prune
+          source_sha="$(git -C candidate rev-parse HEAD)"
+          remote_production="$(git -C candidate rev-parse origin/production)"
+          test "$source_sha" = "$remote_production"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+          if [[ -n "$EXPECTED_PRODUCTION_SHA" ]]; then
+            [[ "$EXPECTED_PRODUCTION_SHA" =~ ^[0-9a-f]{40}$ ]]
+            test "$source_sha" = "$EXPECTED_PRODUCTION_SHA"
+          fi
+
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/branches/main" --jq '.protected')" = true
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/branches/production" --jq '.protected')" = true
+
+          if git -C candidate merge-base --is-ancestor origin/staging "$source_sha"; then
+            staging_relation=ancestor
+          else
+            git -C candidate diff --quiet origin/staging "$source_sha"
+            staging_relation=tree-equivalent
+          fi
+
+          test -f candidate/.github/workflows/immutable-release.yml
+          test -f candidate/.github/workflows/bounded-runtime-certification.yml
+          test -f candidate/deploy/compose.runtime.yaml
+          test -f candidate/scripts/caddy_manual_orchestrator.py
+          test -x candidate/scripts/caddy_readonly_validator.py
+          test -x candidate/scripts/bounded-staging-runtime-v2.sh
+          test -x candidate/scripts/bounded-production-readonly-canary-v2.sh
+
+          config_sha256="$(python3 candidate/scripts/hash_config_tree.py candidate/config)"
+          [[ "$config_sha256" =~ ^[0-9a-f]{64}$ ]]
+          test -z "$(git -C candidate status --porcelain)"
+
+          {
+            echo "source_sha=$source_sha"
+            echo "config_sha256=$config_sha256"
+            echo "staging_relation=$staging_relation"
+            echo "controller_sha=$controller_sha"
+          } >> "$GITHUB_OUTPUT"
+
+          python3 - "$source_sha" "$config_sha256" "$staging_relation" "$controller_sha" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          source_sha, config_sha256, staging_relation, controller_sha = sys.argv[1:]
+          value = {
+              "schema": "codestra.caddy.manual-orchestration-preflight.v1",
+              "controller_sha": controller_sha,
+              "source_sha": source_sha,
+              "config_sha256": config_sha256,
+              "production_branch_protected": True,
+              "main_branch_protected": True,
+              "staging_relation": staging_relation,
+              "canonical_compose": "deploy/compose.runtime.yaml",
+              "direct_runtime_mutation": False,
+              "result": "PASS",
+          }
+          Path("caddy-manual-preflight.json").write_text(
+              json.dumps(value, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Run the exact production CI and unified Compose gate
+        working-directory: candidate
+        run: bash scripts/validate-ci.sh
+
+      - name: Upload exact preflight evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caddy-manual-preflight-${{ steps.freeze.outputs.source_sha }}
+          path: caddy-manual-preflight.json
+          if-no-files-found: error
+          retention-days: 90
+
+  release:
+    name: build-sign-attest-exact-production-sha
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    outputs:
+      source_sha: ${{ steps.verify.outputs.source_sha }}
+      image: ${{ steps.verify.outputs.image }}
+      image_digest: ${{ steps.verify.outputs.image_digest }}
+      config_sha256: ${{ steps.verify.outputs.config_sha256 }}
+      release_run_id: ${{ steps.verify.outputs.release_run_id }}
+      release_run_attempt: ${{ steps.verify.outputs.release_run_attempt }}
+      release_evidence_sha256: ${{ steps.verify.outputs.release_evidence_sha256 }}
+      run_url: ${{ steps.child.outputs.run_url }}
+    steps:
+      - name: Check out the exact orchestration controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: control
+
+      - name: Pin orchestration Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+
+      - id: child
+        name: Adopt or rerun the exact production release authority
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ needs.preflight.outputs.source_sha }}
+          REBUILD_SIGNED_IMAGE: ${{ inputs.rebuild_signed_image }}
+        run: |
+          set -Eeuo pipefail
+          policy=reuse-success
+          if [[ "$REBUILD_SIGNED_IMAGE" = true ]]; then
+            policy=rerun-completed
+          fi
+          python3 control/scripts/caddy_manual_orchestrator.py child-run \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow .github/workflows/immutable-release.yml \
+            --source-sha "$SOURCE_SHA" \
+            --policy "$policy" \
+            --timeout-minutes 120 \
+            --output release-child-run.json
+
+      - name: Download the exact immutable release evidence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ needs.preflight.outputs.source_sha }}
+          RELEASE_RUN_ID: ${{ steps.child.outputs.run_id }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p release-evidence
+          gh run download "$RELEASE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "caddy-release-evidence-$SOURCE_SHA" \
+            --dir release-evidence
+
+      - id: verify
+        name: Verify source, digest, signature, SBOM, provenance, scan, and rollback evidence
+        env:
+          SOURCE_SHA: ${{ needs.preflight.outputs.source_sha }}
+        run: |
+          set -Eeuo pipefail
+          python3 control/scripts/caddy_manual_orchestrator.py verify-release \
+            --directory release-evidence \
+            --run-json release-child-run.json \
+            --source-sha "$SOURCE_SHA" \
+            --output caddy-manual-release-receipt.json
+          test "$(jq -r '.config_sha256' caddy-manual-release-receipt.json)" = \
+            "${{ needs.preflight.outputs.config_sha256 }}"
+
+      - name: Upload verified release handoff
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caddy-manual-release-receipt-${{ steps.verify.outputs.source_sha }}
+          path: |
+            release-child-run.json
+            caddy-manual-release-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+
+  runtime:
+    name: bounded-staging-then-production-readonly-canary
+    needs: [preflight, release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    outputs:
+      runtime_run_id: ${{ steps.verify.outputs.runtime_run_id }}
+      runtime_run_attempt: ${{ steps.verify.outputs.runtime_run_attempt }}
+      staging_evidence_sha256: ${{ steps.verify.outputs.staging_evidence_sha256 }}
+      runtime_evidence_sha256: ${{ steps.verify.outputs.runtime_evidence_sha256 }}
+      run_url: ${{ steps.child.outputs.run_url }}
+    steps:
+      - name: Check out the exact orchestration controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: control
+
+      - name: Pin orchestration Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+
+      - id: child
+        name: Adopt or rerun the bounded protected runtime chain
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ needs.release.outputs.source_sha }}
+          WAIT_MINUTES: ${{ inputs.runtime_wait_minutes }}
+        run: |
+          set -Eeuo pipefail
+          python3 control/scripts/caddy_manual_orchestrator.py child-run \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow .github/workflows/bounded-runtime-certification.yml \
+            --source-sha "$SOURCE_SHA" \
+            --policy reuse-success \
+            --timeout-minutes "$WAIT_MINUTES" \
+            --output runtime-child-run.json
+
+      - name: Download bounded staging evidence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ needs.release.outputs.source_sha }}
+          RUNTIME_RUN_ID: ${{ steps.child.outputs.run_id }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p runtime-evidence/staging
+          gh run download "$RUNTIME_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "caddy-bounded-staging-runtime-$SOURCE_SHA" \
+            --dir runtime-evidence/staging
+
+      - name: Download production read-only canary evidence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ needs.release.outputs.source_sha }}
+          RUNTIME_RUN_ID: ${{ steps.child.outputs.run_id }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p runtime-evidence/canary
+          gh run download "$RUNTIME_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "caddy-production-readonly-canary-$SOURCE_SHA" \
+            --dir runtime-evidence/canary
+
+      - id: verify
+        name: Verify exact staging handoff, rollback boundary, and unchanged production runtime
+        env:
+          SOURCE_SHA: ${{ needs.release.outputs.source_sha }}
+          IMAGE: ${{ needs.release.outputs.image }}
+          CONFIG_SHA256: ${{ needs.release.outputs.config_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          python3 control/scripts/caddy_manual_orchestrator.py verify-runtime \
+            --staging-directory runtime-evidence/staging \
+            --canary-directory runtime-evidence/canary \
+            --run-json runtime-child-run.json \
+            --source-sha "$SOURCE_SHA" \
+            --image "$IMAGE" \
+            --config-sha256 "$CONFIG_SHA256" \
+            --output caddy-manual-runtime-receipt.json
+
+      - name: Upload verified bounded runtime handoff
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caddy-manual-runtime-receipt-${{ needs.release.outputs.source_sha }}
+          path: |
+            runtime-child-run.json
+            caddy-manual-runtime-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+
+  verdict:
+    name: production-orchestration-verdict
+    if: always()
+    needs: [preflight, release, runtime]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Create the fail-closed orchestration receipt
+        env:
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+          RUNTIME_RESULT: ${{ needs.runtime.result }}
+          CONTROLLER_SHA: ${{ needs.preflight.outputs.controller_sha }}
+          SOURCE_SHA: ${{ needs.release.outputs.source_sha }}
+          IMAGE: ${{ needs.release.outputs.image }}
+          IMAGE_DIGEST: ${{ needs.release.outputs.image_digest }}
+          CONFIG_SHA256: ${{ needs.release.outputs.config_sha256 }}
+          RELEASE_RUN_ID: ${{ needs.release.outputs.release_run_id }}
+          RELEASE_RUN_ATTEMPT: ${{ needs.release.outputs.release_run_attempt }}
+          RELEASE_RUN_URL: ${{ needs.release.outputs.run_url }}
+          RELEASE_EVIDENCE_SHA256: ${{ needs.release.outputs.release_evidence_sha256 }}
+          RUNTIME_RUN_ID: ${{ needs.runtime.outputs.runtime_run_id }}
+          RUNTIME_RUN_ATTEMPT: ${{ needs.runtime.outputs.runtime_run_attempt }}
+          RUNTIME_RUN_URL: ${{ needs.runtime.outputs.run_url }}
+          STAGING_EVIDENCE_SHA256: ${{ needs.runtime.outputs.staging_evidence_sha256 }}
+          RUNTIME_EVIDENCE_SHA256: ${{ needs.runtime.outputs.runtime_evidence_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          result=NO_GO
+          if [[ "$PREFLIGHT_RESULT" = success && "$RELEASE_RESULT" = success && "$RUNTIME_RESULT" = success ]]; then
+            result=PASS
+          fi
+          python3 - "$result" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          result = sys.argv[1]
+          def number(name):
+              value = os.environ.get(name, "")
+              return int(value) if value.isdigit() else None
+          value = {
+              "schema": "codestra.caddy.manual-production-orchestration.v1",
+              "orchestrator_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "orchestrator_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "controller_sha": os.environ.get("CONTROLLER_SHA") or None,
+              "source_sha": os.environ.get("SOURCE_SHA") or None,
+              "image": os.environ.get("IMAGE") or None,
+              "image_digest": os.environ.get("IMAGE_DIGEST") or None,
+              "config_sha256": os.environ.get("CONFIG_SHA256") or None,
+              "release_run_id": number("RELEASE_RUN_ID"),
+              "release_run_attempt": number("RELEASE_RUN_ATTEMPT"),
+              "release_run_url": os.environ.get("RELEASE_RUN_URL") or None,
+              "release_evidence_sha256": os.environ.get("RELEASE_EVIDENCE_SHA256") or None,
+              "runtime_run_id": number("RUNTIME_RUN_ID"),
+              "runtime_run_attempt": number("RUNTIME_RUN_ATTEMPT"),
+              "runtime_run_url": os.environ.get("RUNTIME_RUN_URL") or None,
+              "staging_evidence_sha256": os.environ.get("STAGING_EVIDENCE_SHA256") or None,
+              "runtime_evidence_sha256": os.environ.get("RUNTIME_EVIDENCE_SHA256") or None,
+              "job_results": {
+                  "preflight": os.environ["PREFLIGHT_RESULT"],
+                  "release": os.environ["RELEASE_RESULT"],
+                  "runtime": os.environ["RUNTIME_RESULT"],
+              },
+              "protected_environments_preserved": True,
+              "direct_production_runtime_mutation": False,
+              "result": result,
+          }
+          Path("caddy-manual-production-orchestration.json").write_text(
+              json.dumps(value, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          {
+            echo "## Caddy manual production orchestration"
+            echo
+            echo "\`RESULT=$result\`"
+            echo
+            echo "- Source: \`${SOURCE_SHA:-unavailable}\`"
+            echo "- Image: \`${IMAGE:-unavailable}\`"
+            echo "- Release run: ${RELEASE_RUN_URL:-unavailable}"
+            echo "- Runtime run: ${RUNTIME_RUN_URL:-unavailable}"
+            echo "- Protected staging and production-readonly environments remain authoritative."
+            echo "- No direct runtime, DNS, firewall, SSH, certificate, or traffic mutation is performed by this controller."
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "$result" > caddy-manual-production-verdict.txt
+          test "$result" = PASS
+
+      - name: Upload final orchestration receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caddy-manual-production-orchestration-${{ github.run_id }}
+          path: |
+            caddy-manual-production-orchestration.json
+            caddy-manual-production-verdict.txt
+          if-no-files-found: error
+          retention-days: 90

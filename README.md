@@ -29,6 +29,23 @@ It owns the fixed `codestra-caddy` service, immutable GHCR digest, source/config
 
 Both exact-source and synthetic-merge CI execute the unified-Compose authority test and render `deploy/compose.runtime.yaml` with the complete non-secret runtime contract before a release gate can pass.
 
+## Manual one-click production orchestration
+
+The operator entry point is `.github/workflows/manual-production-orchestrator.yml`.
+After it reaches protected `main`, run it from the Actions tab to freeze the
+current exact `production` SHA, verify the unified Compose and source gates,
+adopt or rerun the exact signed-image workflow, deploy that immutable digest to
+bounded staging, and execute the dependent production read-only canary.
+
+The workflow validates the release, staging, rollback, and production-canary
+artifacts before emitting `PASS`. Missing runner capacity, an expired artifact,
+a source/image/configuration mismatch, failed signature or scan, failed staging
+check, or changed production snapshot emits `NO_GO`. It does not bypass the
+`staging-readonly` or `production-readonly-canary` environments and does not
+directly replace the live Caddy container.
+
+See [`docs/MANUAL-ONE-CLICK-PRODUCTION-ORCHESTRATOR.md`](docs/MANUAL-ONE-CLICK-PRODUCTION-ORCHESTRATOR.md).
+
 ## Request boundary
 
 The governed shared API path is:
