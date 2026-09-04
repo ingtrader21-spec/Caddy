@@ -114,11 +114,23 @@ class ReleaseRemediationTests(unittest.TestCase):
         self.assertIn("ROLLBACK_HISTORICAL_BIND=PASS", baseline_check)
         self.assertIn("ROLLBACK_UNIFIED_COMPOSE_RENDER=PASS", baseline_check)
 
-    def test_promotion_rules_have_no_bypass_and_replace_legacy_policies(self):
+    def test_promotion_rules_are_exact_head_no_bypass_and_applied_explicitly(self):
         ruleset = json.loads(
             (ROOT / "config/github/protected-branches-ruleset.json").read_text()
         )
         self.assertEqual(ruleset["bypass_actors"], [])
+        rule_types = {rule["type"] for rule in ruleset["rules"]}
+        self.assertIn("required_linear_history", rule_types)
+        self.assertIn("non_fast_forward", rule_types)
+        self.assertIn("deletion", rule_types)
+        pull_request = next(
+            rule for rule in ruleset["rules"] if rule["type"] == "pull_request"
+        )["parameters"]
+        self.assertEqual(pull_request["required_approving_review_count"], 1)
+        self.assertTrue(pull_request["dismiss_stale_reviews_on_push"])
+        self.assertTrue(pull_request["require_last_push_approval"])
+        self.assertTrue(pull_request["required_review_thread_resolution"])
+        self.assertEqual(pull_request["allowed_merge_methods"], ["squash"])
         checks = next(
             rule for rule in ruleset["rules"] if rule["type"] == "required_status_checks"
         )
@@ -133,17 +145,21 @@ class ReleaseRemediationTests(unittest.TestCase):
         )
         apply_workflow = (ROOT / ".github/workflows/apply-branch-ruleset.yml").read_text()
         for token in (
+            "workflow_dispatch:",
+            "APPLY_CADDY_PROMOTION_RULESET",
             "CODESTRA_REPOSITORY_ADMIN_TOKEN",
             "Protect Caddy promotion branches",
-            "AI automated production gates",
-            "Protect main",
             "required_approving_review_count",
+            "require_last_push_approval",
             "allowed_merge_methods",
-            "--method DELETE",
+            "caddy-promotion-ruleset-readback.json",
             "CADDY_BRANCH_RULESET_APPLIED=PASS",
-            "CADDY_LEGACY_MAIN_RULESETS_RETIRED=PASS",
+            "CADDY_BRANCH_RULESET_READBACK=PASS",
+            "CADDY_RUNTIME_CHANGED=NO",
         ):
             self.assertIn(token, apply_workflow)
+        self.assertNotIn("--method DELETE", apply_workflow)
+        self.assertNotIn("CADDY_LEGACY_MAIN_RULESETS_RETIRED", apply_workflow)
 
 
 if __name__ == "__main__":
