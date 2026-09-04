@@ -1,70 +1,161 @@
-# Codestra Caddy Edge
+# Codestra Caddy edge authority
 
-This repository is the principal Git source for Codestra shared Caddy edge configuration, immutable release construction, validation, promotion, runtime read-back, and rollback evidence.
+This repository is the authoritative source for the Codestra public Caddy edge. It owns the reviewed Caddy configuration, custom immutable image, unified production Compose service, edge validation, signed release evidence, bounded staging certification, read-only production canary, exact-digest production activation, and rollback controls.
 
-## Single authority
+It does **not** own application business logic, Keycloak realm administration, Kong route administration, DNS-provider credentials, production secrets, or application/provider write authorization.
 
-There is exactly one deployable configuration tree:
+## Canonical source and runtime
+
+The only deployable configuration tree is:
 
 ```text
-config/Caddyfile
-config/snippets/*.caddy
-config/sites/*.caddy
-config/conf.d/*.caddy
+config/
 ```
 
-The image build, CI validation, immutable launcher, container validator, canary, and rollback controls all consume that same tree. There is no separate candidate configuration and no server-owned route authority.
-
-## Unified Compose and CI
-
-The sole Caddy runtime composition is:
+The only production runtime composition is:
 
 ```text
 deploy/compose.runtime.yaml
 ```
 
-It owns the fixed `codestra-caddy` service, immutable GHCR digest, source/configuration/release labels, non-root identity, read-only filesystem, capability boundary, health check, state mounts, and host-network listener model. Activation, rollback, rollback rehearsal, and CI all consume this exact file. No second Compose file may define the Caddy image, service, or container identity.
+The production service is `codestra-caddy`. The Compose model requires an exact `image@sha256:...` identity, exact protected source SHA, canonical configuration SHA-256, release ID, non-root UID/GID `65532:65532`, read-only root filesystem, dropped capabilities except `NET_BIND_SERVICE`, and `no-new-privileges`.
 
-`deploy/community-n8n/compose.security.yaml` is a separate n8n security overlay and is not a Caddy runtime authority. CI fails if that overlay or any future Compose file introduces a competing Caddy service.
+A second Dockerfile, production Compose model, Caddy configuration root, mutable image tag, or host-systemd deployment authority is prohibited.
 
-Both exact-source and synthetic-merge CI execute the unified-Compose authority test and render `deploy/compose.runtime.yaml` with the complete non-secret runtime contract before a release gate can pass.
+## CI
 
-## Request boundary
-
-The governed shared API path is:
+Pull-request CI validates the exact head and GitHub synthetic merge result. The required gates are:
 
 ```text
-client -> Caddy -> Kong -> Middleware -> owned downstream service
+validate-source
+validate-merge-result
+promotion-guard
+immutable-release-gate
 ```
 
-Caddy owns TLS termination, host selection, request limits, transport policy, security headers, and sanitized edge logs. Kong owns gateway authentication, authorization, scopes, rate limits, and route policy. Keycloak owns identity and token issuance. Middleware owns privileged cross-system commands and provider effects.
+The checks prove the single configuration authority, unified Compose ownership, Caddy-to-Kong route contract, unknown-route denial, non-root privileged-port binding, HTTP/2 and HTTP/3, TLS, HSTS, request limits, WebSockets, Keycloak redirects, mTLS, complete credential redaction, HIGH/CRITICAL vulnerability status, signed rollback compatibility, and absence of a competing runtime.
 
-Known shared API paths on both `api.codestra.co` and the legacy compatibility host are handed to Kong. Only the explicitly contracted realtime/health paths may use `CADDY_REALTIME_UPSTREAM`; every unknown path returns `404`. An unrestricted legacy API fallback is prohibited.
+Run the same source contract locally with:
 
-## Immutable runtime
+```bash
+bash scripts/validate-ci.sh
+```
 
-Production uses only:
+## Manual one-click CD
+
+The production entry point is:
 
 ```text
-ghcr.io/appolon1908-hue/codestra-caddy@sha256:<approved-digest>
+.github/workflows/manual-production-orchestrator.yml
 ```
 
-The release pipeline builds the patched Caddy binary, records the upstream source and module overrides, scans for HIGH/CRITICAL vulnerabilities, tests non-root privileged-port binding, runs an isolated edge canary, emits SBOM and provenance, signs the binary attestation and image digest, and uploads release evidence.
-
-The production container is fixed as `codestra-caddy`, runs as UID/GID `65532`, has a read-only root filesystem, drops all capabilities except `NET_BIND_SERVICE`, and uses host networking so reviewed public/private binds remain explicit. `scripts/caddy_readonly_validator.py` validates the actual container, image digest, OCI labels, configuration hash, environment contract, modules, listeners, health, and effective Caddy configuration without printing raw configuration or secret values.
-
-## Promotion
-
-All accepted work follows:
+From **Actions → Caddy one-click production orchestrator**, select the exact `production` branch, enter:
 
 ```text
-feature|fix|chore|docs|refactor -> development -> test -> staging -> production -> main
+RUN_CADDY_PRODUCTION
 ```
 
-The repository defines exact-head, synthetic merge-result, promotion-chain, and immutable-release checks. The declarative branch ruleset is `config/github/protected-branches-ruleset.json`; it has no bypass actors and prohibits deletion and non-fast-forward updates.
+and dispatch once. There are no free-form image, digest, source, host, command, percentage, or script inputs. Protected-environment approvals may pause the run and must not be bypassed.
 
-## Runtime activation and rollback
+The fixed chain is:
 
-A source merge never authorizes a live reload. Before activation, the operator must verify the exact protected production SHA and signed image digest, preserve the current release as the rollback baseline, validate the complete image configuration, and run the bounded canary. `scripts/run-immutable-runtime.sh` fails closed and invokes the immutable rollback path if the new container does not become healthy. `scripts/rollback-runtime.sh` accepts no arguments and restores only the signed digest recorded in `config/release-baseline.v1.json`.
+```text
+current protected production SHA
+  → active no-bypass ruleset and protected-environment readback
+  → exact signed image and release-evidence verification
+  → bounded staging deployment and certification
+  → historical rollback rehearsal and evidence hash
+  → production GET/HEAD/handshake-only canary
+  → byte-identical pre/post live-runtime readback
+  → capture current live image/environment/mount/release baseline
+  → exact-digest Caddy activation through unified Compose
+  → health, source, image, config, listener and redaction readback
+  → automatic exact-live-baseline rollback on failure
+  → machine-readable FULL_PRODUCTION_GO or NO_GO
+```
 
-SSH configuration, firewall policy, DNS ownership, unrelated workloads, and application secrets are outside this repository and must not be changed by a Caddy release.
+A successful source push, pull-request check, image release, or read-only canary is not a complete deployment. The final workflow artifact must report:
+
+```text
+CADDY_ONE_CLICK_PRODUCTION=FULL_PRODUCTION_GO
+FULL_PRODUCTION_GO=true
+CADDY_RUNTIME_LIVE=true
+APPLICATION_WRITES_AUTHORIZED=false
+```
+
+## Protected environments and runners
+
+| Environment | Required runner | Authority |
+|---|---|---|
+| `staging-readonly` | `self-hosted`, `codestra-staging` | Isolated exact-digest staging deployment and rollback rehearsal |
+| `production-readonly-canary` | `self-hosted`, `codestra-production-canary` | Read-only live inspection with no container replacement |
+| `production-activation` | `self-hosted`, `codestra-production` | Exact-digest Caddy replacement with captured live rollback |
+
+All three environments must allow protected branches only. The preflight reads that policy through the GitHub API before any runtime job starts.
+
+The production runner must be dedicated to this private repository and protected environment, execute the reviewed job as root, and provide root-owned, non-group/world-writable `/usr/bin/docker`, `/usr/bin/python3`, `/usr/bin/jq`, and `/usr/local/bin/cosign`. It must not accept pull-request or unrelated-repository jobs.
+
+`production-activation` must expose only the variable:
+
+```text
+CADDY_PRODUCTION_ENV_FILE=/absolute/root-owned/path/caddy-production.env
+```
+
+The referenced file must be root-owned, mode `0600`, not a symlink, and contain the non-secret variables declared in `config/runtime-values.example`. The parser rejects unknown or duplicate keys and never evaluates shell syntax.
+
+## Immutable release authority
+
+Production pushes build the exact protected SHA and publish only the exact SHA tag plus immutable digest. The release pipeline produces:
+
+- custom patched Caddy binary evidence;
+- OCI source, revision, and configuration labels;
+- zero-HIGH/zero-CRITICAL image gate;
+- SBOM and BuildKit provenance;
+- keyless image signature;
+- Codestra source attestation;
+- HTTP/2, HTTP/3, TLS, mTLS, Kong, Keycloak, denial, limit, WebSocket, and log-redaction canary evidence;
+- historical rollback rehearsal.
+
+The one-click workflow consumes and re-verifies this existing release. It never substitutes `latest`, rebuilds on a runtime host, or retags an image.
+
+## Exact live rollback
+
+Before production replacement, `scripts/capture-runtime-baseline.sh` verifies the current healthy `codestra-caddy` container and writes root-owned mode-`0600` records containing:
+
+- live source SHA, immutable image digest, configuration digest, and release ID;
+- Cosign signature proof;
+- validator-output checksum, health, Caddy-only listener ownership, and redaction state;
+- exact allowlisted runtime environment in a separate protected file;
+- `/data` and `/config` host mount identities.
+
+`scripts/run-immutable-runtime.sh` requires that captured baseline. Candidate health, production canary, or final source/image/configuration mismatch invokes `scripts/rollback-runtime.sh`. Rollback restores the captured image, runtime environment, state mounts, configuration, source, and release identity, then reruns the production canary. A rollback failure is surfaced as `activation_and_rollback_failed`; it is never hidden.
+
+The committed `config/release-baseline.v1.json` remains the independently tested historical CI authority. It is not substituted for the captured live baseline during production activation.
+
+## Edge routing contract
+
+Known shared API families use:
+
+```text
+client → Caddy → Kong → Middleware or owned downstream service
+```
+
+`api.codestra.co` is canonical. `api.codestra.agency` is legacy compatibility only. Both follow the governed Caddy/Kong contract. Unknown API routes return `404`; there is no unrestricted fallback to the old Middleware listener.
+
+Every access log imports the shared sanitizer and removes authorization headers, cookies, API keys, OAuth/OIDC query values, response cookies, and access-token response headers.
+
+## Branch flow
+
+Source changes move through protected branches:
+
+```text
+development → test → staging → production → main
+```
+
+No force push, direct unreviewed branch update, or administrator bypass is part of the release model. The current governance source requires one independent exact-head approval, stale-review dismissal, last-push approval, resolved conversations, required status checks, and linear history.
+
+## Safety boundary
+
+The one-click workflow authorizes only the reviewed Caddy edge runtime. It does not authorize application writes, payments, withdrawals, trading, dialing, email, SMS, provider delivery, campaign activation, Odoo writes, n8n external delivery, DNS changes, firewall changes, SSH-policy changes, or unrelated workload changes.
+
+Never commit tokens, private keys, bearer credentials, registry passwords, certificate private material, environment payloads, or live service secrets. GitHub protected environments and root-owned host paths are the only accepted runtime binding locations.

@@ -3,6 +3,10 @@ set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly CADDY_VALIDATOR_IMAGE='docker.io/library/caddy@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c'
 cd "$ROOT"
+while IFS= read -r -d '' script; do
+  bash -n "$script"
+done < <(git ls-files -z '*.sh')
+printf 'SHELL_SYNTAX=PASS\n'
 python3 -m compileall -q scripts tests
 python3 scripts/test_caddy_kong_contract.py
 python3 scripts/validate_repository.py
