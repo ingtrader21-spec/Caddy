@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate pinned Keycloak -> Caddy -> Kong -> Middleware source and safety."""
+"""Validate pinned Keycloak -> Caddy -> Kong -> Middleware source authority."""
 
 from __future__ import annotations
 
@@ -10,16 +10,59 @@ from pathlib import Path
 from caddy_kong_contract import routed_kong_prefixes
 
 ROOT = Path(__file__).resolve().parents[1]
-EVIDENCE_PATH = ROOT / "config/caddy-kong-middleware-route-evidence.v1.json"
-CONTRACT_PATH = ROOT / "config/caddy-kong-contract.v2.json"
+EVIDENCE = ROOT / "config/caddy-kong-middleware-route-evidence.v1.json"
+CONTRACT = ROOT / "config/caddy-kong-contract.v2.json"
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+EXPECTED_AUTHORITIES = {
+    "keycloak": {
+        "repository": "appolon1908-hue/Keycloak",
+        "sha": "3b8422da498a47b8f1a91a6a2b2c62d2852ca50f",
+        "files": {
+            "config/clients/n8n-automation.json":
+                "7784eb9cd5fc11e5e66d3fbe30418e0bfe16d5d7",
+        },
+    },
+    "kong": {
+        "repository": "appolon1908-hue/Kong",
+        "sha": "f61c106ce736bf8fd6a013d4961eeca3bf125b56",
+        "files": {
+            "config/kong-intake-routes.json":
+                "8d92e7a40dee5eefe279a3bd668fb7d3428972fc",
+            "config/kong-n8n-control-plane-routes.json":
+                "6d1649f2a3d95dfbb6eb862e0dd462dc0bfd4ad1",
+        },
+    },
+    "middleware": {
+        "repository": "appolon1908-hue/Middleware-",
+        "sha": "4092b3b1e57819da75eb45631176b022f70a0c55",
+        "files": {
+            "app/main.py": "4cff19c6f30f67481b74f67bf15da83e62455c8e",
+            "app/survey_routes.py": "4d4faa2a1acab26d1e4b4417f8381c0a9b52a27a",
+            "app/n8n_control_plane.py": "87fc20c075a973e5a775d0d343c025054e0231be",
+            "app/commands.py": "751d2e51b335520c0509f3758058967a2c767fef",
+        },
+    },
+}
+EXPECTED_ROUTES = {
+    ("POST", "/v1/intake/leads"),
+    ("POST", "/v1/intake/surveys/responses"),
+    ("POST", "/v1/integrations/n8n/commands"),
+    ("GET", "/v1/integrations/n8n/operations/{command_id}"),
+}
+EXPECTED_BLOCKED = {
+    "/api/v1/control/callbacks",
+    "/api/v1/callbacks",
+    "/api/v1/automation/policy-check",
+    "/api/v1/integrations/n8n/results",
+}
+PROBE_PATH = "/v1/integrations/n8n/operations/00000000-0000-0000-0000-000000000000"
 
 
 def fail(reason: str) -> None:
     raise SystemExit(f"CADDY_CROSS_REPOSITORY_CONTRACT_ERROR={reason}")
 
 
-def load_json(path: Path) -> dict:
+def load(path: Path) -> dict:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -29,225 +72,175 @@ def load_json(path: Path) -> dict:
     return value
 
 
-def require_sha(value: object, scope: str) -> str:
-    if not isinstance(value, str) or not SHA_RE.fullmatch(value):
-        fail(f"invalid_sha:{scope}")
-    return value
-
-
-def covers(prefix: str, path: str) -> bool:
-    normalized = prefix.rstrip("/")
-    return path == normalized or path.startswith(normalized + "/")
-
-
-def evidence_files(section: dict, scope: str) -> dict[str, str]:
+def files(section: dict, scope: str) -> dict[str, str]:
     items = section.get("evidenceFiles")
     if not isinstance(items, list) or not items:
         fail(f"evidence_files_required:{scope}")
     result: dict[str, str] = {}
-    for index, item in enumerate(items):
+    for item in items:
         if not isinstance(item, dict):
-            fail(f"invalid_evidence_file:{scope}:{index}")
+            fail(f"invalid_evidence_file:{scope}")
         path = item.get("path")
-        if not isinstance(path, str) or not path or path.startswith("/") or ".." in Path(path).parts:
-            fail(f"invalid_evidence_path:{scope}:{index}")
-        if path in result:
-            fail(f"duplicate_evidence_path:{scope}:{path}")
-        result[path] = require_sha(item.get("blobSha"), f"{scope}:{path}")
+        sha = item.get("blobSha")
+        if (
+            not isinstance(path, str)
+            or not path
+            or path.startswith("/")
+            or ".." in Path(path).parts
+            or not isinstance(sha, str)
+            or not SHA_RE.fullmatch(sha)
+            or path in result
+        ):
+            fail(f"invalid_evidence_file:{scope}")
+        result[path] = sha
     return result
 
 
-def main() -> int:
-    evidence = load_json(EVIDENCE_PATH)
-    contract = load_json(CONTRACT_PATH)
+def covers(prefix: str, path: str) -> bool:
+    prefix = prefix.rstrip("/")
+    return path == prefix or path.startswith(prefix + "/")
 
+
+def main() -> int:
+    evidence = load(EVIDENCE)
+    contract = load(CONTRACT)
     if evidence.get("schema") != "codestra.caddy-kong-middleware-source-evidence.v1":
         fail("evidence_schema")
     if contract.get("schema") != "codestra.caddy-kong-edge.v2":
-        fail("caddy_contract_schema")
+        fail("contract_schema")
 
     caddy = evidence.get("caddy")
-    keycloak = evidence.get("keycloak")
-    kong = evidence.get("kong")
-    middleware = evidence.get("middleware")
-    if not all(isinstance(item, dict) for item in (caddy, keycloak, kong, middleware)):
-        fail("authority_objects_required")
-    assert isinstance(caddy, dict)
-    assert isinstance(keycloak, dict)
-    assert isinstance(kong, dict)
-    assert isinstance(middleware, dict)
+    if not isinstance(caddy, dict):
+        fail("caddy_authority")
+    if (
+        caddy.get("repository") != "appolon1908-hue/Caddy"
+        or caddy.get("canonicalHost") != contract.get("canonicalHost")
+    ):
+        fail("caddy_authority")
 
-    if caddy.get("repository") != "appolon1908-hue/Caddy":
-        fail("caddy_repository")
-    if caddy.get("canonicalHost") != contract.get("canonicalHost"):
-        fail("canonical_host")
-    if keycloak.get("repository") != "appolon1908-hue/Keycloak":
-        fail("keycloak_repository")
-    if kong.get("repository") != "appolon1908-hue/Kong":
-        fail("kong_repository")
-    if middleware.get("repository") != "appolon1908-hue/Middleware-":
-        fail("middleware_repository")
+    for name, expected in EXPECTED_AUTHORITIES.items():
+        section = evidence.get(name)
+        if not isinstance(section, dict):
+            fail(f"missing_authority:{name}")
+        sha = section.get("protectedMainSha")
+        if (
+            section.get("repository") != expected["repository"]
+            or sha != expected["sha"]
+            or not isinstance(sha, str)
+            or not SHA_RE.fullmatch(sha)
+            or files(section, name) != expected["files"]
+        ):
+            fail(f"authority_drift:{name}")
 
-    keycloak_sha = require_sha(keycloak.get("protectedMainSha"), "keycloak_main")
-    kong_sha = require_sha(kong.get("protectedMainSha"), "kong_main")
-    middleware_sha = require_sha(middleware.get("protectedMainSha"), "middleware_main")
-    if keycloak_sha != "3b8422da498a47b8f1a91a6a2b2c62d2852ca50f":
-        fail("unexpected_keycloak_main")
-    if kong_sha != "f61c106ce736bf8fd6a013d4961eeca3bf125b56":
-        fail("unexpected_kong_main")
-    if middleware_sha != "50175213ca1c6e785dbb7b5ab2b00caf932a516d":
-        fail("unexpected_middleware_main")
-
-    keycloak_files = evidence_files(keycloak, "keycloak")
-    kong_files = evidence_files(kong, "kong")
-    middleware_files = evidence_files(middleware, "middleware")
-    if keycloak_files != {
-        "config/clients/n8n-automation.json": "7784eb9cd5fc11e5e66d3fbe30418e0bfe16d5d7"
-    }:
-        fail("keycloak_evidence_set")
-    if set(kong_files) != {
-        "config/kong-intake-routes.json",
-        "config/kong-n8n-control-plane-routes.json",
-    }:
-        fail("kong_evidence_set")
-    if set(middleware_files) != {
-        "app/main.py",
-        "app/survey_routes.py",
-        "app/n8n_control_plane.py",
-        "app/commands.py",
-    }:
-        fail("middleware_evidence_set")
-
-    required_scopes = keycloak.get("requiredScopes")
-    tenant_claim = keycloak.get("tenantClaim")
+    keycloak = evidence["keycloak"]
+    tenant = keycloak.get("tenantClaim")
     if (
         keycloak.get("stagingHost") != "auth-staging.codestra.co"
         or keycloak.get("stagingIssuer") != "https://auth-staging.codestra.co/realms/codestra"
         or keycloak.get("clientId") != "n8n-automation"
         or keycloak.get("audience") != "middleware-api"
         or keycloak.get("maximumAccessTokenLifetimeSeconds") != 300
-        or set(required_scopes or [])
+        or set(keycloak.get("requiredScopes") or [])
         != {
             "middleware.request.forward",
             "middleware.status.read",
             "workflow.result.publish",
         }
-        or not isinstance(tenant_claim, dict)
-        or tenant_claim.get("claim") != "tenant_id"
-        or tenant_claim.get("source") != "service-account-user-attribute"
-        or tenant_claim.get("wildcardAllowed") is not False
+        or not isinstance(tenant, dict)
+        or tenant != {
+            "claim": "tenant_id",
+            "source": "service-account-user-attribute",
+            "wildcardAllowed": False,
+        }
     ):
         fail("keycloak_identity_contract")
 
     managed = contract.get("kongManagedPathPrefixes")
-    if not isinstance(managed, list) or not managed or not all(isinstance(item, str) for item in managed):
+    if (
+        not isinstance(managed, list)
+        or not managed
+        or not all(isinstance(item, str) and item.startswith("/") for item in managed)
+        or len(managed) != len(set(managed))
+        or "/api/v1/control" in managed
+    ):
         fail("managed_prefixes")
-    managed_prefixes = list(managed)
-    if len(managed_prefixes) != len(set(managed_prefixes)):
-        fail("duplicate_managed_prefix")
-    if "/api/v1/control" in managed_prefixes:
-        fail("broad_control_prefix_forbidden")
+    managed_set = set(managed)
 
-    canonical_path = ROOT / str(caddy.get("canonicalSitePath", ""))
-    legacy_path = ROOT / str(caddy.get("legacySitePath", ""))
-    if not canonical_path.is_file() or not legacy_path.is_file():
+    canonical = ROOT / str(caddy.get("canonicalSitePath", ""))
+    legacy = ROOT / str(caddy.get("legacySitePath", ""))
+    if not canonical.is_file() or not legacy.is_file():
         fail("site_source_missing")
-    canonical_routes = set(routed_kong_prefixes(canonical_path.read_text(encoding="utf-8")))
-    legacy_routes = set(routed_kong_prefixes(legacy_path.read_text(encoding="utf-8")))
-    if canonical_routes != set(managed_prefixes):
+    if set(routed_kong_prefixes(canonical.read_text(encoding="utf-8"))) != managed_set:
         fail("canonical_site_contract_drift")
-    if legacy_routes != set(managed_prefixes):
+    if set(routed_kong_prefixes(legacy.read_text(encoding="utf-8"))) != managed_set:
         fail("legacy_site_contract_drift")
-
-    staging_site = ROOT / "config/sites/staging-internal.caddy"
-    if not staging_site.is_file() or "auth-staging.codestra.co" not in staging_site.read_text(encoding="utf-8"):
+    staging = ROOT / "config/sites/staging-internal.caddy"
+    if not staging.is_file() or "auth-staging.codestra.co" not in staging.read_text(encoding="utf-8"):
         fail("staging_identity_edge_missing")
 
+    kong_files = set(EXPECTED_AUTHORITIES["kong"]["files"])
+    middleware_files = set(EXPECTED_AUTHORITIES["middleware"]["files"])
     routes = evidence.get("sourceVerifiedRoutes")
     if not isinstance(routes, list):
-        fail("source_routes_required")
-    expected_routes = {
-        ("POST", "/v1/intake/leads"),
-        ("POST", "/v1/intake/surveys/responses"),
-        ("POST", "/v1/integrations/n8n/commands"),
-        ("GET", "/v1/integrations/n8n/operations/{command_id}"),
-    }
-    actual_routes: set[tuple[str, str]] = set()
-    for index, route in enumerate(routes):
+        fail("source_routes")
+    actual: set[tuple[str, str]] = set()
+    for route in routes:
         if not isinstance(route, dict):
-            fail(f"invalid_source_route:{index}")
+            fail("source_route_type")
         method = route.get("method")
         path = route.get("path")
         prefix = route.get("caddyPrefix")
-        kong_path = route.get("kongEvidencePath")
-        middleware_path = route.get("middlewareEvidencePath")
-        if not all(isinstance(item, str) and item for item in (method, path, prefix, kong_path, middleware_path)):
-            fail(f"invalid_source_route_fields:{index}")
-        assert isinstance(method, str)
-        assert isinstance(path, str)
-        assert isinstance(prefix, str)
-        assert isinstance(kong_path, str)
-        assert isinstance(middleware_path, str)
-        if method not in {"GET", "POST"} or not path.startswith("/"):
-            fail(f"invalid_method_or_path:{index}")
-        if prefix not in managed_prefixes or not covers(prefix, path.replace("/{command_id}", "")):
-            fail(f"unrouted_source_route:{method}:{path}")
-        if kong_path not in kong_files or middleware_path not in middleware_files:
-            fail(f"missing_pinned_evidence:{method}:{path}")
-        if route.get("runtimeProbeAuthorized") is True and method != "GET":
-            fail(f"mutation_probe_forbidden:{path}")
-        actual_routes.add((method, path))
-    if actual_routes != expected_routes:
+        if (
+            not isinstance(method, str)
+            or not isinstance(path, str)
+            or not isinstance(prefix, str)
+            or method not in {"GET", "POST"}
+            or prefix not in managed_set
+            or not covers(prefix, path.replace("/{command_id}", ""))
+            or route.get("kongEvidencePath") not in kong_files
+            or route.get("middlewareEvidencePath") not in middleware_files
+            or (route.get("runtimeProbeAuthorized") is True and method != "GET")
+        ):
+            fail("source_route_contract")
+        actual.add((method, path))
+    if actual != EXPECTED_ROUTES:
         fail("source_route_set")
 
-    blocked = evidence.get("blockedUntilImplemented")
-    contract_blocked_items = contract.get("blockedUntilImplemented")
-    if not isinstance(blocked, list) or not isinstance(contract_blocked_items, list):
-        fail("blocked_route_contract_required")
+    blocked = set(evidence.get("blockedUntilImplemented") or [])
     contract_blocked = {
         item.get("pathPrefix")
-        for item in contract_blocked_items
-        if isinstance(item, dict) and isinstance(item.get("pathPrefix"), str)
+        for item in contract.get("blockedUntilImplemented") or []
+        if isinstance(item, dict)
     }
-    blocked_set = set(blocked)
-    expected_blocked = {
-        "/api/v1/control/callbacks",
-        "/api/v1/callbacks",
-        "/api/v1/automation/policy-check",
-        "/api/v1/integrations/n8n/results",
-    }
-    if blocked_set != expected_blocked or contract_blocked != expected_blocked:
+    if blocked != EXPECTED_BLOCKED or contract_blocked != EXPECTED_BLOCKED:
         fail("blocked_route_set")
-    for path in blocked_set:
-        if any(covers(prefix, path) for prefix in managed_prefixes):
+    for path in blocked:
+        if any(covers(prefix, path) for prefix in managed_set):
             fail(f"blocked_route_exposed:{path}")
 
     proof = evidence.get("runtimeProofContract")
-    if not isinstance(proof, dict):
-        fail("runtime_proof_contract")
-    expected_probe_path = "/v1/integrations/n8n/operations/00000000-0000-0000-0000-000000000000"
     if (
-        proof.get("required") is not True
+        not isinstance(proof, dict)
+        or proof.get("required") is not True
         or proof.get("identityEnvironment") != "staging"
         or proof.get("expectedIssuer") != keycloak.get("stagingIssuer")
         or proof.get("method") != "GET"
-        or proof.get("path") != expected_probe_path
+        or proof.get("path") != PROBE_PATH
         or proof.get("expectedAuthenticatedStatus") != 404
         or proof.get("expectedErrorCode") != "command_not_found"
-        or proof.get("expectedMiddlewareSourceSha") != middleware_sha
+        or proof.get("expectedMiddlewareSourceSha")
+        != EXPECTED_AUTHORITIES["middleware"]["sha"]
         or proof.get("mutationAllowed") is not False
         or proof.get("externalEffectsAllowed") is not False
         or proof.get("productionTrafficActivationAuthorized") is not False
+        or not any(covers(prefix, PROBE_PATH) for prefix in managed_set)
     ):
-        fail("unsafe_or_incomplete_runtime_proof")
-    if not any(covers(prefix, expected_probe_path) for prefix in managed_prefixes):
-        fail("runtime_probe_not_routed")
+        fail("runtime_proof_contract")
 
-    print(f"KEYCLOAK_PROTECTED_MAIN_SHA={keycloak_sha}")
-    print(f"KONG_PROTECTED_MAIN_SHA={kong_sha}")
-    print(f"MIDDLEWARE_PROTECTED_MAIN_SHA={middleware_sha}")
-    print(f"SOURCE_VERIFIED_ROUTE_COUNT={len(actual_routes)}")
-    print(f"BLOCKED_UNIMPLEMENTED_ROUTE_COUNT={len(blocked_set)}")
+    for name, expected in EXPECTED_AUTHORITIES.items():
+        print(f"{name.upper()}_PROTECTED_MAIN_SHA={expected['sha']}")
+    print(f"SOURCE_VERIFIED_ROUTE_COUNT={len(actual)}")
+    print(f"BLOCKED_UNIMPLEMENTED_ROUTE_COUNT={len(blocked)}")
     print("STAGING_IDENTITY_CONTRACT=PASS")
     print("CADDY_KONG_MIDDLEWARE_SOURCE_CONTRACT=PASS")
     print("UNIMPLEMENTED_ROUTES_FAIL_CLOSED=PASS")
