@@ -25,12 +25,14 @@ readonly ACTIVATION_EVIDENCE=production-activation-evidence.json
 readonly ACTIVATION_LOG=production-activation.txt
 readonly FINAL_RUNTIME=final-production-runtime.json
 readonly WRAPPER_ROLLBACK_LOG=final-readback-rollback.txt
+readonly POST_ACTIVATION_EVIDENCE=post-activation-canary-evidence.json
 
 phase=preflight
 baseline_sha256=""
 readonly_receipt_sha256=""
 activation_output_sha256=""
 final_runtime_sha256=""
+post_activation_canary_sha256=""
 rollback_status="NOT_REQUIRED"
 
 fail() {
@@ -87,6 +89,7 @@ write_evidence() {
     --arg rollback_status "$rollback_status" \
     --arg activation_output_sha256 "$activation_output_sha256" \
     --arg final_runtime_sha256 "$final_runtime_sha256" \
+    --arg post_activation_canary_sha256 "$post_activation_canary_sha256" \
     --arg phase "$phase" \
     --arg reason "$reason" \
     --arg completed_at "$completed_at" \
@@ -107,6 +110,7 @@ write_evidence() {
       rollback_result:{file:$rollback_result_file,sha256:$rollback_result_sha256,status:$rollback_status},
       activation_output_sha256:$activation_output_sha256,
       final_runtime_sha256:$final_runtime_sha256,
+      post_activation_canary_sha256:$post_activation_canary_sha256,
       failed_phase:$phase,
       reason:$reason,
       automatic_rollback_armed:true,
@@ -164,6 +168,9 @@ load_runtime_environment() {
     CADDY_PUBLIC_BIND
     CADDY_PRIVATE_METRICS_BIND
     CADDY_PRIVATE_INGRESS_BIND
+    CADDY_PRODUCTION_MTLS_CLIENT_CERT
+    CADDY_PRODUCTION_MTLS_CLIENT_KEY
+    CADDY_PRODUCTION_MTLS_CA_CERT
     CADDY_KLYROW_SOURCE_CIDRS
     CADDY_VICIDIAL_SOURCE_CIDRS
     CADDY_STAGING_EVENT_SOURCE_CIDRS
@@ -238,6 +245,8 @@ GIT=(git -c "safe.directory=$ROOT" -C "$ROOT")
 [[ -f "$ROOT/deploy/compose.runtime.yaml" ]] || fail unified_compose_missing
 
 readonly_receipt_sha256="$(sha256sum "$READONLY_RECEIPT" | awk '{print $1}')"
+# Legacy codestra.caddy.manual-production-orchestrator-receipt.v1 packets are
+# intentionally rejected; activation consumes the source-bound v2 contract.
 "$JQ_BIN" -e \
   --arg source "$SOURCE_SHA" \
   --arg image "$IMAGE" \
@@ -257,6 +266,13 @@ readonly_receipt_sha256="$(sha256sum "$READONLY_RECEIPT" | awk '{print $1}')"
   ' "$READONLY_RECEIPT" >/dev/null || fail readonly_receipt_contract
 
 load_runtime_environment
+for path in \
+  "$CADDY_PRODUCTION_MTLS_CLIENT_CERT" \
+  "$CADDY_PRODUCTION_MTLS_CLIENT_KEY" \
+  "$CADDY_PRODUCTION_MTLS_CA_CERT"; do
+  [[ "$path" = /* && "$path" != *..* && "$path" != *//* ]] || fail protected_mtls_path
+  [[ -f "$path" && ! -L "$path" && -r "$path" ]] || fail protected_mtls_file
+done
 export CADDY_REVIEWED_SHA="$SOURCE_SHA"
 export CADDY_IMAGE_SHA256="${IMAGE_DIGEST#sha256:}"
 export CADDY_PRODUCTION_REMOTE_SHA="$SOURCE_SHA"
@@ -296,6 +312,33 @@ fi
 if ! grep -q '^CADDY_ACTIVATION=PASS$' "$ACTIVATION_LOG"; then
   rollback_wrapper_failure activation_receipt_missing
 fi
+
+phase=post_activation_canary_evidence
+if [[ ! -s "$POST_ACTIVATION_EVIDENCE" || -L "$POST_ACTIVATION_EVIDENCE" ]]; then
+  rollback_wrapper_failure post_activation_evidence_missing
+fi
+if ! "$JQ_BIN" -e \
+  --arg source "$SOURCE_SHA" \
+  --arg image "$IMAGE" \
+  --arg digest "$IMAGE_DIGEST" \
+  --arg config "$CONFIG_SHA256" '
+    .schema == "codestra.caddy.production-readonly-canary.v2" and
+    .canary_mode == "post-activation" and
+    .candidate_source_sha == $source and .candidate_image == $image and
+    .candidate_config_sha256 == $config and
+    .live_source_sha == $source and .live_image_digest == $digest and
+    .live_config_sha256 == $config and
+    .live_runtime_is_candidate == true and
+    .candidate_started_on_production == true and
+    .live_runtime_unchanged == true and
+    .live_mtls_server_certificate_verified == true and
+    .live_mtls_handshake_and_denial == "PASS" and
+    .write_requests_sent == false and .public_traffic_changed == false and
+    .result == "PASS"
+  ' "$POST_ACTIVATION_EVIDENCE" >/dev/null; then
+  rollback_wrapper_failure post_activation_evidence_invalid
+fi
+post_activation_canary_sha256="$(sha256sum "$POST_ACTIVATION_EVIDENCE" | awk '{print $1}')"
 
 phase=final_runtime_readback
 set +e
