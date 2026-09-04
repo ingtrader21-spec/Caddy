@@ -49,7 +49,7 @@
   },
   "middleware": {
     "repository": "appolon1908-hue/Middleware-",
-    "protectedMainSha": "50175213ca1c6e785dbb7b5ab2b00caf932a516d",
+    "protectedMainSha": "4092b3b1e57819da75eb45631176b022f70a0c55",
     "evidenceFiles": [
       {
         "path": "app/main.py",
@@ -118,7 +118,7 @@
     "path": "/v1/integrations/n8n/operations/00000000-0000-0000-0000-000000000000",
     "expectedAuthenticatedStatus": 404,
     "expectedErrorCode": "command_not_found",
-    "expectedMiddlewareSourceSha": "50175213ca1c6e785dbb7b5ab2b00caf932a516d",
+    "expectedMiddlewareSourceSha": "4092b3b1e57819da75eb45631176b022f70a0c55",
     "mutationAllowed": false,
     "externalEffectsAllowed": false,
     "productionTrafficActivationAuthorized": false
