@@ -1,0 +1,2 @@
+HEAD=ci/manual-one-click-production-orchestrator-20260903
+BASE=development
