@@ -28,14 +28,27 @@ ruleset_id="$(
     --jq ".[] | select(.name == \"$canonical_name\" and .enforcement == \"active\") | .id" \
     | head -n1
 )"
-[[ -n "$ruleset_id" ]]
+[[ "$ruleset_id" =~ ^[0-9]+$ ]]
 gh api "repos/${GITHUB_REPOSITORY}/rulesets/${ruleset_id}" > canonical-ruleset.json
-jq -e '.enforcement == "active" and (.bypass_actors | length) == 0' canonical-ruleset.json >/dev/null
-[[ "$(jq -r '[.conditions.ref_name.include[]] | sort | join(",")' canonical-ruleset.json)" == \
-  'refs/heads/development,refs/heads/main,refs/heads/production,refs/heads/staging,refs/heads/test' ]]
-[[ "$(jq -r '[.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context] | sort | join(",")' canonical-ruleset.json)" == \
-  'immutable-release-gate,promotion-guard,validate-merge-result,validate-source' ]]
-[[ "$(jq -r '[.rules[] | select(.type == "pull_request") | .parameters.allowed_merge_methods[]] | join(",")' canonical-ruleset.json)" == merge ]]
+
+expected_refs='refs/heads/development,refs/heads/main,refs/heads/production,refs/heads/staging,refs/heads/test'
+expected_checks='immutable-release-gate,promotion-guard,validate-merge-result,validate-source'
+jq -e --arg refs "$expected_refs" --arg checks "$expected_checks" '
+  .name == "Protect Caddy promotion branches" and
+  .target == "branch" and
+  .enforcement == "active" and
+  (.bypass_actors | length) == 0 and
+  ([.conditions.ref_name.include[]] | sort | join(",")) == $refs and
+  ([.rules[] | select(.type == "pull_request") | .parameters.required_approving_review_count][0]) == 1 and
+  ([.rules[] | select(.type == "pull_request") | .parameters.dismiss_stale_reviews_on_push][0]) == true and
+  ([.rules[] | select(.type == "pull_request") | .parameters.require_last_push_approval][0]) == true and
+  ([.rules[] | select(.type == "pull_request") | .parameters.required_review_thread_resolution][0]) == true and
+  ([.rules[] | select(.type == "pull_request") | .parameters.allowed_merge_methods[]] | join(",")) == "squash" and
+  ([.rules[] | select(.type == "required_linear_history")] | length) == 1 and
+  ([.rules[] | select(.type == "non_fast_forward")] | length) == 1 and
+  ([.rules[] | select(.type == "deletion")] | length) == 1 and
+  ([.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context] | sort | join(",")) == $checks
+' canonical-ruleset.json >/dev/null
 
 source_sha="$GITHUB_SHA"
 config_sha256="$(python3 scripts/hash_config_tree.py config)"
@@ -107,6 +120,11 @@ jq -n \
     release_run_id:($release_run_id|tonumber),
     release_artifact_id:($artifact_id|tonumber),
     branch_ruleset_verified:true,
+    bypass_actors:0,
+    required_approvals:1,
+    require_last_push_approval:true,
+    merge_method:"squash",
+    linear_history:true,
     signature_verified:true,
     source_attestation_verified:true
   }' > exact-production-candidate.json
