@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import unittest
 from pathlib import Path
 
@@ -19,13 +18,9 @@ class ProductionCanaryP1RegressionTests(unittest.TestCase):
         self.run = RUN.read_text(encoding="utf-8")
 
     def command_assignment(self, name: str) -> str:
-        match = re.search(
-            rf"{re.escape(name)}=\"\\\$\\\(.*?\\n\\[\\[",
-            self.bounded,
-            flags=re.DOTALL,
-        )
-        self.assertIsNotNone(match, name)
-        return match.group(0)
+        start = self.bounded.index(f'{name}="$(')
+        end = self.bounded.index("\n[[", start)
+        return self.bounded[start:end]
 
     def test_activation_consumes_the_v2_readonly_receipt(self) -> None:
         self.assertIn(
