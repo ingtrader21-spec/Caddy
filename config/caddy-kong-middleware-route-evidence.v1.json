@@ -1,0 +1,99 @@
+{
+  "schema": "codestra.caddy-kong-middleware-source-evidence.v1",
+  "recordedAt": "2026-09-04T00:00:00Z",
+  "caddy": {
+    "repository": "appolon1908-hue/Caddy",
+    "canonicalHost": "api.codestra.co",
+    "contractPath": "config/caddy-kong-contract.v2.json",
+    "canonicalSitePath": "config/sites/api.codestra.co.caddy",
+    "legacySitePath": "config/sites/legacy-api.codestra.agency.caddy"
+  },
+  "kong": {
+    "repository": "appolon1908-hue/Kong",
+    "protectedMainSha": "f61c106ce736bf8fd6a013d4961eeca3bf125b56",
+    "evidenceFiles": [
+      {
+        "path": "config/kong-intake-routes.json",
+        "blobSha": "8d92e7a40dee5eefe279a3bd668fb7d3428972fc"
+      },
+      {
+        "path": "config/kong-n8n-control-plane-routes.json",
+        "blobSha": "6d1649f2a3d95dfbb6eb862e0dd462dc0bfd4ad1"
+      }
+    ]
+  },
+  "middleware": {
+    "repository": "appolon1908-hue/Middleware-",
+    "protectedMainSha": "50175213ca1c6e785dbb7b5ab2b00caf932a516d",
+    "evidenceFiles": [
+      {
+        "path": "app/main.py",
+        "blobSha": "4cff19c6f30f67481b74f67bf15da83e62455c8e"
+      },
+      {
+        "path": "app/survey_routes.py",
+        "blobSha": "4d4faa2a1acab26d1e4b4417f8381c0a9b52a27a"
+      },
+      {
+        "path": "app/n8n_control_plane.py",
+        "blobSha": "87fc20c075a973e5a775d0d343c025054e0231be"
+      },
+      {
+        "path": "app/commands.py",
+        "blobSha": "8b0ab1c01119a6c03a97fe92a7fc3a65e6a8daef",
+        "assertion": "CommandNotFound returns HTTP 404 with code command_not_found"
+      }
+    ]
+  },
+  "sourceVerifiedRoutes": [
+    {
+      "method": "POST",
+      "path": "/v1/intake/leads",
+      "caddyPrefix": "/v1/intake",
+      "kongEvidencePath": "config/kong-intake-routes.json",
+      "middlewareEvidencePath": "app/main.py",
+      "runtimeProbeAuthorized": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/intake/surveys/responses",
+      "caddyPrefix": "/v1/intake",
+      "kongEvidencePath": "config/kong-intake-routes.json",
+      "middlewareEvidencePath": "app/survey_routes.py",
+      "runtimeProbeAuthorized": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/integrations/n8n/commands",
+      "caddyPrefix": "/v1/integrations/n8n",
+      "kongEvidencePath": "config/kong-n8n-control-plane-routes.json",
+      "middlewareEvidencePath": "app/n8n_control_plane.py",
+      "runtimeProbeAuthorized": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/integrations/n8n/operations/{command_id}",
+      "caddyPrefix": "/v1/integrations/n8n",
+      "kongEvidencePath": "config/kong-n8n-control-plane-routes.json",
+      "middlewareEvidencePath": "app/n8n_control_plane.py",
+      "runtimeProbeAuthorized": true
+    }
+  ],
+  "blockedUntilImplemented": [
+    "/api/v1/control/callbacks",
+    "/api/v1/callbacks",
+    "/api/v1/automation/policy-check",
+    "/api/v1/integrations/n8n/results"
+  ],
+  "runtimeProofContract": {
+    "required": true,
+    "method": "GET",
+    "path": "/v1/integrations/n8n/operations/00000000-0000-0000-0000-000000000000",
+    "expectedAuthenticatedStatus": 404,
+    "expectedErrorCode": "command_not_found",
+    "expectedMiddlewareSourceSha": "50175213ca1c6e785dbb7b5ab2b00caf932a516d",
+    "mutationAllowed": false,
+    "externalEffectsAllowed": false,
+    "productionTrafficActivationAuthorized": false
+  }
+}
