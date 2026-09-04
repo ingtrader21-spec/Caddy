@@ -7,7 +7,10 @@ ROOT = Path(__file__).resolve().parents[1]
 BOUNDED = ROOT / "scripts/bounded-production-readonly-canary-v2.sh"
 CANARY = ROOT / "scripts/production-canary.sh"
 ACTIVATION = ROOT / "scripts/manual-production-activate.sh"
+ROLLBACK = ROOT / "scripts/rollback-runtime.sh"
 RUN = ROOT / "scripts/run-immutable-runtime.sh"
+WORKFLOW = ROOT / ".github/workflows/manual-production-orchestrator.yml"
+GITIGNORE = ROOT / ".gitignore"
 
 
 class ProductionCanaryP1RegressionTests(unittest.TestCase):
@@ -15,7 +18,10 @@ class ProductionCanaryP1RegressionTests(unittest.TestCase):
         self.bounded = BOUNDED.read_text(encoding="utf-8")
         self.canary = CANARY.read_text(encoding="utf-8")
         self.activation = ACTIVATION.read_text(encoding="utf-8")
+        self.rollback = ROLLBACK.read_text(encoding="utf-8")
         self.run = RUN.read_text(encoding="utf-8")
+        self.workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.gitignore = GITIGNORE.read_text(encoding="utf-8")
 
     def command_assignment(self, name: str) -> str:
         start = self.bounded.index(f'{name}="$(')
@@ -32,12 +38,13 @@ class ProductionCanaryP1RegressionTests(unittest.TestCase):
             self.activation,
         )
 
-    def test_full_canary_has_explicit_pre_and_post_activation_modes(self) -> None:
+    def test_full_canary_has_explicit_pre_post_and_rollback_modes(self) -> None:
         for token in (
             "CADDY_PRODUCTION_CANARY_MODE",
-            "pre-activation",
-            "post-activation",
+            "pre-activation|post-activation|rollback",
+            "live_runtime_is_expected_tuple",
             "live_runtime_is_candidate",
+            '"rollback_validation": rollback_validation',
             '"candidate_started_on_production": post_activation',
             '"live_mtls_server_certificate_verified": True',
         ):
@@ -61,20 +68,41 @@ class ProductionCanaryP1RegressionTests(unittest.TestCase):
     def test_replacement_path_reruns_the_complete_fixed_target_suite(self) -> None:
         for token in (
             "bounded-production-readonly-canary-v2.sh",
-            "CADDY_PRODUCTION_CANARY_MODE=post-activation",
-            "post_activation_full_canary",
-            "post-activation-canary-evidence.json",
-            '"live_runtime_is_candidate"] is True',
-            '"candidate_started_on_production"] is True',
-            '"live_mtls_server_certificate_verified"] is True',
-            "FULL_POST_ACTIVATION_CANARY=PASS",
+            'readonly CANARY_MODE="${CADDY_PRODUCTION_CANARY_MODE:-post-activation}"',
+            'export CADDY_PRODUCTION_CANARY_MODE="$CANARY_MODE"',
+            "full_fixed_target_canary",
+            'assert value["live_runtime_is_candidate"] is post_activation',
+            'assert value["candidate_started_on_production"] is post_activation',
+            'assert value["live_mtls_server_certificate_verified"] is True',
+            "FULL_FIXED_TARGET_CANARY=PASS",
         ):
             self.assertIn(token, self.canary)
         self.assertIn('canary_output="$("$ROOT/scripts/production-canary.sh")"', self.run)
         self.assertLess(
-            self.canary.index("CADDY_PRODUCTION_CANARY_MODE=post-activation"),
+            self.canary.index('export CADDY_PRODUCTION_CANARY_MODE="$CANARY_MODE"'),
             self.canary.index("CADDY_PRODUCTION_CANARY=PASS"),
         )
+
+    def test_rollback_validates_restored_image_independently_of_checkout(self) -> None:
+        for token in (
+            'if [[ "$MODE" != rollback ]]; then',
+            'image_probe="$(docker_cmd create "$IMAGE")"',
+            'docker_cmd cp "$image_probe:/etc/caddy/." "$work/image-config"',
+            "image_config_identity",
+            'expected_tuple_live = mode in {"post-activation", "rollback"}',
+            'rollback_validation = mode == "rollback"',
+        ):
+            self.assertIn(token, self.bounded)
+        for token in (
+            "CADDY_PRODUCTION_CANARY_MODE=rollback",
+            "rollback-canary-evidence.json",
+            "rollback-canary.SHA256SUMS",
+            "restored_image_validated_independently_of_checkout",
+            'assert value["live_runtime_is_expected_tuple"] is True',
+            'assert value["rollback_validation"] is True',
+            'assert value["live_runtime_is_candidate"] is False',
+        ):
+            self.assertIn(token, self.rollback)
 
     def test_protected_activation_environment_requires_mtls_paths(self) -> None:
         for token in (
@@ -102,6 +130,27 @@ class ProductionCanaryP1RegressionTests(unittest.TestCase):
             self.activation.index("phase=post_activation_canary_evidence"),
             self.activation.index("phase=complete"),
         )
+
+    def test_complete_canary_packets_are_staged_for_artifact_upload(self) -> None:
+        for token in (
+            'readonly OUTPUT_DIR="$ROOT/activation-evidence"',
+            'manifest_name="${evidence_prefix}-canary.SHA256SUMS"',
+            'sha256sum --check --strict "$manifest_name"',
+            "ARTIFACT_PACKET_MANIFEST_SHA256",
+        ):
+            self.assertIn(token, self.canary)
+        self.assertIn("activation-evidence/", self.gitignore)
+        self.assertIn("path: activation-evidence/", self.workflow)
+        self.assertNotIn("rm -rf activation-evidence", self.workflow)
+
+    def test_rollback_receipt_binds_the_uploaded_canary_packet(self) -> None:
+        for token in (
+            "canary_evidence_sha256",
+            "canary_packet_manifest_sha256",
+            "ROLLBACK_CANARY_MANIFEST_SHA256",
+            'sha256sum --check --strict rollback-canary.SHA256SUMS',
+        ):
+            self.assertIn(token, self.rollback)
 
 
 if __name__ == "__main__":
