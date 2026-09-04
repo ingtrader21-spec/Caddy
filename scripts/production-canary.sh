@@ -36,6 +36,7 @@ if [[ -e "$OUTPUT_DIR" ]]; then
   [[ -d "$OUTPUT_DIR" && ! -L "$OUTPUT_DIR" ]] || fail evidence_output_directory
 fi
 install -d -m 0700 "$OUTPUT_DIR"
+cd "$ROOT"
 
 root_prefix=()
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -182,6 +183,14 @@ install -m 0600 "$work/full-canary.txt" "$OUTPUT_DIR/$log_name"
   sha256sum --check --strict "$manifest_name"
 )
 packet_manifest_sha256="$(sha256sum "$OUTPUT_DIR/$manifest_name" | awk '{print $1}')"
+
+# Keep compatibility copies for the activation wrapper while the complete,
+# checksummed packet remains staged in activation-evidence/ for artifact upload.
+install -m 0600 "$OUTPUT_DIR/$evidence_name" "$ROOT/$evidence_name"
+install -m 0600 "$OUTPUT_DIR/$before_name" "$ROOT/$before_name"
+install -m 0600 "$OUTPUT_DIR/$after_name" "$ROOT/$after_name"
+install -m 0600 "$OUTPUT_DIR/$log_name" "$ROOT/$log_name"
+install -m 0600 "$OUTPUT_DIR/$manifest_name" "$ROOT/$manifest_name"
 
 "$PYTHON_BIN" - "$temporary" "$CANARY_MODE" "$full_canary_sha256" "$packet_manifest_sha256" <<'PY'
 import json
