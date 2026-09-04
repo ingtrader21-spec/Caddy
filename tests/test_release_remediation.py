@@ -84,18 +84,26 @@ class ReleaseRemediationTests(unittest.TestCase):
         self.assertNotIn("systemctl", validator)
         self.assertNotIn("caddy.service", validator)
 
-    def test_release_and_rollback_are_immutable(self):
+    def test_release_is_manual_reusable_and_immutable(self):
         release = (ROOT / ".github/workflows/immutable-release.yml").read_text()
+        trigger = release.split("\npermissions:", 1)[0]
+        self.assertIn("workflow_call:", trigger)
+        self.assertNotIn("\n  push:", trigger)
         for token in (
-            "branches: [production]",
+            "source_sha:",
+            "Reject every source except the current protected production head",
             "scripts/build-release-inputs.sh",
             "tests/runtime-canary-test.sh",
             "cosign sign --yes",
             "cosign attest --yes",
             "sbom: true",
             "provenance: mode=max",
+            "release_evidence_sha256",
+            "rollback_evidence_sha256",
         ):
             self.assertIn(token, release)
+
+    def test_static_and_captured_rollback_baselines_are_immutable(self):
         baseline = json.loads((ROOT / "config/release-baseline.v1.json").read_text())
         self.assertFalse(baseline["mutable"])
         self.assertTrue(
@@ -103,16 +111,45 @@ class ReleaseRemediationTests(unittest.TestCase):
                 "ghcr.io/appolon1908-hue/codestra-caddy@sha256:"
             )
         )
+        capture = (ROOT / "scripts/capture-runtime-baseline.sh").read_text()
+        for token in (
+            "codestra.caddy-runtime-rollback-baseline.v1",
+            "CADDY_ROLLBACK_BASELINE_FILE",
+            "signature_verified",
+            "listener_ownership",
+            "effective_access_log_redaction",
+            "install -m 0600 -o root -g root",
+            "CADDY_BASELINE_CAPTURE=PASS",
+        ):
+            self.assertIn(token, capture)
         rollback = (ROOT / "scripts/rollback-runtime.sh").read_text()
-        self.assertIn('"$COSIGN_BIN" verify', rollback)
-        self.assertIn("up -d --pull never --no-build", rollback)
-        self.assertIn("hash_config_tree.py", rollback)
+        for token in (
+            "CADDY_ROLLBACK_BASELINE_FILE",
+            "codestra.caddy-release-baseline.v1",
+            "codestra.caddy-runtime-rollback-baseline.v1",
+            '"$COSIGN_BIN" verify',
+            "up -d --pull never --no-build",
+            "hash_config_tree.py",
+            "production-canary.sh",
+        ):
+            self.assertIn(token, rollback)
         baseline_check = (ROOT / "scripts/verify-rollback-baseline.sh").read_text()
         self.assertIn("CADDY_ROLLBACK_BASELINE=PASS", baseline_check)
-        self.assertIn("rollback-baseline-bind-test.sh", baseline_check)
-        self.assertNotIn('"$ROOT/tests/runtime-bind-test.sh" "$baseline_image"', baseline_check)
-        self.assertIn("ROLLBACK_HISTORICAL_BIND=PASS", baseline_check)
-        self.assertIn("ROLLBACK_UNIFIED_COMPOSE_RENDER=PASS", baseline_check)
+        self.assertIn("runtime-bind-test.sh", baseline_check)
+
+    def test_activation_requires_captured_baseline_and_exact_digest(self):
+        activation = (ROOT / "scripts/run-immutable-runtime.sh").read_text()
+        for token in (
+            "CADDY_ROLLBACK_BASELINE_FILE",
+            "rollback_baseline_required",
+            "rollback-runtime.sh",
+            "automatic_rollback",
+            "final_identity_readback",
+            "CADDY_ACTIVATION=PASS",
+        ):
+            self.assertIn(token, activation)
+        self.assertNotIn("latest", activation)
+        self.assertNotIn("--build", activation)
 
     def test_promotion_rules_have_no_bypass_and_replace_legacy_policies(self):
         ruleset = json.loads(
