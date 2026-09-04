@@ -16,13 +16,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Create exact reviewed pull request
+      - name: Create exact reviewed pull request with an independent identity
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CODESTRA_INDEPENDENT_REVIEWER_TOKEN || secrets.CODESTRA_REVIEWER_TOKEN || secrets.KAZAN555_GITHUB_TOKEN || secrets.KAZAN555_TOKEN || secrets.INDEPENDENT_REVIEWER_TOKEN || secrets.REVIEWER_TOKEN || secrets.CODESTRA_AUTOMATION_TOKEN || secrets.GITHUB_AUTOMATION_TOKEN || secrets.PRODUCTION_RELEASE_GITHUB_TOKEN || secrets.CODESTRA_GITHUB_TOKEN || secrets.GH_PAT || secrets.GITHUB_PAT || secrets.PAT || github.token }}
           HEAD_BRANCH: feat/manual-one-click-production-orchestrator-20260903
         run: |
           set -Eeuo pipefail
+          test -n "$GH_TOKEN"
           test -z "$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$HEAD_BRANCH" --base development --state open --json number --jq '.[].number')"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/branches/$HEAD_BRANCH" --jq '.commit.sha')" = 64e9d797917f731d2a44266ceb25a9051672fc54
+
           cat > /tmp/body.md <<'BODY'
           ## Purpose
 
@@ -44,10 +47,24 @@ jobs:
 
           `64e9d797917f731d2a44266ceb25a9051672fc54`
           BODY
-          test "$(gh api "repos/${GITHUB_REPOSITORY}/branches/$HEAD_BRANCH" --jq '.commit.sha')" = 64e9d797917f731d2a44266ceb25a9051672fc54
-          gh pr create \
+
+          url="$(gh pr create \
             --repo "$GITHUB_REPOSITORY" \
             --base development \
             --head "$HEAD_BRANCH" \
             --title 'ci: add manual one-click production orchestrator' \
-            --body-file /tmp/body.md
+            --body-file /tmp/body.md)" || {
+              echo INDEPENDENT_PR_AUTHOR=FAIL:no_eligible_service_identity >&2
+              exit 3
+            }
+          number="${url##*/}"
+          author="$(gh pr view "$number" --repo "$GITHUB_REPOSITORY" --json author --jq '.author.login')"
+          case "$author" in
+            appolon1908-hue|github-actions|github-actions\[bot\])
+              gh pr close "$number" --repo "$GITHUB_REPOSITORY" --comment 'Closed automatically: the pull request was not authored by an independent repository identity.' >/dev/null
+              echo INDEPENDENT_PR_AUTHOR=FAIL:owner_or_builtin_actions >&2
+              exit 4
+              ;;
+          esac
+          echo INDEPENDENT_PR_AUTHOR=PASS
+          echo INDEPENDENT_PR_NUMBER="$number"
