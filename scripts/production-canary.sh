@@ -6,6 +6,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly VALIDATOR="$ROOT/scripts/caddy_readonly_validator.py"
 readonly FULL_CANARY="$ROOT/scripts/bounded-production-readonly-canary-v2.sh"
 readonly EVIDENCE_DIR=/var/lib/codestra/caddy/evidence
+readonly OUTPUT_DIR="$ROOT/activation-evidence"
 readonly DOCKER_BIN=/usr/bin/docker
 readonly PYTHON_BIN=/usr/bin/python3
 readonly MTLS_CLIENT_CERT="${CADDY_PRODUCTION_MTLS_CLIENT_CERT:-}"
@@ -31,6 +32,10 @@ for path in "$MTLS_CLIENT_CERT" "$MTLS_CLIENT_KEY" "$MTLS_CA_CERT"; do
   [[ "$path" = /* && "$path" != *..* && "$path" != *//* ]] || fail "unsafe_mtls_path:${path##*/}"
   [[ -f "$path" && ! -L "$path" && -r "$path" ]] || fail "invalid_mtls_file:${path##*/}"
 done
+if [[ -e "$OUTPUT_DIR" ]]; then
+  [[ -d "$OUTPUT_DIR" && ! -L "$OUTPUT_DIR" ]] || fail evidence_output_directory
+fi
+install -d -m 0700 "$OUTPUT_DIR"
 
 root_prefix=()
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -161,24 +166,37 @@ if [[ "$CANARY_MODE" == post-activation ]]; then
 else
   evidence_prefix=rollback
 fi
-install -m 0600 "$work/production-canary-evidence.json" "${evidence_prefix}-canary-evidence.json"
-install -m 0600 "$work/pre-canary-runtime.json" "${evidence_prefix}-canary-runtime-before.json"
-install -m 0600 "$work/post-canary-runtime.json" "${evidence_prefix}-canary-runtime-after.json"
-install -m 0600 "$work/full-canary.txt" "${evidence_prefix}-canary.txt"
+evidence_name="${evidence_prefix}-canary-evidence.json"
+before_name="${evidence_prefix}-canary-runtime-before.json"
+after_name="${evidence_prefix}-canary-runtime-after.json"
+log_name="${evidence_prefix}-canary.txt"
+manifest_name="${evidence_prefix}-canary.SHA256SUMS"
+install -m 0600 "$work/production-canary-evidence.json" "$OUTPUT_DIR/$evidence_name"
+install -m 0600 "$work/pre-canary-runtime.json" "$OUTPUT_DIR/$before_name"
+install -m 0600 "$work/post-canary-runtime.json" "$OUTPUT_DIR/$after_name"
+install -m 0600 "$work/full-canary.txt" "$OUTPUT_DIR/$log_name"
+(
+  cd "$OUTPUT_DIR"
+  sha256sum "$evidence_name" "$before_name" "$after_name" "$log_name" >"$manifest_name.tmp"
+  mv -f "$manifest_name.tmp" "$manifest_name"
+  sha256sum --check --strict "$manifest_name"
+)
+packet_manifest_sha256="$(sha256sum "$OUTPUT_DIR/$manifest_name" | awk '{print $1}')"
 
-"$PYTHON_BIN" - "$temporary" "$CANARY_MODE" "$full_canary_sha256" <<'PY'
+"$PYTHON_BIN" - "$temporary" "$CANARY_MODE" "$full_canary_sha256" "$packet_manifest_sha256" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-mode, evidence_sha256 = sys.argv[2:]
+mode, evidence_sha256, packet_manifest_sha256 = sys.argv[2:]
 data = json.loads(path.read_text(encoding="utf-8"))
 data["http3_canary"] = "PASS"
 data["http3_host"] = "api.codestra.co"
 data["full_fixed_target_canary"] = "PASS"
 data["production_canary_mode"] = mode
 data["full_canary_evidence_sha256"] = evidence_sha256
+data["artifact_packet_manifest_sha256"] = packet_manifest_sha256
 data["full_post_activation_canary"] = (
     "PASS" if mode == "post-activation" else "NOT_APPLICABLE"
 )
@@ -198,5 +216,5 @@ rm -f -- "$temporary"
 trap 'rm -rf -- "$work"' EXIT
 
 printf '%s\n' "$http3_output"
-printf 'CADDY_PRODUCTION_CANARY=PASS\nCADDY_PRODUCTION_CANARY_MODE=%s\nEVIDENCE=%s\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nFULL_CANARY_SHA256=%s\nLISTENER_OWNERSHIP=CADDY_PROCESS_ONLY\nEFFECTIVE_LOG_REDACTION=PASS\nHTTP3=PASS\nFULL_FIXED_TARGET_CANARY=PASS\n' \
-  "$CANARY_MODE" "$final" "$actual_source" "$actual_image" "$actual_config" "$full_canary_sha256"
+printf 'CADDY_PRODUCTION_CANARY=PASS\nCADDY_PRODUCTION_CANARY_MODE=%s\nEVIDENCE=%s\nARTIFACT_PACKET_DIR=%s\nARTIFACT_PACKET_MANIFEST_SHA256=%s\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nFULL_CANARY_SHA256=%s\nLISTENER_OWNERSHIP=CADDY_PROCESS_ONLY\nEFFECTIVE_LOG_REDACTION=PASS\nHTTP3=PASS\nFULL_FIXED_TARGET_CANARY=PASS\n' \
+  "$CANARY_MODE" "$final" "$OUTPUT_DIR" "$packet_manifest_sha256" "$actual_source" "$actual_image" "$actual_config" "$full_canary_sha256"
