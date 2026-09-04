@@ -203,6 +203,26 @@ class ManualProductionOrchestratorTests(unittest.TestCase):
         ):
             self.assertIn(token, self.rollback)
 
+    def test_every_post_mutation_failure_has_a_rollback_path(self) -> None:
+        for token in (
+            'if ! "$DOCKER_BIN" compose -f "$COMPOSE" up -d --pull never --no-build caddy',
+            "rollback_after_failure compose_up",
+            "rollback_after_failure unhealthy_candidate",
+            "rollback_after_failure runtime_readback",
+            "rollback_after_failure final_identity_inspect",
+            "rollback_after_failure final_identity_readback",
+        ):
+            self.assertIn(token, self.run)
+        for token in (
+            "rollback_wrapper_failure activation_failed_without_rollback_proof",
+            "rollback_wrapper_failure activation_receipt_missing",
+            "rollback_wrapper_failure final_runtime_validator_failed",
+            "rollback_wrapper_failure final_runtime_readback_failed",
+            "rollback_wrapper_failure activation_evidence_write_failed",
+            "CADDY_MANUAL_PRODUCTION_ACTIVATION=NO_GO:ROLLBACK_FAILED",
+        ):
+            self.assertIn(token, self.activation)
+
     def test_unified_compose_remains_the_only_runtime(self) -> None:
         self.assertIn("deploy/compose.runtime.yaml", self.all_source)
         for forbidden in (
