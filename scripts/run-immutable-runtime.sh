@@ -134,7 +134,9 @@ image_config="$("$DOCKER_BIN" image inspect --format '{{index .Config.Labels "io
 
 "$DOCKER_BIN" compose -f "$COMPOSE" run --rm --no-deps \
   caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-"$DOCKER_BIN" compose -f "$COMPOSE" up -d --pull never --no-build caddy
+if ! "$DOCKER_BIN" compose -f "$COMPOSE" up -d --pull never --no-build caddy; then
+  rollback_after_failure compose_up
+fi
 
 for _ in $(seq 1 60); do
   state="$("$DOCKER_BIN" inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' codestra-caddy 2>/dev/null || true)"
@@ -150,9 +152,15 @@ if ! canary_output="$("$ROOT/scripts/production-canary.sh")"; then
   rollback_after_failure runtime_readback
 fi
 
-actual_image="$("$DOCKER_BIN" inspect --format '{{.Config.Image}}' codestra-caddy)"
-actual_source="$("$DOCKER_BIN" inspect --format '{{index .Config.Labels "io.codestra.caddy.source.sha"}}' codestra-caddy)"
-actual_config="$("$DOCKER_BIN" inspect --format '{{index .Config.Labels "io.codestra.caddy.config.sha256"}}' codestra-caddy)"
+if ! actual_image="$("$DOCKER_BIN" inspect --format '{{.Config.Image}}' codestra-caddy)"; then
+  rollback_after_failure final_identity_inspect
+fi
+if ! actual_source="$("$DOCKER_BIN" inspect --format '{{index .Config.Labels "io.codestra.caddy.source.sha"}}' codestra-caddy)"; then
+  rollback_after_failure final_identity_inspect
+fi
+if ! actual_config="$("$DOCKER_BIN" inspect --format '{{index .Config.Labels "io.codestra.caddy.config.sha256"}}' codestra-caddy)"; then
+  rollback_after_failure final_identity_inspect
+fi
 if [[ "$actual_image" != "$IMAGE_REF" || "$actual_source" != "$REVIEWED_SHA" || "$actual_config" != "$CADDY_CONFIG_SHA256" ]]; then
   rollback_after_failure final_identity_readback
 fi
