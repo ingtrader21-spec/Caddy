@@ -7,7 +7,11 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/manual-production-orchestrator.yml"
 PREFLIGHT = ROOT / "scripts/manual-production-preflight.sh"
 STAGING = ROOT / "scripts/manual-staging-certify.sh"
-CANARY = ROOT / "scripts/manual-production-readonly-canary.sh"
+READONLY = ROOT / "scripts/manual-production-readonly-canary.sh"
+ACTIVATION = ROOT / "scripts/manual-production-activate.sh"
+CAPTURE = ROOT / "scripts/capture-runtime-baseline.sh"
+RUN = ROOT / "scripts/run-immutable-runtime.sh"
+ROLLBACK = ROOT / "scripts/rollback-runtime.sh"
 
 
 class ManualProductionOrchestratorTests(unittest.TestCase):
@@ -15,25 +19,38 @@ class ManualProductionOrchestratorTests(unittest.TestCase):
         self.workflow = WORKFLOW.read_text(encoding="utf-8")
         self.preflight = PREFLIGHT.read_text(encoding="utf-8")
         self.staging = STAGING.read_text(encoding="utf-8")
-        self.canary = CANARY.read_text(encoding="utf-8")
+        self.readonly = READONLY.read_text(encoding="utf-8")
+        self.activation = ACTIVATION.read_text(encoding="utf-8")
+        self.capture = CAPTURE.read_text(encoding="utf-8")
+        self.run = RUN.read_text(encoding="utf-8")
+        self.rollback = ROLLBACK.read_text(encoding="utf-8")
         self.all_source = "\n".join(
-            (self.workflow, self.preflight, self.staging, self.canary)
+            (
+                self.workflow,
+                self.preflight,
+                self.staging,
+                self.readonly,
+                self.activation,
+                self.capture,
+                self.run,
+                self.rollback,
+            )
         )
 
-    def test_cd_is_manual_and_exact_production_only(self) -> None:
+    def test_cd_is_one_manual_exact_production_entrypoint(self) -> None:
         self.assertIn("workflow_dispatch:", self.workflow)
         self.assertIn("RUN_CADDY_PRODUCTION", self.workflow)
         self.assertNotIn("\n  push:\n", self.workflow)
         self.assertNotIn("\n  schedule:\n", self.workflow)
         for token in (
-            '[[ "$GITHUB_REF" == "refs/heads/production" ]]',
+            '[[ "$GITHUB_REF" == refs/heads/production ]]',
             "git rev-parse origin/production",
             '[[ -z "$(git status --porcelain)" ]]',
             "bash scripts/validate-ci.sh",
         ):
             self.assertIn(token, self.preflight)
 
-    def test_preflight_requires_canonical_no_bypass_governance(self) -> None:
+    def test_preflight_requires_governance_and_three_protected_environments(self) -> None:
         for token in (
             "Protect Caddy promotion branches",
             "bypass_actors",
@@ -42,12 +59,25 @@ class ManualProductionOrchestratorTests(unittest.TestCase):
             "refs/heads/staging",
             "refs/heads/production",
             "refs/heads/main",
+            "required_approving_review_count",
+            "require_last_push_approval",
             "validate-source",
             "validate-merge-result",
             "promotion-guard",
             "immutable-release-gate",
+            "staging-readonly production-readonly-canary production-activation",
+            ".deployment_branch_policy.protected_branches == true",
         ):
             self.assertIn(token, self.preflight)
+        for token in (
+            "environment: staging-readonly",
+            "environment: production-readonly-canary",
+            "environment: production-activation",
+            "runs-on: [self-hosted, codestra-staging]",
+            "runs-on: [self-hosted, codestra-production-canary]",
+            "runs-on: [self-hosted, codestra-production]",
+        ):
+            self.assertIn(token, self.workflow)
 
     def test_exact_signed_candidate_and_release_packet_are_bound(self) -> None:
         for token in (
@@ -67,14 +97,9 @@ class ManualProductionOrchestratorTests(unittest.TestCase):
             self.assertIn(token, self.all_source)
         self.assertNotIn(":latest", self.all_source)
 
-    def test_staging_is_protected_and_rollback_is_evidence_bound(self) -> None:
+    def test_staging_and_historical_rollback_precede_production(self) -> None:
         for token in (
-            "runs-on: [self-hosted, codestra-staging]",
-            "environment: staging-readonly",
             "scripts/manual-staging-certify.sh",
-        ):
-            self.assertIn(token, self.workflow)
-        for token in (
             "deploy/compose.runtime.yaml",
             "bounded-staging-runtime-v2.sh",
             "verify-rollback-baseline.sh",
@@ -85,19 +110,18 @@ class ManualProductionOrchestratorTests(unittest.TestCase):
             "production_changed:false",
             "live_effects_enabled:false",
         ):
-            self.assertIn(token, self.staging)
+            self.assertIn(token, self.workflow + self.staging)
+        self.assertLess(
+            self.workflow.index("bounded-staging-and-rollback:"),
+            self.workflow.index("production-readonly-canary:"),
+        )
 
-    def test_production_canary_requires_staging_and_is_read_only(self) -> None:
+    def test_production_readonly_canary_is_unchanged_and_write_free(self) -> None:
         for token in (
             "needs: [verify-production-candidate, bounded-staging-and-rollback]",
-            "runs-on: [self-hosted, codestra-production-canary]",
-            "environment: production-readonly-canary",
             "CADDY_STAGING_EVIDENCE_SHA256",
             "CADDY_ROLLBACK_EVIDENCE_SHA256",
             "scripts/manual-production-readonly-canary.sh",
-        ):
-            self.assertIn(token, self.workflow)
-        for token in (
             "bounded-production-readonly-canary-v2.sh",
             "cmp -s pre-canary-runtime.json post-canary-runtime.json",
             ".write_requests_sent == false",
@@ -106,32 +130,104 @@ class ManualProductionOrchestratorTests(unittest.TestCase):
             "production_canary_read_only:true",
             "full_live_activation_authorized:false",
         ):
-            self.assertIn(token, self.canary)
+            self.assertIn(token, self.workflow + self.readonly)
 
-    def test_no_second_runtime_or_live_effect_path_is_added(self) -> None:
+    def test_activation_requires_the_readonly_receipt_and_captured_live_baseline(self) -> None:
+        for token in (
+            "needs: [verify-production-candidate, bounded-staging-and-rollback, production-readonly-canary]",
+            "CADDY_PRODUCTION_ENV_FILE",
+            "scripts/manual-production-activate.sh",
+            "scripts/capture-runtime-baseline.sh",
+            "scripts/run-immutable-runtime.sh",
+            "production-activation-evidence.json",
+            "automatic_rollback_armed",
+            "candidate_runtime_live",
+        ):
+            self.assertIn(token, self.workflow + self.activation)
+        for token in (
+            "codestra.caddy.manual-production-orchestrator-receipt.v1",
+            ".staging_certified == true",
+            ".rollback_rehearsed == true",
+            ".production_canary_read_only == true",
+            ".write_requests_sent == false",
+            '.verdict == "READ_ONLY_CANARY_PASS"',
+        ):
+            self.assertIn(token, self.activation)
+
+    def test_runtime_environment_is_parsed_without_shell_evaluation(self) -> None:
+        for token in (
+            "runtime_environment_syntax",
+            "runtime_environment_duplicate",
+            "runtime_environment_missing",
+            'export "$key=$value"',
+            "0:0:600",
+        ):
+            self.assertIn(token, self.activation)
+        self.assertNotIn('source "$RUNTIME_ENV_FILE"', self.activation)
+        self.assertNotIn("eval ", self.activation)
+
+    def test_captured_baseline_contains_exact_runtime_identity(self) -> None:
+        for token in (
+            "codestra.caddy-runtime-rollback-baseline.v1",
+            "runtime_environment_file",
+            "runtime_environment_sha256",
+            "data_dir",
+            "config_dir",
+            "release_id",
+            "signature_verified",
+            "listener_ownership",
+            "effective_access_log_redaction",
+            "install -m 0600 -o root -g root",
+            "CADDY_BASELINE_CAPTURE=PASS",
+        ):
+            self.assertIn(token, self.capture)
+
+    def test_activation_automatically_rolls_back_and_propagates_rollback_failure(self) -> None:
+        for token in (
+            "CADDY_ROLLBACK_BASELINE_FILE",
+            "CADDY_ROLLBACK_EVIDENCE_FILE",
+            "rollback_after_failure",
+            "activation_rolled_back",
+            "activation_and_rollback_failed",
+            "final_identity_readback",
+            "CADDY_ACTIVATION=PASS",
+        ):
+            self.assertIn(token, self.run)
+        for token in (
+            "codestra.caddy-runtime-rollback-result.v1",
+            "runtime_environment_sha256",
+            "release_readback",
+            "production_canary",
+            "up -d --pull never --no-build",
+            "CADDY_ROLLBACK=PASS",
+        ):
+            self.assertIn(token, self.rollback)
+
+    def test_unified_compose_remains_the_only_runtime(self) -> None:
+        self.assertIn("deploy/compose.runtime.yaml", self.all_source)
         for forbidden in (
             "docker-compose.yml",
             "docker-compose.yaml",
             "compose.production.yml",
             "compose.production.yaml",
-            "run-immutable-runtime.sh",
-            "rollback-runtime.sh",
-            "stop codestra-caddy",
-            "restart codestra-caddy",
-            "rm -f codestra-caddy",
+            "--build",
+            "update-ref",
+            "--force",
             "-X POST",
             "--data-binary",
         ):
             self.assertNotIn(forbidden, self.all_source)
 
-    def test_final_verdict_fails_closed(self) -> None:
+    def test_final_verdict_is_full_caddy_go_but_not_application_write_authority(self) -> None:
         for token in (
             "if: always()",
             "verdict=NO_GO",
-            "READ_ONLY_CANARY_GO",
+            "FULL_PRODUCTION_GO",
             "CADDY_ONE_CLICK_PRODUCTION=NO_GO",
-            "exit 1",
-            "Full live-effect activation: **not authorized**",
+            "CADDY_ONE_CLICK_PRODUCTION=FULL_PRODUCTION_GO",
+            "caddy_runtime_live",
+            "application_writes_authorized:false",
+            "provider_delivery_authorized:false",
         ):
             self.assertIn(token, self.workflow)
 
