@@ -24,6 +24,7 @@ readonly ROLLBACK_RESULT_FILE="$EVIDENCE_ROOT/caddy-orchestrator-${EVIDENCE_ID}-
 readonly ACTIVATION_EVIDENCE=production-activation-evidence.json
 readonly ACTIVATION_LOG=production-activation.txt
 readonly FINAL_RUNTIME=final-production-runtime.json
+readonly WRAPPER_ROLLBACK_LOG=final-readback-rollback.txt
 
 phase=preflight
 baseline_sha256=""
@@ -129,6 +130,30 @@ write_evidence() {
   if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     printf 'activation_evidence_sha256=%s\n' "$activation_evidence_sha256" >> "$GITHUB_OUTPUT"
   fi
+}
+
+rollback_wrapper_failure() {
+  local reason="$1" rollback_exit previous_restored=false
+  set +e
+  bash "$ROOT/scripts/rollback-runtime.sh" > "$WRAPPER_ROLLBACK_LOG" 2>&1
+  rollback_exit=$?
+  set -e
+  cat "$WRAPPER_ROLLBACK_LOG"
+  if [[ "$rollback_exit" -eq 0 ]] && \
+     [[ -f "$ROLLBACK_RESULT_FILE" ]] && \
+     "$JQ_BIN" -e '.schema == "codestra.caddy-runtime-rollback-result.v1" and .result == "PASS"' \
+       "$ROLLBACK_RESULT_FILE" >/dev/null 2>&1; then
+    previous_restored=true
+  fi
+  set +e
+  write_evidence NO_GO "$reason" false "$previous_restored"
+  set -e
+  if [[ "$previous_restored" == true ]]; then
+    printf 'CADDY_MANUAL_PRODUCTION_ACTIVATION=NO_GO:ROLLED_BACK:%s\n' "$reason" >&2
+  else
+    printf 'CADDY_MANUAL_PRODUCTION_ACTIVATION=NO_GO:ROLLBACK_FAILED:%s\n' "$reason" >&2
+  fi
+  exit 1
 }
 
 load_runtime_environment() {
@@ -259,23 +284,29 @@ set -e
 cat "$ACTIVATION_LOG"
 activation_output_sha256="$(sha256sum "$ACTIVATION_LOG" | awk '{print $1}')"
 if [[ "$activation_status" -ne 0 ]]; then
-  previous_restored=false
-  if [[ -f "$ROLLBACK_RESULT_FILE" ]] && "$JQ_BIN" -e '.result == "PASS"' "$ROLLBACK_RESULT_FILE" >/dev/null 2>&1; then
-    previous_restored=true
+  if [[ -f "$ROLLBACK_RESULT_FILE" ]] && \
+     "$JQ_BIN" -e '.schema == "codestra.caddy-runtime-rollback-result.v1" and .result == "PASS"' \
+       "$ROLLBACK_RESULT_FILE" >/dev/null 2>&1; then
+    write_evidence NO_GO activation_failed false true
+    exit 1
   fi
-  write_evidence NO_GO activation_failed false "$previous_restored"
-  exit 1
+  rollback_wrapper_failure activation_failed_without_rollback_proof
 fi
 
-grep -q '^CADDY_ACTIVATION=PASS$' "$ACTIVATION_LOG" || {
-  write_evidence NO_GO activation_receipt_missing false false
-  exit 1
-}
+if ! grep -q '^CADDY_ACTIVATION=PASS$' "$ACTIVATION_LOG"; then
+  rollback_wrapper_failure activation_receipt_missing
+fi
 
 phase=final_runtime_readback
+set +e
 "$PYTHON_BIN" "$VALIDATOR" > "$FINAL_RUNTIME"
+validator_status=$?
+set -e
+if [[ "$validator_status" -ne 0 ]]; then
+  rollback_wrapper_failure final_runtime_validator_failed
+fi
 final_runtime_sha256="$(sha256sum "$FINAL_RUNTIME" | awk '{print $1}')"
-"$JQ_BIN" -e \
+if ! "$JQ_BIN" -e \
   --arg source "$SOURCE_SHA" \
   --arg digest "$IMAGE_DIGEST" \
   --arg config "$CONFIG_SHA256" '
@@ -285,19 +316,17 @@ final_runtime_sha256="$(sha256sum "$FINAL_RUNTIME" | awk '{print $1}')"
     .config_validation == "PASS" and .config_identity == "PASS" and
     .listener_ownership == "CADDY_PROCESS_ONLY" and
     .effective_access_log_redaction == "PASS"
-  ' "$FINAL_RUNTIME" >/dev/null || {
-  set +e
-  bash "$ROOT/scripts/rollback-runtime.sh" > final-readback-rollback.txt 2>&1
-  rollback_exit=$?
-  set -e
-  cat final-readback-rollback.txt
-  previous_restored=false
-  [[ "$rollback_exit" -eq 0 ]] && previous_restored=true
-  write_evidence NO_GO final_runtime_readback_failed false "$previous_restored"
-  exit 1
-}
+  ' "$FINAL_RUNTIME" >/dev/null; then
+  rollback_wrapper_failure final_runtime_readback_failed
+fi
 
 phase=complete
+set +e
 write_evidence PASS NONE true false
+evidence_status=$?
+set -e
+if [[ "$evidence_status" -ne 0 ]]; then
+  rollback_wrapper_failure activation_evidence_write_failed
+fi
 printf 'CADDY_MANUAL_PRODUCTION_ACTIVATION=PASS\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nROLLBACK_BASELINE_SHA256=%s\n' \
   "$SOURCE_SHA" "$IMAGE" "$CONFIG_SHA256" "$baseline_sha256"
