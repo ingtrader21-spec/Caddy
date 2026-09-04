@@ -30,7 +30,7 @@ def fail(reason: str) -> None:
     raise SystemExit(f"CADDY_RUNTIME_CANARY=FAIL:{reason}")
 
 
-def run_curl(arguments: list[str], *, expected: set[int] | None = None) -> subprocess.CompletedProcess[str]:
+def run_curl(arguments: list[str]) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         ["/usr/bin/curl", *arguments],
         check=False,
@@ -38,10 +38,8 @@ def run_curl(arguments: list[str], *, expected: set[int] | None = None) -> subpr
         text=True,
         timeout=25,
     )
-    if expected is None and result.returncode != 0:
+    if result.returncode != 0:
         fail("curl_transport")
-    if expected is not None and result.returncode not in expected:
-        fail("curl_exit")
     return result
 
 
@@ -99,12 +97,10 @@ def certify_caddy_kong_middleware(*, ip: str, port: int) -> None:
     if port != 18443 or ip != "127.0.0.1":
         fail("bounded_staging_listener_required")
 
-    secret_path = Path(
-        os.environ.get(
-            "CADDY_STAGING_N8N_CLIENT_SECRET_FILE",
-            str(DEFAULT_N8N_SECRET_FILE),
-        )
-    )
+    configured_secret_path = os.environ.get(
+        "CADDY_STAGING_N8N_CLIENT_SECRET_FILE", ""
+    ).strip()
+    secret_path = Path(configured_secret_path) if configured_secret_path else DEFAULT_N8N_SECRET_FILE
     try:
         secret_stat = secret_path.lstat()
     except FileNotFoundError:
@@ -187,7 +183,14 @@ def certify_caddy_kong_middleware(*, ip: str, port: int) -> None:
         issued_at = claims.get("iat")
         expires_at = claims.get("exp")
         audience = claims.get("aud")
-        audiences = {audience} if isinstance(audience, str) else set(audience or [])
+        if isinstance(audience, str):
+            audiences = {audience}
+        elif isinstance(audience, list) and all(
+            isinstance(item, str) for item in audience
+        ):
+            audiences = set(audience)
+        else:
+            audiences = set()
         scopes = set(str(claims.get("scope", "")).split())
         tenant = claims.get("tenant_id")
         if (
