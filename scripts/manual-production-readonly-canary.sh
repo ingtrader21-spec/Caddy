@@ -39,8 +39,25 @@ done
 [[ -s staging-evidence/one-click-rollback-evidence.json ]]
 [[ "$(sha256sum staging-evidence/bounded-staging-runtime-evidence.json | awk '{print $1}')" == "$CADDY_STAGING_EVIDENCE_SHA256" ]]
 [[ "$(sha256sum staging-evidence/one-click-rollback-evidence.json | awk '{print $1}')" == "$CADDY_ROLLBACK_EVIDENCE_SHA256" ]]
-jq -e '.staging_certified == true and .rollback_rehearsed == true and .production_changed == false and .live_effects_enabled == false' \
-  staging-evidence/one-click-rollback-evidence.json >/dev/null
+jq -e '
+  .schema == "codestra.caddy.manual-rollback-evidence.v2" and
+  .staging_certified == true and
+  .caddy_kong_middleware_runtime_proven == true and
+  .caddy_kong_middleware_runtime.route.method == "GET" and
+  .caddy_kong_middleware_runtime.route.status == 404 and
+  .caddy_kong_middleware_runtime.route.middleware_error_code == "command_not_found" and
+  .caddy_kong_middleware_runtime.route.caddy_to_kong_to_middleware == "PASS" and
+  .caddy_kong_middleware_runtime.middleware.environment == "staging" and
+  .caddy_kong_middleware_runtime.application_mutations == 0 and
+  .caddy_kong_middleware_runtime.provider_effects == 0 and
+  .caddy_kong_middleware_runtime.external_effects_authorized == false and
+  .caddy_kong_middleware_runtime.result == "PASS" and
+  .rollback_rehearsed == true and
+  .production_changed == false and
+  .live_effects_enabled == false
+' staging-evidence/one-click-rollback-evidence.json >/dev/null
+middleware_runtime_evidence_sha256="$(jq -r '.middleware_runtime_evidence_sha256' staging-evidence/one-click-rollback-evidence.json)"
+[[ "$middleware_runtime_evidence_sha256" =~ ^[0-9a-f]{64}$ ]]
 
 [[ "$(git rev-parse HEAD)" == "$CADDY_CANARY_SOURCE_SHA" ]]
 git fetch origin production --depth=1
@@ -89,10 +106,12 @@ jq -n \
   --arg release_evidence_sha256 "$CADDY_RELEASE_EVIDENCE_SHA256" \
   --arg staging_evidence_sha256 "$CADDY_STAGING_EVIDENCE_SHA256" \
   --arg rollback_evidence_sha256 "$CADDY_ROLLBACK_EVIDENCE_SHA256" \
+  --arg middleware_runtime_evidence_sha256 "$middleware_runtime_evidence_sha256" \
   --arg production_evidence_sha256 "$production_evidence_sha256" \
   --arg pre_post_runtime_sha256 "$pre_post_runtime_sha256" \
+  --slurpfile rollback staging-evidence/one-click-rollback-evidence.json \
   '{
-    schema:"codestra.caddy.manual-production-orchestrator-receipt.v1",
+    schema:"codestra.caddy.manual-production-orchestrator-receipt.v2",
     source_sha:$source_sha,
     image:$image,
     image_digest:$image_digest,
@@ -100,9 +119,12 @@ jq -n \
     release_evidence_sha256:$release_evidence_sha256,
     staging_evidence_sha256:$staging_evidence_sha256,
     rollback_evidence_sha256:$rollback_evidence_sha256,
+    middleware_runtime_evidence_sha256:$middleware_runtime_evidence_sha256,
+    caddy_kong_middleware_runtime:$rollback[0].caddy_kong_middleware_runtime,
     production_evidence_sha256:$production_evidence_sha256,
     pre_post_runtime_sha256:$pre_post_runtime_sha256,
     staging_certified:true,
+    caddy_kong_middleware_runtime_proven:true,
     rollback_rehearsed:true,
     production_canary_read_only:true,
     write_requests_sent:false,
@@ -112,4 +134,5 @@ jq -n \
   }' > one-click-production-receipt.json
 
 echo CADDY_PRODUCTION_READONLY_CANARY=PASS
+echo CADDY_KONG_MIDDLEWARE_RUNTIME_BOUND=PASS
 echo CADDY_FULL_LIVE_ACTIVATION_AUTHORIZED=false

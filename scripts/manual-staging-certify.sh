@@ -60,6 +60,23 @@ cosign verify-attestation \
 
 set -o pipefail
 bash scripts/bounded-staging-runtime-v2.sh | tee bounded-staging-runtime.txt
+[[ -s caddy-kong-middleware-runtime-evidence.json ]]
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+value = json.loads(Path("caddy-kong-middleware-runtime-evidence.json").read_text())
+assert value["schema"] == "codestra.caddy-kong-middleware-runtime.v1"
+assert value["route"]["method"] == "GET"
+assert value["route"]["status"] == 404
+assert value["route"]["middleware_error_code"] == "command_not_found"
+assert value["route"]["caddy_to_kong_to_middleware"] == "PASS"
+assert value["middleware"]["environment"] == "staging"
+assert value["application_mutations"] == 0
+assert value["provider_effects"] == 0
+assert value["external_effects_authorized"] is False
+assert value["result"] == "PASS"
+PY
 bash scripts/verify-rollback-baseline.sh | tee bounded-staging-rollback.txt
 
 [[ -s bounded-staging-runtime-evidence.json ]]
@@ -67,6 +84,7 @@ grep -F -- "$CADDY_STAGING_SOURCE_SHA" bounded-staging-runtime-evidence.json >/d
 grep -F -- "$CADDY_STAGING_CONFIG_SHA256" bounded-staging-runtime-evidence.json >/dev/null
 
 staging_evidence_sha256="$(sha256sum bounded-staging-runtime-evidence.json | awk '{print $1}')"
+middleware_runtime_evidence_sha256="$(sha256sum caddy-kong-middleware-runtime-evidence.json | awk '{print $1}')"
 rollback_output_sha256="$(sha256sum bounded-staging-rollback.txt | awk '{print $1}')"
 compose_sha256="$(sha256sum deploy/compose.runtime.yaml | awk '{print $1}')"
 baseline_sha256="$(sha256sum config/release-baseline.v1.json | awk '{print $1}')"
@@ -76,19 +94,24 @@ jq -n \
   --arg image "$CADDY_STAGING_IMAGE" \
   --arg config_sha256 "$CADDY_STAGING_CONFIG_SHA256" \
   --arg staging_evidence_sha256 "$staging_evidence_sha256" \
+  --arg middleware_runtime_evidence_sha256 "$middleware_runtime_evidence_sha256" \
   --arg rollback_output_sha256 "$rollback_output_sha256" \
   --arg compose_sha256 "$compose_sha256" \
   --arg baseline_sha256 "$baseline_sha256" \
+  --slurpfile middleware_runtime caddy-kong-middleware-runtime-evidence.json \
   '{
-    schema:"codestra.caddy.manual-rollback-evidence.v1",
+    schema:"codestra.caddy.manual-rollback-evidence.v2",
     source_sha:$source_sha,
     image:$image,
     config_sha256:$config_sha256,
     staging_evidence_sha256:$staging_evidence_sha256,
+    middleware_runtime_evidence_sha256:$middleware_runtime_evidence_sha256,
+    caddy_kong_middleware_runtime:$middleware_runtime[0],
     rollback_output_sha256:$rollback_output_sha256,
     unified_compose_sha256:$compose_sha256,
     rollback_baseline_sha256:$baseline_sha256,
     staging_certified:true,
+    caddy_kong_middleware_runtime_proven:true,
     rollback_rehearsed:true,
     production_changed:false,
     live_effects_enabled:false
@@ -101,4 +124,5 @@ rollback_evidence_sha256="$(sha256sum one-click-rollback-evidence.json | awk '{p
 } >> "$GITHUB_OUTPUT"
 
 echo CADDY_BOUNDED_STAGING=PASS
+echo CADDY_KONG_MIDDLEWARE_RUNTIME=PASS
 echo CADDY_ROLLBACK_REHEARSAL=PASS

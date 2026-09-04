@@ -9,6 +9,7 @@ done < <(git ls-files -z '*.sh')
 printf 'SHELL_SYNTAX=PASS\n'
 python3 -m compileall -q scripts tests
 python3 scripts/test_caddy_kong_contract.py
+python3 scripts/validate_cross_repository_route_contract.py
 python3 scripts/validate_repository.py
 python3 scripts/validate_complete_redaction.py
 python3 scripts/validate_community_n8n.py
