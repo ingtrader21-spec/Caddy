@@ -1,8 +1,31 @@
 name: Immutable Caddy release
 
 on:
-  push:
-    branches: [production]
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact protected production commit to release
+        required: true
+        type: string
+    outputs:
+      source_sha:
+        description: Exact released production source SHA
+        value: ${{ jobs.build-scan-publish.outputs.source_sha }}
+      image:
+        description: Immutable GHCR image reference
+        value: ${{ jobs.build-scan-publish.outputs.image }}
+      image_digest:
+        description: Immutable OCI digest
+        value: ${{ jobs.build-scan-publish.outputs.image_digest }}
+      config_sha256:
+        description: Canonical config tree digest
+        value: ${{ jobs.build-scan-publish.outputs.config_sha256 }}
+      release_evidence_sha256:
+        description: SHA-256 of the release gate packet
+        value: ${{ jobs.build-scan-publish.outputs.release_evidence_sha256 }}
+      rollback_evidence_sha256:
+        description: SHA-256 of the historical rollback rehearsal packet
+        value: ${{ jobs.build-scan-publish.outputs.rollback_evidence_sha256 }}
 
 permissions:
   contents: write
@@ -18,22 +41,42 @@ jobs:
     name: publish-signed-production-image
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    outputs:
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      image: ${{ steps.subject.outputs.image }}
+      image_digest: ${{ steps.subject.outputs.image_digest }}
+      config_sha256: ${{ steps.config.outputs.sha }}
+      release_evidence_sha256: ${{ steps.evidence.outputs.release_evidence_sha256 }}
+      rollback_evidence_sha256: ${{ steps.evidence.outputs.rollback_evidence_sha256 }}
     env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
       CADDY_UPSTREAM_SHA: e2eee6a7fce366321294c9c2a79f3146891dcbdf
-      LOCAL_IMAGE: local/codestra-caddy:${{ github.sha }}
+      LOCAL_IMAGE: local/codestra-caddy:${{ inputs.source_sha }}
     steps:
+      - name: Reject every source except the current protected production head
+        run: |
+          set -Eeuo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_REF" = refs/heads/production
+
       - name: Check out exact production SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove protected source identity
+      - id: identity
+        name: Prove protected source identity
         run: |
           set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$GITHUB_REF" = refs/heads/production
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          git fetch origin production --depth=1
+          test "$(git rev-parse origin/production)" = "$SOURCE_SHA"
+          build_created="$(git show -s --format=%cI "$SOURCE_SHA")"
+          test -n "$build_created"
+          printf 'source_sha=%s\nbuild_created=%s\n' "$SOURCE_SHA" "$build_created" >> "$GITHUB_OUTPUT"
 
       - name: Pin Go toolchain
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
@@ -46,7 +89,12 @@ jobs:
 
       - name: Export configuration digest
         id: config
-        run: echo "sha=$(cat build/config-sha256.txt)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -Eeuo pipefail
+          sha="$(cat build/config-sha256.txt)"
+          [[ "$sha" =~ ^[0-9a-f]{64}$ ]]
+          test "$sha" = "$(python3 scripts/hash_config_tree.py config)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Configure Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e
@@ -59,10 +107,10 @@ jobs:
           push: false
           tags: ${{ env.LOCAL_IMAGE }}
           build-args: |
-            BUILD_CREATED=${{ github.event.head_commit.timestamp }}
+            BUILD_CREATED=${{ steps.identity.outputs.build_created }}
             SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
-            VCS_REF=${{ github.sha }}
-            VERSION=${{ github.sha }}
+            VCS_REF=${{ env.SOURCE_SHA }}
+            VERSION=${{ env.SOURCE_SHA }}
             CONFIG_SHA256=${{ steps.config.outputs.sha }}
             CADDY_UPSTREAM_SHA=${{ env.CADDY_UPSTREAM_SHA }}
 
@@ -99,16 +147,26 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/codestra-caddy:${{ github.sha }}
+          tags: ghcr.io/${{ github.repository_owner }}/codestra-caddy:${{ env.SOURCE_SHA }}
           provenance: mode=max
           sbom: true
           build-args: |
-            BUILD_CREATED=${{ github.event.head_commit.timestamp }}
+            BUILD_CREATED=${{ steps.identity.outputs.build_created }}
             SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
-            VCS_REF=${{ github.sha }}
-            VERSION=${{ github.sha }}
+            VCS_REF=${{ env.SOURCE_SHA }}
+            VERSION=${{ env.SOURCE_SHA }}
             CONFIG_SHA256=${{ steps.config.outputs.sha }}
             CADDY_UPSTREAM_SHA=${{ env.CADDY_UPSTREAM_SHA }}
+
+      - id: subject
+        name: Bind the immutable image identity
+        env:
+          PUBLISHED_DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$PUBLISHED_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER}/codestra-caddy@${PUBLISHED_DIGEST}"
+          printf 'image=%s\nimage_digest=%s\n' "$image" "$PUBLISHED_DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Sign and verify compiled-binary build attestation
         run: |
@@ -124,7 +182,7 @@ jobs:
 
       - name: Sign, attest, and verify immutable image
         env:
-          SUBJECT: ghcr.io/${{ github.repository_owner }}/codestra-caddy@${{ steps.publish.outputs.digest }}
+          SUBJECT: ${{ steps.subject.outputs.image }}
         run: |
           set -Eeuo pipefail
           cosign sign --yes "$SUBJECT"
@@ -134,9 +192,9 @@ jobs:
             "$SUBJECT" >/dev/null
           jq -n \
             --arg repository "https://github.com/${GITHUB_REPOSITORY}" \
-            --arg revision "$GITHUB_SHA" \
+            --arg revision "$SOURCE_SHA" \
             --arg workflow "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production" \
-            --arg release "$GITHUB_SHA" \
+            --arg release "$SOURCE_SHA" \
             --arg config_sha256 "$(cat build/config-sha256.txt)" \
             '{repository:$repository,revision:$revision,workflow_identity:$workflow,release_identity:$release,config_sha256:$config_sha256}' \
             > caddy-source-provenance.json
@@ -150,8 +208,9 @@ jobs:
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "$SUBJECT" > caddy-source-provenance.verified.json
           printf '%s\n' \
-            "SOURCE_SHA=$GITHUB_SHA" \
-            "IMAGE_DIGEST=${{ steps.publish.outputs.digest }}" \
+            "SOURCE_SHA=$SOURCE_SHA" \
+            "IMAGE=$SUBJECT" \
+            "IMAGE_DIGEST=${{ steps.subject.outputs.image_digest }}" \
             "CONFIG_SHA256=$(cat build/config-sha256.txt)" \
             "SBOM=PASS" \
             "IMAGE_PROVENANCE=PASS" \
@@ -164,22 +223,32 @@ jobs:
             "ROLLBACK_BASELINE=PASS" \
             "ROLLBACK_REHEARSAL=PASS" > caddy-release-evidence.txt
 
+      - id: evidence
+        name: Bind release and rollback evidence digests
+        run: |
+          set -Eeuo pipefail
+          test -s caddy-release-evidence.txt
+          test -s caddy-rollback-baseline-evidence.txt
+          printf 'release_evidence_sha256=%s\nrollback_evidence_sha256=%s\n' \
+            "$(sha256sum caddy-release-evidence.txt | awk '{print $1}')" \
+            "$(sha256sum caddy-rollback-baseline-evidence.txt | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
       - name: Preserve GitHub release record
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SUBJECT: ghcr.io/${{ github.repository_owner }}/codestra-caddy@${{ steps.publish.outputs.digest }}
+          SUBJECT: ${{ steps.subject.outputs.image }}
         run: |
           set -Eeuo pipefail
-          tag="caddy-production-$GITHUB_SHA"
+          tag="caddy-production-$SOURCE_SHA"
           notes="Signed Caddy production image: $SUBJECT"
           gh release view "$tag" >/dev/null 2>&1 || \
-            gh release create "$tag" --target "$GITHUB_SHA" \
-              --title "Caddy production $GITHUB_SHA" --notes "$notes"
+            gh release create "$tag" --target "$SOURCE_SHA" \
+              --title "Caddy production $SOURCE_SHA" --notes "$notes"
 
       - name: Upload immutable release evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: caddy-release-evidence-${{ github.sha }}
+          name: caddy-release-evidence-${{ env.SOURCE_SHA }}
           path: |
             caddy-release-evidence.txt
             caddy-canary-evidence.txt
@@ -193,3 +262,4 @@ jobs:
             build/http3-probe-go-version.txt
             build/caddy-modules.txt
             build/caddy-module-overrides.patch
+          if-no-files-found: error
