@@ -97,6 +97,7 @@ EXPECTED_EVIDENCE_OUTPUTS = {
     "one-click-rollback-evidence.json",
 }
 EXPECTED_PROMOTION_CHAIN = ["development", "test", "staging", "production", "main"]
+CONFIG_IDENTITY_POLICY = "git-tree-and-content-digest-survive-squash"
 RUNTIME_MARKERS = {
     "scripts/bounded-staging-runtime-v2.sh": {
         "certificate_expiry",
@@ -195,18 +196,6 @@ def git(root: Path, *arguments: str) -> str:
     return value
 
 
-def require_ancestor(root: Path, ancestor: str) -> None:
-    try:
-        subprocess.run(
-            ["git", "-C", str(root), "merge-base", "--is-ancestor", ancestor, "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except (OSError, subprocess.CalledProcessError) as exc:
-        fail(f"configuration_revision_not_ancestor:{exc.__class__.__name__}")
-
-
 def resolve_repo_file(root: Path, raw: Any, name: str) -> Path:
     text = require_string(raw, name)
     relative = Path(text)
@@ -216,6 +205,56 @@ def resolve_repo_file(root: Path, raw: Any, name: str) -> Path:
     if not path.is_file() or path.is_symlink():
         fail(f"evidence_file_missing:{text}")
     return path
+
+
+def validate_configuration_authority(root: Path, raw: Any) -> dict[str, Any]:
+    authority = require_dict(raw, "configurationAuthority")
+    require_exact_keys(
+        authority,
+        {
+            "repository",
+            "role",
+            "candidateBranch",
+            "configurationRoot",
+            "configurationTreeGitSha",
+            "configurationDigestAlgorithm",
+            "configurationSha256",
+            "configurationIdentityPolicy",
+            "excludedTopLevelRuntimeMounts",
+        },
+        "configurationAuthority",
+    )
+    tree_sha = require_string(
+        authority.get("configurationTreeGitSha"),
+        "configurationTreeGitSha",
+    )
+    digest = require_string(
+        authority.get("configurationSha256"),
+        "configurationSha256",
+    )
+    if (
+        authority.get("repository") != "appolon1908-hue/Caddy"
+        or authority.get("role") != "principal-caddy-configuration-source"
+        or authority.get("candidateBranch") != "development"
+        or authority.get("configurationRoot") != "config"
+        or authority.get("configurationDigestAlgorithm")
+        != "codestra.config-tree-sha256.v1"
+        or authority.get("configurationIdentityPolicy") != CONFIG_IDENTITY_POLICY
+        or not SHA40_RE.fullmatch(tree_sha)
+        or not SHA64_RE.fullmatch(digest)
+        or authority.get("excludedTopLevelRuntimeMounts") != ["private"]
+        or EXCLUDED_TOP_LEVEL != {"private"}
+    ):
+        fail("configuration_authority")
+
+    config_root = root / "config"
+    if config_tree_hash(config_root) != digest:
+        fail("configuration_digest_drift")
+    if git(root, "rev-parse", "HEAD:config") != tree_sha:
+        fail("current_configuration_tree_drift")
+    if git(root, "cat-file", "-t", tree_sha) != "tree":
+        fail("configuration_tree_object")
+    return authority
 
 
 def validate_contract(root: Path, contract_path: Path) -> dict[str, Any]:
@@ -230,47 +269,7 @@ def validate_contract(root: Path, contract_path: Path) -> dict[str, Any]:
     if value.get("authorityIssue") != "https://github.com/appolon1908-hue/Caddy/issues/105":
         fail("authority_issue")
 
-    authority = require_dict(value.get("configurationAuthority"), "configurationAuthority")
-    require_exact_keys(
-        authority,
-        {
-            "repository",
-            "role",
-            "candidateBranch",
-            "configurationRevisionSha",
-            "configurationRoot",
-            "configurationTreeGitSha",
-            "configurationDigestAlgorithm",
-            "configurationSha256",
-            "excludedTopLevelRuntimeMounts",
-        },
-        "configurationAuthority",
-    )
-    revision = require_string(authority.get("configurationRevisionSha"), "configurationRevisionSha")
-    tree_sha = require_string(authority.get("configurationTreeGitSha"), "configurationTreeGitSha")
-    digest = require_string(authority.get("configurationSha256"), "configurationSha256")
-    if (
-        authority.get("repository") != "appolon1908-hue/Caddy"
-        or authority.get("role") != "principal-caddy-configuration-source"
-        or authority.get("candidateBranch") != "development"
-        or authority.get("configurationRoot") != "config"
-        or authority.get("configurationDigestAlgorithm") != "codestra.config-tree-sha256.v1"
-        or not SHA40_RE.fullmatch(revision)
-        or not SHA40_RE.fullmatch(tree_sha)
-        or not SHA64_RE.fullmatch(digest)
-        or authority.get("excludedTopLevelRuntimeMounts") != ["private"]
-        or EXCLUDED_TOP_LEVEL != {"private"}
-    ):
-        fail("configuration_authority")
-
-    config_root = root / "config"
-    if config_tree_hash(config_root) != digest:
-        fail("configuration_digest_drift")
-    if git(root, "rev-parse", "HEAD:config") != tree_sha:
-        fail("current_configuration_tree_drift")
-    if git(root, "rev-parse", f"{revision}:config") != tree_sha:
-        fail("pinned_configuration_tree_drift")
-    require_ancestor(root, revision)
+    validate_configuration_authority(root, value.get("configurationAuthority"))
 
     integration = require_dict(
         value.get("integrationReleaseAuthority"),
@@ -306,7 +305,9 @@ def validate_contract(root: Path, contract_path: Path) -> dict[str, Any]:
     )
     if source.get("routeContract") != "config/caddy-kong-contract.v2.json":
         fail("route_contract")
-    if source.get("crossRepositoryEvidence") != "config/caddy-kong-middleware-route-evidence.v1.json":
+    if source.get("crossRepositoryEvidence") != (
+        "config/caddy-kong-middleware-route-evidence.v1.json"
+    ):
         fail("cross_repository_evidence")
     if require_string_set(source.get("validators"), "validators") != {
         "scripts/validate_cross_repository_route_contract.py",
@@ -333,11 +334,16 @@ def validate_contract(root: Path, contract_path: Path) -> dict[str, Any]:
     )
     if (
         runtime.get("stagingEnvironment") != "staging-readonly"
-        or runtime.get("productionCanaryEnvironment") != "production-readonly-canary"
-        or require_string_set(runtime.get("workflows"), "workflows") != EXPECTED_WORKFLOWS
-        or require_string_set(runtime.get("scripts"), "scripts") != EXPECTED_RUNTIME_SCRIPTS
-        or require_string_set(runtime.get("evidenceOutputs"), "evidenceOutputs") != EXPECTED_EVIDENCE_OUTPUTS
-        or require_string_set(runtime.get("requiredReadbacks"), "requiredReadbacks") != EXPECTED_READBACKS
+        or runtime.get("productionCanaryEnvironment")
+        != "production-readonly-canary"
+        or require_string_set(runtime.get("workflows"), "workflows")
+        != EXPECTED_WORKFLOWS
+        or require_string_set(runtime.get("scripts"), "scripts")
+        != EXPECTED_RUNTIME_SCRIPTS
+        or require_string_set(runtime.get("evidenceOutputs"), "evidenceOutputs")
+        != EXPECTED_EVIDENCE_OUTPUTS
+        or require_string_set(runtime.get("requiredReadbacks"), "requiredReadbacks")
+        != EXPECTED_READBACKS
     ):
         fail("runtime_evidence_contract")
     for path in runtime["workflows"] + runtime["scripts"]:
@@ -460,9 +466,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     authority = value["configurationAuthority"]
-    print(f"CADDY_CONFIG_REVISION_SHA={authority['configurationRevisionSha']}")
     print(f"CADDY_CONFIG_TREE_GIT_SHA={authority['configurationTreeGitSha']}")
     print(f"CADDY_CONFIG_SHA256={authority['configurationSha256']}")
+    print(f"CADDY_CONFIG_IDENTITY_POLICY={authority['configurationIdentityPolicy']}")
     print("PLATFORM_INTEGRATION_AUTHORITY=PASS")
     print("CADDY_PRINCIPAL_CONFIGURATION_AUTHORITY=PASS")
     print("CADDY_PLATFORM_EDGE_CERTIFICATION=PASS")
