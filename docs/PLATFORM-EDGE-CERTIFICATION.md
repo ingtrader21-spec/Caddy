@@ -12,18 +12,20 @@ Issue [#105](https://github.com/appolon1908-hue/Caddy/issues/105) requires a pro
 
 New Caddy routes and configuration must therefore be implemented and reviewed in this repository. The platform repository may consume the immutable lock and evidence, but it must not become a second deployable Caddy source.
 
-## Exact candidate lock
+## Squash-stable configuration lock
 
-`contracts/platform-edge-certification.v1.json` pins the reconciled configuration candidate:
+`contracts/platform-edge-certification.v1.json` pins the reconciled deployable configuration using identities that survive squash merges and branch promotion:
 
 ```text
-configuration revision: 78c5554a148876e3ddba6061f8806e8c757087f6
 configuration Git tree: 215fbe973e0a60a33fb7a4e5f4dcc0f62a620de7
 configuration SHA-256:  7cd21ce91bb11838687412734cf65318ed04b0ac2b83b063a2f7cfcb58cb7347
 algorithm:              codestra.config-tree-sha256.v1
+identity policy:        git-tree-and-content-digest-survive-squash
 ```
 
-The digest uses `scripts/hash_config_tree.py`: sorted relative file names and exact bytes beneath `config/`, excluding only the top-level `private/` runtime-mount placeholder. The validator also proves that the pinned revision and the current branch point to the same `config` Git tree. A configuration change therefore fails CI until the lock is intentionally regenerated and reviewed.
+The digest uses `scripts/hash_config_tree.py`: sorted relative file names and exact bytes beneath `config/`, excluding only the top-level `private/` runtime-mount placeholder. The validator recomputes that digest and requires the current `HEAD:config` Git tree to equal the reviewed tree object.
+
+A feature-branch commit SHA is deliberately not part of the configuration identity. Squash merging creates a new commit and may delete the feature branch, while the accepted configuration tree and deterministic content digest remain unchanged. A configuration change therefore fails CI until the tree and digest lock are intentionally regenerated and reviewed, but normal squash promotion does not invalidate an unchanged lock.
 
 ## Enforced certification surface
 
@@ -57,4 +59,4 @@ python3 scripts/validate_platform_edge_certification.py
 python3 -m unittest tests.test_platform_edge_certification
 ```
 
-It is also invoked from `scripts/validate-ci.sh`, so it runs for both exact source and synthetic merge-result validation.
+It is also invoked from `scripts/validate-ci.sh`, so it runs for both exact source and synthetic merge-result validation. Regression tests reject reintroducing commit-ancestry coupling into the configuration lock.
