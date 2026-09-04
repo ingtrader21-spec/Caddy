@@ -10,6 +10,9 @@ ROLLBACK_EVIDENCE_FILE="${CADDY_ROLLBACK_EVIDENCE_FILE:-}"
 DOCKER_BIN=/usr/bin/docker
 COSIGN_BIN=/usr/local/bin/cosign
 PYTHON_BIN=/usr/bin/python3
+MTLS_CLIENT_CERT="${CADDY_PRODUCTION_MTLS_CLIENT_CERT:-}"
+MTLS_CLIENT_KEY="${CADDY_PRODUCTION_MTLS_CLIENT_KEY:-}"
+MTLS_CA_CERT="${CADDY_PRODUCTION_MTLS_CA_CERT:-}"
 CERTIFICATE_IDENTITY_REGEXP='^https://github.com/appolon1908-hue/Caddy/.github/workflows/immutable-release\.yml@refs/heads/production$'
 CERTIFICATE_ISSUER='https://token.actions.githubusercontent.com'
 
@@ -53,18 +56,18 @@ load_environment_file() {
 }
 
 write_rollback_evidence() {
-  local canary_sha="$1" completed_at="$2" payload
+  local canary_output_sha="$1" canary_evidence_sha="$2" completed_at="$3" payload
   [[ -n "$ROLLBACK_EVIDENCE_FILE" ]] || return 0
   [[ "$ROLLBACK_EVIDENCE_FILE" =~ ^/var/lib/codestra/caddy/evidence/caddy-orchestrator-[A-Za-z0-9._-]+-rollback-result\.json$ ]] || fail rollback_evidence_path
   payload="$(mktemp)"
   "$PYTHON_BIN" - "$payload" "$baseline_schema" "$baseline_source" "$baseline_image" "$computed_config_sha" \
-    "$baseline_release_id" "$BASELINE" "$baseline_environment_sha" "$canary_sha" "$completed_at" <<'PY'
+    "$baseline_release_id" "$BASELINE" "$baseline_environment_sha" "$canary_output_sha" "$canary_evidence_sha" "$completed_at" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 (path, schema, source, image, config, release_id, baseline_file,
- environment_sha, canary_sha, completed) = sys.argv[1:]
+ environment_sha, canary_output_sha, canary_evidence_sha, completed) = sys.argv[1:]
 value = {
     "schema": "codestra.caddy-runtime-rollback-result.v1",
     "baseline_schema": schema,
@@ -74,7 +77,9 @@ value = {
     "release_id": release_id,
     "baseline_file": baseline_file,
     "runtime_environment_sha256": environment_sha,
-    "canary_output_sha256": canary_sha,
+    "canary_mode": "rollback",
+    "canary_output_sha256": canary_output_sha,
+    "canary_evidence_sha256": canary_evidence_sha,
     "completed_at": completed,
     "container": "codestra-caddy",
     "container_health": "healthy",
@@ -84,6 +89,7 @@ value = {
     "config_readback": "PASS",
     "release_readback": "PASS",
     "production_canary": "PASS",
+    "restored_image_validated_independently_of_checkout": True,
     "result": "PASS",
 }
 Path(path).write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -96,6 +102,10 @@ PY
 [[ $# -eq 0 ]] || fail arguments_not_allowed
 [[ "$(id -u)" -eq 0 ]] || fail root_required
 for binary in "$DOCKER_BIN" "$COSIGN_BIN" "$PYTHON_BIN"; do trusted_executable "$binary"; done
+for path in "$MTLS_CLIENT_CERT" "$MTLS_CLIENT_KEY" "$MTLS_CA_CERT"; do
+  [[ "$path" = /* && "$path" != *..* && "$path" != *//* ]] || fail protected_mtls_path
+  [[ -f "$path" && ! -L "$path" && -r "$path" ]] || fail protected_mtls_file
+done
 [[ -f "$BASELINE" && ! -L "$BASELINE" ]] || fail baseline_file
 if [[ "$BASELINE" != "$DEFAULT_BASELINE" ]]; then
   [[ "$BASELINE" =~ ^/var/lib/codestra/caddy/evidence/caddy-orchestrator-[A-Za-z0-9._-]+-rollback-baseline\.json$ ]] || fail dynamic_baseline_path
@@ -184,9 +194,47 @@ final_config="$($DOCKER_BIN inspect --format '{{index .Config.Labels "io.codestr
 final_release="$($DOCKER_BIN inspect --format '{{index .Config.Labels "io.codestra.caddy.release.id"}}' codestra-caddy)"
 [[ "$final_image" == "$baseline_image" && "$final_source" == "$baseline_source" ]] || fail image_or_source_readback
 [[ "$final_config" == "$computed_config_sha" && "$final_release" == "$baseline_release_id" ]] || fail config_or_release_readback
-rollback_canary="$($ROOT/scripts/production-canary.sh)" || fail rollback_canary
-rollback_canary_sha256="$(printf '%s' "$rollback_canary" | sha256sum | awk '{print $1}')"
-write_rollback_evidence "$rollback_canary_sha256" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+rollback_canary="$(
+  CADDY_PRODUCTION_CANARY_MODE=rollback \
+  CADDY_PRODUCTION_MTLS_CLIENT_CERT="$MTLS_CLIENT_CERT" \
+  CADDY_PRODUCTION_MTLS_CLIENT_KEY="$MTLS_CLIENT_KEY" \
+  CADDY_PRODUCTION_MTLS_CA_CERT="$MTLS_CA_CERT" \
+  "$ROOT/scripts/production-canary.sh"
+)" || fail rollback_canary
+[[ -s rollback-canary-evidence.json && ! -L rollback-canary-evidence.json ]] || fail rollback_canary_evidence_missing
+[[ -s rollback-canary-runtime-before.json && ! -L rollback-canary-runtime-before.json ]] || fail rollback_canary_before_missing
+[[ -s rollback-canary-runtime-after.json && ! -L rollback-canary-runtime-after.json ]] || fail rollback_canary_after_missing
+[[ -s rollback-canary.txt && ! -L rollback-canary.txt ]] || fail rollback_canary_log_missing
+"$PYTHON_BIN" - rollback-canary-evidence.json "$baseline_source" "$baseline_image" "$computed_config_sha" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path, source, image, config = sys.argv[1:]
+value = json.loads(Path(path).read_text(encoding="utf-8"))
+assert value["schema"] == "codestra.caddy.production-readonly-canary.v2"
+assert value["canary_mode"] == "rollback"
+assert value["expected_source_sha"] == source
+assert value["expected_image"] == image
+assert value["expected_config_sha256"] == config
+assert value["expected_image_config_sha256"] == config
+assert value["live_source_sha"] == source
+assert value["live_image_digest"] == image.rsplit("@", 1)[1]
+assert value["live_config_sha256"] == config
+assert value["live_runtime_is_expected_tuple"] is True
+assert value["live_runtime_is_candidate"] is False
+assert value["rollback_validation"] is True
+assert value["candidate_started_on_production"] is False
+assert value["live_runtime_unchanged"] is True
+assert value["live_mtls_server_certificate_verified"] is True
+assert value["write_requests_sent"] is False
+assert value["public_traffic_changed"] is False
+assert value["result"] == "PASS"
+PY
+rollback_canary_output_sha256="$(printf '%s' "$rollback_canary" | sha256sum | awk '{print $1}')"
+rollback_canary_evidence_sha256="$(sha256sum rollback-canary-evidence.json | awk '{print $1}')"
+write_rollback_evidence "$rollback_canary_output_sha256" "$rollback_canary_evidence_sha256" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 printf '%s\n' "$rollback_canary"
-printf 'CADDY_ROLLBACK=PASS\nBASELINE_SCHEMA=%s\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nRELEASE_ID=%s\nBASELINE_FILE=%s\n' \
-  "$baseline_schema" "$baseline_source" "$baseline_image" "$computed_config_sha" "$baseline_release_id" "$BASELINE"
+printf 'CADDY_ROLLBACK=PASS\nBASELINE_SCHEMA=%s\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nRELEASE_ID=%s\nBASELINE_FILE=%s\nROLLBACK_CANARY_EVIDENCE_SHA256=%s\n' \
+  "$baseline_schema" "$baseline_source" "$baseline_image" "$computed_config_sha" "$baseline_release_id" "$BASELINE" "$rollback_canary_evidence_sha256"
