@@ -7,6 +7,7 @@ COMPOSE="$ROOT/deploy/compose.runtime.yaml"
 DEFAULT_BASELINE="$ROOT/config/release-baseline.v1.json"
 BASELINE="${CADDY_ROLLBACK_BASELINE_FILE:-$DEFAULT_BASELINE}"
 ROLLBACK_EVIDENCE_FILE="${CADDY_ROLLBACK_EVIDENCE_FILE:-}"
+CANARY_PACKET_DIR="$ROOT/activation-evidence"
 DOCKER_BIN=/usr/bin/docker
 COSIGN_BIN=/usr/local/bin/cosign
 PYTHON_BIN=/usr/bin/python3
@@ -56,18 +57,20 @@ load_environment_file() {
 }
 
 write_rollback_evidence() {
-  local canary_output_sha="$1" canary_evidence_sha="$2" completed_at="$3" payload
+  local canary_output_sha="$1" canary_evidence_sha="$2" canary_manifest_sha="$3" completed_at="$4" payload
   [[ -n "$ROLLBACK_EVIDENCE_FILE" ]] || return 0
   [[ "$ROLLBACK_EVIDENCE_FILE" =~ ^/var/lib/codestra/caddy/evidence/caddy-orchestrator-[A-Za-z0-9._-]+-rollback-result\.json$ ]] || fail rollback_evidence_path
   payload="$(mktemp)"
   "$PYTHON_BIN" - "$payload" "$baseline_schema" "$baseline_source" "$baseline_image" "$computed_config_sha" \
-    "$baseline_release_id" "$BASELINE" "$baseline_environment_sha" "$canary_output_sha" "$canary_evidence_sha" "$completed_at" <<'PY'
+    "$baseline_release_id" "$BASELINE" "$baseline_environment_sha" "$canary_output_sha" "$canary_evidence_sha" \
+    "$canary_manifest_sha" "$completed_at" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 (path, schema, source, image, config, release_id, baseline_file,
- environment_sha, canary_output_sha, canary_evidence_sha, completed) = sys.argv[1:]
+ environment_sha, canary_output_sha, canary_evidence_sha,
+ canary_manifest_sha, completed) = sys.argv[1:]
 value = {
     "schema": "codestra.caddy-runtime-rollback-result.v1",
     "baseline_schema": schema,
@@ -80,6 +83,7 @@ value = {
     "canary_mode": "rollback",
     "canary_output_sha256": canary_output_sha,
     "canary_evidence_sha256": canary_evidence_sha,
+    "canary_packet_manifest_sha256": canary_manifest_sha,
     "completed_at": completed,
     "container": "codestra-caddy",
     "container_health": "healthy",
@@ -202,11 +206,19 @@ rollback_canary="$(
   CADDY_PRODUCTION_MTLS_CA_CERT="$MTLS_CA_CERT" \
   "$ROOT/scripts/production-canary.sh"
 )" || fail rollback_canary
-[[ -s rollback-canary-evidence.json && ! -L rollback-canary-evidence.json ]] || fail rollback_canary_evidence_missing
-[[ -s rollback-canary-runtime-before.json && ! -L rollback-canary-runtime-before.json ]] || fail rollback_canary_before_missing
-[[ -s rollback-canary-runtime-after.json && ! -L rollback-canary-runtime-after.json ]] || fail rollback_canary_after_missing
-[[ -s rollback-canary.txt && ! -L rollback-canary.txt ]] || fail rollback_canary_log_missing
-"$PYTHON_BIN" - rollback-canary-evidence.json "$baseline_source" "$baseline_image" "$computed_config_sha" <<'PY'
+rollback_evidence="$CANARY_PACKET_DIR/rollback-canary-evidence.json"
+rollback_before="$CANARY_PACKET_DIR/rollback-canary-runtime-before.json"
+rollback_after="$CANARY_PACKET_DIR/rollback-canary-runtime-after.json"
+rollback_log="$CANARY_PACKET_DIR/rollback-canary.txt"
+rollback_manifest="$CANARY_PACKET_DIR/rollback-canary.SHA256SUMS"
+for path in "$rollback_evidence" "$rollback_before" "$rollback_after" "$rollback_log" "$rollback_manifest"; do
+  [[ -s "$path" && ! -L "$path" ]] || fail "rollback_canary_packet_missing:${path##*/}"
+done
+(
+  cd "$CANARY_PACKET_DIR"
+  sha256sum --check --strict rollback-canary.SHA256SUMS
+)
+"$PYTHON_BIN" - "$rollback_evidence" "$baseline_source" "$baseline_image" "$computed_config_sha" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -233,8 +245,11 @@ assert value["public_traffic_changed"] is False
 assert value["result"] == "PASS"
 PY
 rollback_canary_output_sha256="$(printf '%s' "$rollback_canary" | sha256sum | awk '{print $1}')"
-rollback_canary_evidence_sha256="$(sha256sum rollback-canary-evidence.json | awk '{print $1}')"
-write_rollback_evidence "$rollback_canary_output_sha256" "$rollback_canary_evidence_sha256" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+rollback_canary_evidence_sha256="$(sha256sum "$rollback_evidence" | awk '{print $1}')"
+rollback_canary_manifest_sha256="$(sha256sum "$rollback_manifest" | awk '{print $1}')"
+write_rollback_evidence "$rollback_canary_output_sha256" "$rollback_canary_evidence_sha256" \
+  "$rollback_canary_manifest_sha256" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 printf '%s\n' "$rollback_canary"
-printf 'CADDY_ROLLBACK=PASS\nBASELINE_SCHEMA=%s\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nRELEASE_ID=%s\nBASELINE_FILE=%s\nROLLBACK_CANARY_EVIDENCE_SHA256=%s\n' \
-  "$baseline_schema" "$baseline_source" "$baseline_image" "$computed_config_sha" "$baseline_release_id" "$BASELINE" "$rollback_canary_evidence_sha256"
+printf 'CADDY_ROLLBACK=PASS\nBASELINE_SCHEMA=%s\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nRELEASE_ID=%s\nBASELINE_FILE=%s\nROLLBACK_CANARY_EVIDENCE_SHA256=%s\nROLLBACK_CANARY_MANIFEST_SHA256=%s\n' \
+  "$baseline_schema" "$baseline_source" "$baseline_image" "$computed_config_sha" "$baseline_release_id" "$BASELINE" \
+  "$rollback_canary_evidence_sha256" "$rollback_canary_manifest_sha256"
