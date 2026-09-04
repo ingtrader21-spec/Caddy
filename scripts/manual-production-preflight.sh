@@ -12,9 +12,8 @@ expected_confirmation="${EXPECTED_CONFIRMATION:-RUN_CADDY_PRODUCTION}"
 : "${GH_TOKEN:?GH_TOKEN is required}"
 
 [[ "$confirmation" == "$expected_confirmation" ]]
-[[ "$GITHUB_REF" == "refs/heads/production" ]]
+[[ "$GITHUB_REF" == refs/heads/production ]]
 [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
-
 [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
 git fetch origin production --depth=1
 [[ "$(git rev-parse origin/production)" == "$GITHUB_SHA" ]]
@@ -50,6 +49,17 @@ jq -e --arg refs "$expected_refs" --arg checks "$expected_checks" '
   ([.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context] | sort | join(",")) == $checks
 ' canonical-ruleset.json >/dev/null
 
+for environment in staging-readonly production-readonly-canary production-activation; do
+  output="environment-${environment}.json"
+  gh api "repos/${GITHUB_REPOSITORY}/environments/${environment}" > "$output"
+  jq -e --arg name "$environment" '
+    .name == $name and
+    .deployment_branch_policy.protected_branches == true and
+    .deployment_branch_policy.custom_branch_policies == false
+  ' "$output" >/dev/null
+  echo "CADDY_PROTECTED_ENVIRONMENT_${environment^^}=PASS" | tr '-' '_'
+done
+
 source_sha="$GITHUB_SHA"
 config_sha256="$(python3 scripts/hash_config_tree.py config)"
 release_tag="caddy-production-${source_sha}"
@@ -81,7 +91,7 @@ docker pull "$image"
   "https://github.com/${GITHUB_REPOSITORY}" ]]
 [[ "$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$source_sha" ]]
 [[ "$(docker image inspect "$image" --format '{{index .Config.Labels "io.codestra.caddy.config.sha256"}}')" == "$config_sha256" ]]
-[[ "$(docker image inspect "$image" --format '{{.Config.User}}')" == "65532:65532" ]]
+[[ "$(docker image inspect "$image" --format '{{.Config.User}}')" == 65532:65532 ]]
 
 identity="^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$"
 cosign verify \
@@ -112,7 +122,7 @@ jq -n \
   --arg release_run_id "$release_run_id" \
   --arg artifact_id "$artifact_id" \
   '{
-    schema:"codestra.caddy.manual-production-candidate.v1",
+    schema:"codestra.caddy.manual-production-candidate.v2",
     source_sha:$source_sha,
     image:$image,
     image_digest:$image_digest,
@@ -120,6 +130,7 @@ jq -n \
     release_run_id:($release_run_id|tonumber),
     release_artifact_id:($artifact_id|tonumber),
     branch_ruleset_verified:true,
+    protected_environments:["staging-readonly","production-readonly-canary","production-activation"],
     bypass_actors:0,
     required_approvals:1,
     require_last_push_approval:true,
@@ -139,4 +150,5 @@ jq -n \
 } >> "$GITHUB_OUTPUT"
 
 echo CADDY_CANONICAL_BRANCH_RULESET=PASS
+echo CADDY_PROTECTED_ENVIRONMENTS=PASS
 echo CADDY_EXACT_SIGNED_PRODUCTION_CANDIDATE=PASS
