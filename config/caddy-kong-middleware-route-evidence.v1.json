@@ -8,6 +8,31 @@
     "canonicalSitePath": "config/sites/api.codestra.co.caddy",
     "legacySitePath": "config/sites/legacy-api.codestra.agency.caddy"
   },
+  "keycloak": {
+    "repository": "appolon1908-hue/Keycloak",
+    "protectedMainSha": "3b8422da498a47b8f1a91a6a2b2c62d2852ca50f",
+    "evidenceFiles": [
+      {
+        "path": "config/clients/n8n-automation.json",
+        "blobSha": "7784eb9cd5fc11e5e66d3fbe30418e0bfe16d5d7"
+      }
+    ],
+    "stagingHost": "auth-staging.codestra.co",
+    "stagingIssuer": "https://auth-staging.codestra.co/realms/codestra",
+    "clientId": "n8n-automation",
+    "audience": "middleware-api",
+    "requiredScopes": [
+      "middleware.request.forward",
+      "middleware.status.read",
+      "workflow.result.publish"
+    ],
+    "maximumAccessTokenLifetimeSeconds": 300,
+    "tenantClaim": {
+      "claim": "tenant_id",
+      "source": "service-account-user-attribute",
+      "wildcardAllowed": false
+    }
+  },
   "kong": {
     "repository": "appolon1908-hue/Kong",
     "protectedMainSha": "f61c106ce736bf8fd6a013d4961eeca3bf125b56",
@@ -87,6 +112,8 @@
   ],
   "runtimeProofContract": {
     "required": true,
+    "identityEnvironment": "staging",
+    "expectedIssuer": "https://auth-staging.codestra.co/realms/codestra",
     "method": "GET",
     "path": "/v1/integrations/n8n/operations/00000000-0000-0000-0000-000000000000",
     "expectedAuthenticatedStatus": 404,
