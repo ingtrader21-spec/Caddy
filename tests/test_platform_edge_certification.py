@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,7 @@ from scripts.validate_platform_edge_certification import (
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "contracts/platform-edge-certification.v1.json"
+VALIDATOR = ROOT / "scripts/validate_platform_edge_certification.py"
 
 
 class PlatformEdgeCertificationTests(unittest.TestCase):
@@ -41,12 +43,31 @@ class PlatformEdgeCertificationTests(unittest.TestCase):
         self.assertEqual(result["status"]["runtimeCertification"], "REQUIRED")
         self.assertIs(result["status"]["productionCertified"], False)
 
-    def test_contract_pins_current_deployable_config_digest(self) -> None:
+    def test_contract_pins_current_deployable_config_tree_and_digest(self) -> None:
         authority = self.value["configurationAuthority"]
         self.assertEqual(
             config_tree_hash(ROOT / authority["configurationRoot"]),
             authority["configurationSha256"],
         )
+        tree_sha = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD:config"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        self.assertEqual(tree_sha, authority["configurationTreeGitSha"])
+
+    def test_configuration_identity_survives_squash_promotion(self) -> None:
+        authority = self.value["configurationAuthority"]
+        self.assertNotIn("configurationRevisionSha", authority)
+        self.assertEqual(
+            authority["configurationIdentityPolicy"],
+            "git-tree-and-content-digest-survive-squash",
+        )
+        validator = VALIDATOR.read_text(encoding="utf-8")
+        self.assertNotIn("merge-base", validator)
+        self.assertNotIn("configurationRevisionSha", validator)
+        self.assertIn('git(root, "rev-parse", "HEAD:config")', validator)
 
     def test_duplicate_json_keys_fail_closed(self) -> None:
         with tempfile.NamedTemporaryFile(
@@ -65,6 +86,20 @@ class PlatformEdgeCertificationTests(unittest.TestCase):
         value = copy.deepcopy(self.value)
         value["configurationAuthority"]["configurationSha256"] = "0" * 64
         with self.assertRaisesRegex(ContractError, "configuration_digest_drift"):
+            validate_contract(ROOT, self.write_contract(value))
+
+    def test_config_tree_drift_fails_closed(self) -> None:
+        value = copy.deepcopy(self.value)
+        value["configurationAuthority"]["configurationTreeGitSha"] = "0" * 40
+        with self.assertRaisesRegex(ContractError, "current_configuration_tree_drift"):
+            validate_contract(ROOT, self.write_contract(value))
+
+    def test_commit_coupled_identity_policy_fails_closed(self) -> None:
+        value = copy.deepcopy(self.value)
+        value["configurationAuthority"]["configurationIdentityPolicy"] = (
+            "source-commit-ancestry"
+        )
+        with self.assertRaisesRegex(ContractError, "configuration_authority"):
             validate_contract(ROOT, self.write_contract(value))
 
     def test_platform_cannot_claim_principal_configuration_source(self) -> None:
