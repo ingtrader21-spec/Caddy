@@ -5,6 +5,7 @@ on:
     branches: [production]
 
 permissions:
+  actions: read
   contents: read
   packages: read
 
@@ -31,6 +32,7 @@ jobs:
       CADDY_STAGING_MTLS_CLIENT_CERT: ${{ vars.CADDY_STAGING_MTLS_CLIENT_CERT }}
       CADDY_STAGING_MTLS_CLIENT_KEY: ${{ vars.CADDY_STAGING_MTLS_CLIENT_KEY }}
       CADDY_STAGING_MTLS_CA_CERT: ${{ vars.CADDY_STAGING_MTLS_CA_CERT }}
+      CADDY_STAGING_N8N_CLIENT_SECRET_FILE: ${{ vars.CADDY_STAGING_N8N_CLIENT_SECRET_FILE || '/etc/codestra/caddy/secrets/n8n-automation-client-secret' }}
     steps:
       - name: Record canonical staging runner contract
         run: |
@@ -46,7 +48,8 @@ jobs:
             "$CADDY_STAGING_DATA_SOURCE" \
             "$CADDY_STAGING_MTLS_CLIENT_CERT" \
             "$CADDY_STAGING_MTLS_CLIENT_KEY" \
-            "$CADDY_STAGING_MTLS_CA_CERT"; do
+            "$CADDY_STAGING_MTLS_CA_CERT" \
+            "$CADDY_STAGING_N8N_CLIENT_SECRET_FILE"; do
             test -n "$value"
             [[ "$value" = /* && "$value" != *..* && "$value" != *//* ]]
           done
@@ -131,11 +134,34 @@ jobs:
           bash scripts/bounded-staging-runtime-v2.sh | tee bounded-staging-runtime.txt
 
       - id: staging_evidence
-        name: Bind staging evidence to the production canary
+        name: Bind Caddy, Kong, Middleware, and staging evidence to the production canary
         run: |
           set -Eeuo pipefail
           test -s bounded-staging-runtime-evidence.json
-          echo "sha256=$(sha256sum bounded-staging-runtime-evidence.json | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          test -s caddy-kong-middleware-runtime-evidence.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          runtime = json.loads(Path("caddy-kong-middleware-runtime-evidence.json").read_text())
+          assert runtime["schema"] == "codestra.caddy-kong-middleware-runtime.v1"
+          assert runtime["route"]["caddy_to_kong_to_middleware"] == "PASS"
+          assert runtime["route"]["method"] == "GET"
+          assert runtime["route"]["status"] == 404
+          assert runtime["route"]["middleware_error_code"] == "command_not_found"
+          assert runtime["middleware"]["environment"] == "staging"
+          assert runtime["application_mutations"] == 0
+          assert runtime["provider_effects"] == 0
+          assert runtime["external_effects_authorized"] is False
+          assert runtime["result"] == "PASS"
+          PY
+          sha256sum \
+            bounded-staging-runtime-evidence.json \
+            caddy-kong-middleware-runtime-evidence.json \
+            verified-staging-attestation.json \
+            > staging-evidence.SHA256SUMS
+          sha256sum --check --strict staging-evidence.SHA256SUMS
+          echo "sha256=$(sha256sum staging-evidence.SHA256SUMS | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Upload bounded staging runtime evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -143,6 +169,8 @@ jobs:
           name: caddy-bounded-staging-runtime-${{ steps.candidate.outputs.source_sha }}
           path: |
             bounded-staging-runtime-evidence.json
+            caddy-kong-middleware-runtime-evidence.json
+            staging-evidence.SHA256SUMS
             bounded-staging-runtime.txt
             verified-staging-attestation.json
           if-no-files-found: error
@@ -198,6 +226,34 @@ jobs:
           test "$CADDY_CANARY_IMAGE" = \
             "ghcr.io/${GITHUB_REPOSITORY_OWNER}/codestra-caddy@${CADDY_CANARY_IMAGE_DIGEST}"
 
+      - name: Download the exact staging and Middleware proof packet
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: caddy-bounded-staging-runtime-${{ env.CADDY_CANARY_SOURCE_SHA }}
+          path: staging-evidence
+
+      - name: Verify the bound staging and Middleware proof packet
+        run: |
+          set -Eeuo pipefail
+          test "$(sha256sum staging-evidence/staging-evidence.SHA256SUMS | awk '{print $1}')" = \
+            "$CADDY_STAGING_EVIDENCE_SHA256"
+          (
+            cd staging-evidence
+            sha256sum --check --strict staging-evidence.SHA256SUMS
+          )
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          value = json.loads(Path("staging-evidence/caddy-kong-middleware-runtime-evidence.json").read_text())
+          assert value["route"]["caddy_to_kong_to_middleware"] == "PASS"
+          assert value["route"]["method"] == "GET"
+          assert value["application_mutations"] == 0
+          assert value["provider_effects"] == 0
+          assert value["external_effects_authorized"] is False
+          assert value["result"] == "PASS"
+          PY
+
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
 
@@ -240,4 +296,6 @@ jobs:
             post-canary-runtime.json
             verified-production-attestation.json
             staging-evidence-identity.txt
+            staging-evidence/caddy-kong-middleware-runtime-evidence.json
+            staging-evidence/staging-evidence.SHA256SUMS
           if-no-files-found: error

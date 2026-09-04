@@ -28,6 +28,8 @@ jobs:
     environment: staging-readonly
     env:
       SOURCE_SHA: ${{ inputs.source_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha) || github.sha }}
+      BASE_REF: ${{ github.base_ref }}
+      HEAD_REF: ${{ github.head_ref }}
       CADDY_UPSTREAM_SHA: e2eee6a7fce366321294c9c2a79f3146891dcbdf
     steps:
       - name: Validate bounded staging invocation
@@ -37,8 +39,8 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == push ]]; then
             test "$GITHUB_REF" = refs/heads/staging
           elif [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            test "${{ github.base_ref }}" = production
-            test "${{ github.head_ref }}" = staging
+            test "$BASE_REF" = production
+            test "$HEAD_REF" = staging
           fi
 
       - name: Check out exact staging source
