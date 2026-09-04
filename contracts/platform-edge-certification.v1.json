@@ -6,11 +6,11 @@
     "repository": "appolon1908-hue/Caddy",
     "role": "principal-caddy-configuration-source",
     "candidateBranch": "development",
-    "configurationRevisionSha": "78c5554a148876e3ddba6061f8806e8c757087f6",
     "configurationRoot": "config",
     "configurationTreeGitSha": "215fbe973e0a60a33fb7a4e5f4dcc0f62a620de7",
     "configurationDigestAlgorithm": "codestra.config-tree-sha256.v1",
     "configurationSha256": "7cd21ce91bb11838687412734cf65318ed04b0ac2b83b063a2f7cfcb58cb7347",
+    "configurationIdentityPolicy": "git-tree-and-content-digest-survive-squash",
     "excludedTopLevelRuntimeMounts": [
       "private"
     ]
