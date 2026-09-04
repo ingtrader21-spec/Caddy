@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the pinned Caddy -> Kong -> Middleware source and safety contract."""
+"""Validate pinned Keycloak -> Caddy -> Kong -> Middleware source and safety."""
 
 from __future__ import annotations
 
@@ -67,11 +67,13 @@ def main() -> int:
         fail("caddy_contract_schema")
 
     caddy = evidence.get("caddy")
+    keycloak = evidence.get("keycloak")
     kong = evidence.get("kong")
     middleware = evidence.get("middleware")
-    if not all(isinstance(item, dict) for item in (caddy, kong, middleware)):
+    if not all(isinstance(item, dict) for item in (caddy, keycloak, kong, middleware)):
         fail("authority_objects_required")
     assert isinstance(caddy, dict)
+    assert isinstance(keycloak, dict)
     assert isinstance(kong, dict)
     assert isinstance(middleware, dict)
 
@@ -79,20 +81,30 @@ def main() -> int:
         fail("caddy_repository")
     if caddy.get("canonicalHost") != contract.get("canonicalHost"):
         fail("canonical_host")
+    if keycloak.get("repository") != "appolon1908-hue/Keycloak":
+        fail("keycloak_repository")
     if kong.get("repository") != "appolon1908-hue/Kong":
         fail("kong_repository")
     if middleware.get("repository") != "appolon1908-hue/Middleware-":
         fail("middleware_repository")
 
+    keycloak_sha = require_sha(keycloak.get("protectedMainSha"), "keycloak_main")
     kong_sha = require_sha(kong.get("protectedMainSha"), "kong_main")
     middleware_sha = require_sha(middleware.get("protectedMainSha"), "middleware_main")
+    if keycloak_sha != "3b8422da498a47b8f1a91a6a2b2c62d2852ca50f":
+        fail("unexpected_keycloak_main")
     if kong_sha != "f61c106ce736bf8fd6a013d4961eeca3bf125b56":
         fail("unexpected_kong_main")
     if middleware_sha != "50175213ca1c6e785dbb7b5ab2b00caf932a516d":
         fail("unexpected_middleware_main")
 
+    keycloak_files = evidence_files(keycloak, "keycloak")
     kong_files = evidence_files(kong, "kong")
     middleware_files = evidence_files(middleware, "middleware")
+    if keycloak_files != {
+        "config/clients/n8n-automation.json": "7784eb9cd5fc11e5e66d3fbe30418e0bfe16d5d7"
+    }:
+        fail("keycloak_evidence_set")
     if set(kong_files) != {
         "config/kong-intake-routes.json",
         "config/kong-n8n-control-plane-routes.json",
@@ -105,6 +117,27 @@ def main() -> int:
         "app/commands.py",
     }:
         fail("middleware_evidence_set")
+
+    required_scopes = keycloak.get("requiredScopes")
+    tenant_claim = keycloak.get("tenantClaim")
+    if (
+        keycloak.get("stagingHost") != "auth-staging.codestra.co"
+        or keycloak.get("stagingIssuer") != "https://auth-staging.codestra.co/realms/codestra"
+        or keycloak.get("clientId") != "n8n-automation"
+        or keycloak.get("audience") != "middleware-api"
+        or keycloak.get("maximumAccessTokenLifetimeSeconds") != 300
+        or set(required_scopes or [])
+        != {
+            "middleware.request.forward",
+            "middleware.status.read",
+            "workflow.result.publish",
+        }
+        or not isinstance(tenant_claim, dict)
+        or tenant_claim.get("claim") != "tenant_id"
+        or tenant_claim.get("source") != "service-account-user-attribute"
+        or tenant_claim.get("wildcardAllowed") is not False
+    ):
+        fail("keycloak_identity_contract")
 
     managed = contract.get("kongManagedPathPrefixes")
     if not isinstance(managed, list) or not managed or not all(isinstance(item, str) for item in managed):
@@ -125,6 +158,10 @@ def main() -> int:
         fail("canonical_site_contract_drift")
     if legacy_routes != set(managed_prefixes):
         fail("legacy_site_contract_drift")
+
+    staging_site = ROOT / "config/sites/staging-internal.caddy"
+    if not staging_site.is_file() or "auth-staging.codestra.co" not in staging_site.read_text(encoding="utf-8"):
+        fail("staging_identity_edge_missing")
 
     routes = evidence.get("sourceVerifiedRoutes")
     if not isinstance(routes, list):
@@ -191,6 +228,8 @@ def main() -> int:
     expected_probe_path = "/v1/integrations/n8n/operations/00000000-0000-0000-0000-000000000000"
     if (
         proof.get("required") is not True
+        or proof.get("identityEnvironment") != "staging"
+        or proof.get("expectedIssuer") != keycloak.get("stagingIssuer")
         or proof.get("method") != "GET"
         or proof.get("path") != expected_probe_path
         or proof.get("expectedAuthenticatedStatus") != 404
@@ -204,10 +243,12 @@ def main() -> int:
     if not any(covers(prefix, expected_probe_path) for prefix in managed_prefixes):
         fail("runtime_probe_not_routed")
 
+    print(f"KEYCLOAK_PROTECTED_MAIN_SHA={keycloak_sha}")
     print(f"KONG_PROTECTED_MAIN_SHA={kong_sha}")
     print(f"MIDDLEWARE_PROTECTED_MAIN_SHA={middleware_sha}")
     print(f"SOURCE_VERIFIED_ROUTE_COUNT={len(actual_routes)}")
     print(f"BLOCKED_UNIMPLEMENTED_ROUTE_COUNT={len(blocked_set)}")
+    print("STAGING_IDENTITY_CONTRACT=PASS")
     print("CADDY_KONG_MIDDLEWARE_SOURCE_CONTRACT=PASS")
     print("UNIMPLEMENTED_ROUTES_FAIL_CLOSED=PASS")
     print("RUNTIME_PROOF_REMAINS_REQUIRED=true")
