@@ -1,6 +1,6 @@
 {
   "schema": "codestra.caddy-kong-middleware-source-evidence.v1",
-  "recordedAt": "2026-09-04T00:00:00Z",
+  "recordedDate": "2026-09-04",
   "caddy": {
     "repository": "appolon1908-hue/Caddy",
     "canonicalHost": "api.codestra.co",
@@ -40,7 +40,7 @@
       },
       {
         "path": "app/commands.py",
-        "blobSha": "8b0ab1c01119a6c03a97fe92a7fc3a65e6a8daef",
+        "blobSha": "751d2e51b335520c0509f3758058967a2c767fef",
         "assertion": "CommandNotFound returns HTTP 404 with code command_not_found"
       }
     ]
