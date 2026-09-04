@@ -11,6 +11,7 @@ readonly PYTHON_BIN=/usr/bin/python3
 readonly MTLS_CLIENT_CERT="${CADDY_PRODUCTION_MTLS_CLIENT_CERT:-}"
 readonly MTLS_CLIENT_KEY="${CADDY_PRODUCTION_MTLS_CLIENT_KEY:-}"
 readonly MTLS_CA_CERT="${CADDY_PRODUCTION_MTLS_CA_CERT:-}"
+readonly CANARY_MODE="${CADDY_PRODUCTION_CANARY_MODE:-post-activation}"
 
 fail() {
   printf 'CADDY_PRODUCTION_CANARY=FAIL:%s\n' "$1" >&2
@@ -18,6 +19,10 @@ fail() {
 }
 
 [[ $# -eq 0 ]] || fail arguments_not_allowed
+case "$CANARY_MODE" in
+  post-activation|rollback) ;;
+  *) fail invalid_canary_mode ;;
+esac
 [[ -x "$VALIDATOR" && ! -L "$VALIDATOR" ]] || fail validator_unavailable
 [[ -x "$FULL_CANARY" && ! -L "$FULL_CANARY" ]] || fail full_canary_unavailable
 [[ -z "$(git -C "$ROOT" status --porcelain)" ]] || fail dirty_worktree
@@ -71,8 +76,8 @@ for prefix, suffix in requirements:
     )
 PY
 
-# Read back the exact immutable tuple and public bind from the newly running
-# container without printing protected environment values.
+# Read back the exact immutable tuple and public bind from the running container
+# without printing protected environment values.
 actual_image="$("$DOCKER_BIN" inspect --format '{{.Config.Image}}' codestra-caddy)"
 actual_source="$("$DOCKER_BIN" inspect --format '{{index .Config.Labels "io.codestra.caddy.source.sha"}}' codestra-caddy)"
 actual_config="$("$DOCKER_BIN" inspect --format '{{index .Config.Labels "io.codestra.caddy.config.sha256"}}' codestra-caddy)"
@@ -85,13 +90,13 @@ public_bind="$("$DOCKER_BIN" inspect --format '{{range .Config.Env}}{{println .}
 http3_output="$("$DOCKER_BIN" exec codestra-caddy /usr/bin/codestra-http3-probe api.codestra.co "$public_bind" /api/v1/health)"
 grep -q '^CADDY_HTTP3_CANARY=PASS ' <<<"$http3_output" || fail http3
 
-# Re-run the complete fixed-target production suite only after the replacement
-# container is healthy. Any failure propagates to run-immutable-runtime.sh,
-# which invokes the signed rollback path.
+# Re-run the complete fixed-target production suite after replacement or
+# restoration. Rollback mode validates the restored signed image independently
+# of the still-candidate repository checkout.
 set +e
 (
   cd "$work"
-  export CADDY_PRODUCTION_CANARY_MODE=post-activation
+  export CADDY_PRODUCTION_CANARY_MODE="$CANARY_MODE"
   export CADDY_CANARY_IMAGE="$actual_image"
   export CADDY_CANARY_SOURCE_SHA="$actual_source"
   export CADDY_CANARY_CONFIG_SHA256="$actual_config"
@@ -99,21 +104,22 @@ set +e
   export CADDY_PRODUCTION_MTLS_CLIENT_KEY="$MTLS_CLIENT_KEY"
   export CADDY_PRODUCTION_MTLS_CA_CERT="$MTLS_CA_CERT"
   "$FULL_CANARY"
-) >"$work/post-activation-canary.txt" 2>&1
+) >"$work/full-canary.txt" 2>&1
 full_canary_status=$?
 set -e
-cat "$work/post-activation-canary.txt"
-[[ "$full_canary_status" -eq 0 ]] || fail post_activation_full_canary
+cat "$work/full-canary.txt"
+[[ "$full_canary_status" -eq 0 ]] || fail "${CANARY_MODE}_full_canary"
 
 for file in \
   production-canary-evidence.json \
   pre-canary-runtime.json \
   post-canary-runtime.json; do
-  [[ -s "$work/$file" && ! -L "$work/$file" ]] || fail "post_activation_evidence_missing:$file"
+  [[ -s "$work/$file" && ! -L "$work/$file" ]] || fail "full_canary_evidence_missing:$file"
 done
 
 "$PYTHON_BIN" - \
   "$work/production-canary-evidence.json" \
+  "$CANARY_MODE" \
   "$actual_source" \
   "$actual_image" \
   "$actual_config" <<'PY'
@@ -121,18 +127,26 @@ import json
 import sys
 from pathlib import Path
 
-path, source_sha, image, config_sha256 = sys.argv[1:]
+path, mode, source_sha, image, config_sha256 = sys.argv[1:]
 value = json.loads(Path(path).read_text(encoding="utf-8"))
+post_activation = mode == "post-activation"
+rollback = mode == "rollback"
 assert value["schema"] == "codestra.caddy.production-readonly-canary.v2"
-assert value["canary_mode"] == "post-activation"
+assert value["canary_mode"] == mode
 assert value["candidate_source_sha"] == source_sha
 assert value["candidate_image"] == image
 assert value["candidate_config_sha256"] == config_sha256
+assert value["expected_source_sha"] == source_sha
+assert value["expected_image"] == image
+assert value["expected_config_sha256"] == config_sha256
+assert value["expected_image_config_sha256"] == config_sha256
 assert value["live_source_sha"] == source_sha
 assert value["live_image_digest"] == image.rsplit("@", 1)[1]
 assert value["live_config_sha256"] == config_sha256
-assert value["live_runtime_is_candidate"] is True
-assert value["candidate_started_on_production"] is True
+assert value["live_runtime_is_expected_tuple"] is True
+assert value["live_runtime_is_candidate"] is post_activation
+assert value["rollback_validation"] is rollback
+assert value["candidate_started_on_production"] is post_activation
 assert value["live_runtime_unchanged"] is True
 assert value["live_mtls_server_certificate_verified"] is True
 assert value["live_mtls_handshake_and_denial"] == "PASS"
@@ -141,35 +155,48 @@ assert value["public_traffic_changed"] is False
 assert value["result"] == "PASS"
 PY
 
-post_activation_sha256="$(sha256sum "$work/production-canary-evidence.json" | awk '{print $1}')"
-"$PYTHON_BIN" - "$temporary" "$post_activation_sha256" <<'PY'
+full_canary_sha256="$(sha256sum "$work/production-canary-evidence.json" | awk '{print $1}')"
+if [[ "$CANARY_MODE" == post-activation ]]; then
+  evidence_prefix=post-activation
+else
+  evidence_prefix=rollback
+fi
+install -m 0600 "$work/production-canary-evidence.json" "${evidence_prefix}-canary-evidence.json"
+install -m 0600 "$work/pre-canary-runtime.json" "${evidence_prefix}-canary-runtime-before.json"
+install -m 0600 "$work/post-canary-runtime.json" "${evidence_prefix}-canary-runtime-after.json"
+install -m 0600 "$work/full-canary.txt" "${evidence_prefix}-canary.txt"
+
+"$PYTHON_BIN" - "$temporary" "$CANARY_MODE" "$full_canary_sha256" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+mode, evidence_sha256 = sys.argv[2:]
 data = json.loads(path.read_text(encoding="utf-8"))
 data["http3_canary"] = "PASS"
 data["http3_host"] = "api.codestra.co"
-data["full_post_activation_canary"] = "PASS"
-data["post_activation_canary_sha256"] = sys.argv[2]
+data["full_fixed_target_canary"] = "PASS"
+data["production_canary_mode"] = mode
+data["full_canary_evidence_sha256"] = evidence_sha256
+data["full_post_activation_canary"] = (
+    "PASS" if mode == "post-activation" else "NOT_APPLICABLE"
+)
+data["rollback_fixed_target_canary"] = (
+    "PASS" if mode == "rollback" else "NOT_APPLICABLE"
+)
 path.write_text(
     json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n",
     encoding="utf-8",
 )
 PY
 
-install -m 0600 "$work/production-canary-evidence.json" post-activation-canary-evidence.json
-install -m 0600 "$work/pre-canary-runtime.json" post-activation-runtime-before.json
-install -m 0600 "$work/post-canary-runtime.json" post-activation-runtime-after.json
-install -m 0600 "$work/post-activation-canary.txt" post-activation-canary.txt
-
 as_root install -d -m 0700 "$EVIDENCE_DIR"
-final="$EVIDENCE_DIR/caddy-production-canary-$stamp.json"
+final="$EVIDENCE_DIR/caddy-production-${CANARY_MODE}-canary-$stamp.json"
 as_root install -m 0600 "$temporary" "$final"
 rm -f -- "$temporary"
 trap 'rm -rf -- "$work"' EXIT
 
 printf '%s\n' "$http3_output"
-printf 'CADDY_PRODUCTION_CANARY=PASS\nEVIDENCE=%s\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nPOST_ACTIVATION_CANARY_SHA256=%s\nLISTENER_OWNERSHIP=CADDY_PROCESS_ONLY\nEFFECTIVE_LOG_REDACTION=PASS\nHTTP3=PASS\nFULL_POST_ACTIVATION_CANARY=PASS\n' \
-  "$final" "$actual_source" "$actual_image" "$actual_config" "$post_activation_sha256"
+printf 'CADDY_PRODUCTION_CANARY=PASS\nCADDY_PRODUCTION_CANARY_MODE=%s\nEVIDENCE=%s\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nFULL_CANARY_SHA256=%s\nLISTENER_OWNERSHIP=CADDY_PROCESS_ONLY\nEFFECTIVE_LOG_REDACTION=PASS\nHTTP3=PASS\nFULL_FIXED_TARGET_CANARY=PASS\n' \
+  "$CANARY_MODE" "$final" "$actual_source" "$actual_image" "$actual_config" "$full_canary_sha256"
