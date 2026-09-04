@@ -5,6 +5,7 @@ readonly CADDY_VALIDATOR_IMAGE='docker.io/library/caddy@sha256:ae4458638da8e1a91
 cd "$ROOT"
 python3 -m compileall -q scripts tests
 python3 scripts/test_caddy_kong_contract.py
+python3 scripts/validate_cross_repository_route_contract.py
 python3 scripts/validate_repository.py
 python3 scripts/validate_complete_redaction.py
 python3 scripts/validate_community_n8n.py
