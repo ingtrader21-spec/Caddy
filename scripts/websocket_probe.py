@@ -121,6 +121,7 @@ def certify_caddy_kong_middleware(*, ip: str, port: int) -> None:
 
     try:
         source_contract = json.loads(MIDDLEWARE_EVIDENCE.read_text(encoding="utf-8"))
+        identity_contract = source_contract["keycloak"]
         expected_middleware_sha = source_contract["middleware"]["protectedMainSha"]
         proof = source_contract["runtimeProofContract"]
     except (OSError, KeyError, TypeError, json.JSONDecodeError):
@@ -129,12 +130,31 @@ def certify_caddy_kong_middleware(*, ip: str, port: int) -> None:
         r"[0-9a-f]{40}", expected_middleware_sha
     ):
         fail("middleware_source_sha")
+    if not isinstance(identity_contract, dict):
+        fail("keycloak_source_contract")
+    identity_host = identity_contract.get("stagingHost")
+    expected_issuer = identity_contract.get("stagingIssuer")
+    client_id = identity_contract.get("clientId")
+    expected_audience = identity_contract.get("audience")
+    maximum_lifetime = identity_contract.get("maximumAccessTokenLifetimeSeconds")
+    required_scopes = set(identity_contract.get("requiredScopes") or [])
+    if (
+        identity_host != "auth-staging.codestra.co"
+        or expected_issuer != "https://auth-staging.codestra.co/realms/codestra"
+        or client_id != "n8n-automation"
+        or expected_audience != "middleware-api"
+        or maximum_lifetime != 300
+        or "middleware.status.read" not in required_scopes
+    ):
+        fail("keycloak_source_contract")
     expected_path = proof.get("path") if isinstance(proof, dict) else None
     expected_status = proof.get("expectedAuthenticatedStatus") if isinstance(proof, dict) else None
     expected_error = proof.get("expectedErrorCode") if isinstance(proof, dict) else None
     if (
         not isinstance(expected_path, str)
         or not expected_path.startswith("/v1/integrations/n8n/operations/")
+        or proof.get("identityEnvironment") != "staging"
+        or proof.get("expectedIssuer") != expected_issuer
         or expected_status != 404
         or expected_error != "command_not_found"
     ):
@@ -156,16 +176,16 @@ def certify_caddy_kong_middleware(*, ip: str, port: int) -> None:
                 "--write-out",
                 "%{http_code}",
                 "--resolve",
-                f"auth.codestra.co:{port}:{ip}",
+                f"{identity_host}:{port}:{ip}",
                 "--header",
                 "Content-Type: application/x-www-form-urlencoded",
                 "--data-urlencode",
                 "grant_type=client_credentials",
                 "--data-urlencode",
-                "client_id=n8n-automation",
+                f"client_id={client_id}",
                 "--data-urlencode",
                 f"client_secret@{secret_path}",
-                f"https://auth.codestra.co:{port}/realms/codestra/protocol/openid-connect/token",
+                f"https://{identity_host}:{port}/realms/codestra/protocol/openid-connect/token",
             ]
         )
         if token_result.stdout.strip() != "200":
@@ -194,14 +214,14 @@ def certify_caddy_kong_middleware(*, ip: str, port: int) -> None:
         scopes = set(str(claims.get("scope", "")).split())
         tenant = claims.get("tenant_id")
         if (
-            claims.get("iss") != "https://auth.codestra.co/realms/codestra"
-            or claims.get("azp") != "n8n-automation"
-            or "middleware-api" not in audiences
+            claims.get("iss") != expected_issuer
+            or claims.get("azp") != client_id
+            or expected_audience not in audiences
             or "middleware.status.read" not in scopes
             or not isinstance(issued_at, int)
             or not isinstance(expires_at, int)
             or not issued_at <= now < expires_at
-            or not 1 <= expires_at - issued_at <= 300
+            or not 1 <= expires_at - issued_at <= maximum_lifetime
             or not isinstance(tenant, str)
             or not TENANT_RE.fullmatch(tenant)
         ):
@@ -291,10 +311,13 @@ def certify_caddy_kong_middleware(*, ip: str, port: int) -> None:
             "caddy_image": os.environ.get("CADDY_STAGING_IMAGE"),
             "caddy_config_sha256": os.environ.get("CADDY_STAGING_CONFIG_SHA256"),
             "keycloak": {
+                "source_sha": identity_contract.get("protectedMainSha"),
+                "environment": "staging",
                 "issuer": claims.get("iss"),
                 "client_id": claims.get("azp"),
                 "audience": sorted(audiences),
                 "scope_verified": "middleware.status.read",
+                "tenant_claim_present": True,
                 "token_lifetime_seconds": expires_at - issued_at,
             },
             "route": {
@@ -332,8 +355,6 @@ if len(sys.argv) == 5:
     except ValueError as exc:
         raise SystemExit("WEBSOCKET_CANARY=FAIL:invalid_port") from exc
 else:
-    # The bounded staging runtime maps its isolated HTTPS listener to the
-    # host-loopback port 18443. Other callers retain canonical port 443.
     port = 443
     if ip == "127.0.0.1":
         with socket.socket() as probe_socket:
@@ -366,9 +387,6 @@ if not response.startswith("HTTP/1.1 101"):
     )
 print("WEBSOCKET_CANARY=PASS")
 
-# The exact-head hosted canary builds this probe and uses the canonical port;
-# bounded staging and production jobs make their own signed-image HTTP/3
-# request, so absence here is not treated as a protocol success or failure.
 probe = ROOT / "build" / "codestra-http3-probe"
 if port == 443 and probe.is_file():
     result = subprocess.run(
