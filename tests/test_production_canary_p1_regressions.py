@@ -45,14 +45,16 @@ class ProductionCanaryP1RegressionTests(unittest.TestCase):
 
     def test_authenticated_mtls_probe_verifies_the_server_certificate(self) -> None:
         with_cert = self.command_assignment("with_cert")
-        self.assertNotIn("-k", with_cert)
+        self.assertNotIn(" -k", with_cert)
+        self.assertNotIn("-ksS", with_cert)
         self.assertIn('--cacert "$MTLS_CA_CERT"', with_cert)
         self.assertIn('--cert "$MTLS_CLIENT_CERT"', with_cert)
         self.assertIn('--key "$MTLS_CLIENT_KEY"', with_cert)
 
     def test_no_client_certificate_probe_still_verifies_the_server(self) -> None:
         without_cert = self.command_assignment("without_cert")
-        self.assertNotIn("-k", without_cert)
+        self.assertNotIn(" -k", without_cert)
+        self.assertNotIn("-ksS", without_cert)
         self.assertIn('--cacert "$MTLS_CA_CERT"', without_cert)
         self.assertNotIn('--cert "$MTLS_CLIENT_CERT"', without_cert)
 
