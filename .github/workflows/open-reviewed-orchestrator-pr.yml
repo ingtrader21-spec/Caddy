@@ -1,0 +1,53 @@
+name: Open independently authored orchestrator PR
+
+on:
+  push:
+    branches:
+      - automation/open-orchestrator-pr-20260904
+    paths:
+      - .github/workflows/open-reviewed-orchestrator-pr.yml
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  open-pr:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Create exact reviewed pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: feat/manual-one-click-production-orchestrator-20260903
+        run: |
+          set -Eeuo pipefail
+          test -z "$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$HEAD_BRANCH" --base development --state open --json number --jq '.[].number')"
+          cat > /tmp/body.md <<'BODY'
+          ## Purpose
+
+          Add one manual GitHub Actions button that coordinates the existing immutable release and bounded runtime certification authorities without duplicating or weakening them.
+
+          ## Exact workflow
+
+          The controller freezes the protected production SHA, verifies protected branch, staging, configuration and unified-Compose authority, runs exact CI, adopts or reruns the existing signed release, verifies digest/signature/SBOM/provenance/scan/rollback evidence, then adopts or reruns bounded staging followed by the protected production read-only canary. It publishes a machine-readable PASS or fails closed.
+
+          ## Safety boundary
+
+          - No force pushes or direct protected-branch updates.
+          - No second Compose or release implementation.
+          - No direct live Caddy start, stop, reload or replacement.
+          - No DNS, firewall, SSH, certificate, route-weight, public-traffic, credential or unrelated-workload change.
+          - Missing runner, environment, exact run, artifact, signature, attestation, digest, staging evidence, rollback proof or unchanged-runtime snapshot is a NO_GO.
+
+          ## Exact reviewed head
+
+          `64e9d797917f731d2a44266ceb25a9051672fc54`
+          BODY
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/branches/$HEAD_BRANCH" --jq '.commit.sha')" = 64e9d797917f731d2a44266ceb25a9051672fc54
+          gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base development \
+            --head "$HEAD_BRANCH" \
+            --title 'ci: add manual one-click production orchestrator' \
+            --body-file /tmp/body.md
