@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import base64
+import secrets
 import socket
 import ssl
 import subprocess
@@ -27,6 +29,7 @@ else:
 if not 1 <= port <= 65535:
     raise SystemExit("WEBSOCKET_CANARY=FAIL:invalid_port")
 
+websocket_key = base64.b64encode(secrets.token_bytes(16)).decode("ascii")
 context = ssl.create_default_context()
 context.check_hostname = False
 context.verify_mode = ssl.CERT_NONE
@@ -39,7 +42,7 @@ with socket.create_connection((ip, port), timeout=10) as raw:
                 "Upgrade: websocket\r\n"
                 "Connection: Upgrade\r\n"
                 "Sec-WebSocket-Version: 13\r\n"
-                "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+                f"Sec-WebSocket-Key: {websocket_key}\r\n\r\n"
             ).encode()
         )
         response = connection.recv(4096).decode("latin-1")
