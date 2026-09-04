@@ -246,7 +246,7 @@ readonly_receipt_sha256="$(sha256sum "$READONLY_RECEIPT" | awk '{print $1}')"
   --arg release "$RELEASE_EVIDENCE_SHA256" \
   --arg staging "$STAGING_EVIDENCE_SHA256" \
   --arg rollback "$ROLLBACK_REHEARSAL_SHA256" '
-    .schema == "codestra.caddy.manual-production-orchestrator-receipt.v1" and
+    .schema == "codestra.caddy.manual-production-orchestrator-receipt.v2" and
     .source_sha == $source and .image == $image and .image_digest == $digest and
     .config_sha256 == $config and .release_evidence_sha256 == $release and
     .staging_evidence_sha256 == $staging and .rollback_evidence_sha256 == $rollback and
