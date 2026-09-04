@@ -1,15 +1,38 @@
 name: Caddy bounded runtime certification
 
 on:
-  push:
-    branches: [production]
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Exact protected production source SHA
+        required: true
+        type: string
+      image:
+        description: Exact immutable GHCR image reference
+        required: true
+        type: string
+      image_digest:
+        description: Exact OCI image digest
+        required: true
+        type: string
+      config_sha256:
+        description: Exact canonical configuration digest
+        required: true
+        type: string
+    outputs:
+      staging_evidence_sha256:
+        description: SHA-256 of bounded staging runtime evidence
+        value: ${{ jobs.bounded-staging-runtime.outputs.staging_evidence_sha256 }}
+      production_canary_evidence_sha256:
+        description: SHA-256 of production read-only canary evidence
+        value: ${{ jobs.production-readonly-canary.outputs.production_canary_evidence_sha256 }}
 
 permissions:
   contents: read
   packages: read
 
 concurrency:
-  group: caddy-bounded-runtime-${{ github.sha }}
+  group: caddy-bounded-runtime-${{ inputs.source_sha }}
   cancel-in-progress: false
 
 jobs:
@@ -19,13 +42,12 @@ jobs:
     environment: staging-readonly
     timeout-minutes: 90
     outputs:
-      image: ${{ steps.candidate.outputs.image }}
-      image_digest: ${{ steps.candidate.outputs.image_digest }}
-      config_sha256: ${{ steps.candidate.outputs.config_sha256 }}
-      source_sha: ${{ steps.candidate.outputs.source_sha }}
       staging_evidence_sha256: ${{ steps.staging_evidence.outputs.sha256 }}
     env:
-      SOURCE_SHA: ${{ github.sha }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      CANDIDATE_IMAGE: ${{ inputs.image }}
+      CANDIDATE_IMAGE_DIGEST: ${{ inputs.image_digest }}
+      CANDIDATE_CONFIG_SHA256: ${{ inputs.config_sha256 }}
       CADDY_STAGING_ENV_FILE: ${{ vars.CADDY_STAGING_ENV_FILE }}
       CADDY_STAGING_DATA_SOURCE: ${{ vars.CADDY_STAGING_DATA_SOURCE }}
       CADDY_STAGING_MTLS_CLIENT_CERT: ${{ vars.CADDY_STAGING_MTLS_CLIENT_CERT }}
@@ -38,9 +60,13 @@ jobs:
           echo CADDY_STAGING_RUNNER_LABEL=codestra-staging
           echo CADDY_STAGING_ENVIRONMENT=staging-readonly
 
-      - name: Require bounded staging paths
+      - name: Require the exact release tuple and bounded staging paths
         run: |
           set -Eeuo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$CANDIDATE_CONFIG_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test "$CANDIDATE_IMAGE" = "ghcr.io/${GITHUB_REPOSITORY_OWNER}/codestra-caddy@${CANDIDATE_IMAGE_DIGEST}"
           for value in \
             "$CADDY_STAGING_ENV_FILE" \
             "$CADDY_STAGING_DATA_SOURCE" \
@@ -63,8 +89,10 @@ jobs:
           set -Eeuo pipefail
           test "$GITHUB_REF" = refs/heads/production
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
           git fetch origin production --depth=1
           test "$(git rev-parse origin/production)" = "$SOURCE_SHA"
+          test "$(python3 scripts/hash_config_tree.py config)" = "$CANDIDATE_CONFIG_SHA256"
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
@@ -76,56 +104,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - id: candidate
-        name: Wait for and verify the signed immutable production candidate
+      - name: Verify the signed immutable production candidate
         run: |
           set -Eeuo pipefail
-          tag="ghcr.io/${GITHUB_REPOSITORY_OWNER}/codestra-caddy:${SOURCE_SHA}"
-          image=''
-          for attempt in $(seq 1 120); do
-            if docker pull "$tag" >/dev/null 2>&1; then
-              image="$(docker image inspect "$tag" --format '{{range .RepoDigests}}{{println .}}{{end}}' \
-                | grep -E "^ghcr\.io/${GITHUB_REPOSITORY_OWNER}/codestra-caddy@sha256:[0-9a-f]{64}$" \
-                | head -n1 || true)"
-              if [[ -n "$image" ]] \
-                && cosign verify \
-                  --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
-                  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-                  "$image" >/dev/null 2>&1 \
-                && cosign verify-attestation \
-                  --type https://codestra.co/attestations/caddy-source/v2 \
-                  --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
-                  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-                  "$image" > verified-staging-attestation.json 2>/dev/null; then
-                break
-              fi
-            fi
-            image=''
-            if [[ "$attempt" -eq 120 ]]; then
-              echo CADDY_SIGNED_CANDIDATE=FAIL:release_unavailable >&2
-              exit 2
-            fi
-            sleep 30
-          done
-
-          config_sha256="$(python3 scripts/hash_config_tree.py config)"
-          image_digest="${image##*@}"
-          [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-          test "$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.source"}}')" = \
+          docker pull "$CANDIDATE_IMAGE" >/dev/null
+          identity='^https://github.com/appolon1908-hue/Caddy/.github/workflows/(immutable-release|manual-production-orchestrator)\.yml@refs/heads/production$'
+          cosign verify \
+            --certificate-identity-regexp "$identity" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "$CANDIDATE_IMAGE" >/dev/null
+          cosign verify-attestation \
+            --type https://codestra.co/attestations/caddy-source/v2 \
+            --certificate-identity-regexp "$identity" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "$CANDIDATE_IMAGE" > verified-staging-attestation.json
+          test "$(docker image inspect "$CANDIDATE_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.source"}}')" = \
             "https://github.com/${GITHUB_REPOSITORY}"
-          test "$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
-          test "$(docker image inspect "$image" --format '{{index .Config.Labels "io.codestra.caddy.config.sha256"}}')" = "$config_sha256"
-          test "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532:65532
-
-          printf 'source_sha=%s\nimage=%s\nimage_digest=%s\nconfig_sha256=%s\n' \
-            "$SOURCE_SHA" "$image" "$image_digest" "$config_sha256" >> "$GITHUB_OUTPUT"
+          test "$(docker image inspect "$CANDIDATE_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
+          test "$(docker image inspect "$CANDIDATE_IMAGE" --format '{{index .Config.Labels "io.codestra.caddy.config.sha256"}}')" = "$CANDIDATE_CONFIG_SHA256"
+          test "$(docker image inspect "$CANDIDATE_IMAGE" --format '{{.Config.User}}')" = 65532:65532
           echo CADDY_SIGNED_CANDIDATE=PASS
 
       - name: Deploy and certify exact digest on the bounded staging runtime
         env:
-          CADDY_STAGING_IMAGE: ${{ steps.candidate.outputs.image }}
-          CADDY_STAGING_SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
-          CADDY_STAGING_CONFIG_SHA256: ${{ steps.candidate.outputs.config_sha256 }}
+          CADDY_STAGING_IMAGE: ${{ env.CANDIDATE_IMAGE }}
+          CADDY_STAGING_SOURCE_SHA: ${{ env.SOURCE_SHA }}
+          CADDY_STAGING_CONFIG_SHA256: ${{ env.CANDIDATE_CONFIG_SHA256 }}
         run: |
           set -o pipefail
           bash scripts/bounded-staging-runtime-v2.sh | tee bounded-staging-runtime.txt
@@ -135,12 +139,29 @@ jobs:
         run: |
           set -Eeuo pipefail
           test -s bounded-staging-runtime-evidence.json
+          python3 - "$SOURCE_SHA" "$CANDIDATE_IMAGE" "$CANDIDATE_CONFIG_SHA256" <<'PY'
+          import json, sys
+          from pathlib import Path
+          source, image, config = sys.argv[1:]
+          value = json.loads(Path('bounded-staging-runtime-evidence.json').read_text(encoding='utf-8'))
+          assert value['schema'] == 'codestra.caddy.bounded-staging-runtime.v2'
+          assert value['source_sha'] == source
+          assert value['image'] == image
+          assert value['config_sha256'] == config
+          assert value['runtime_config_sha256'] == config
+          assert value['result'] == 'PASS'
+          assert value['candidate_removed'] is True
+          assert value['public_traffic_changed'] is False
+          assert value['dns_changed'] is False
+          assert value['firewall_changed'] is False
+          assert value['ssh_changed'] is False
+          PY
           echo "sha256=$(sha256sum bounded-staging-runtime-evidence.json | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Upload bounded staging runtime evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: caddy-bounded-staging-runtime-${{ steps.candidate.outputs.source_sha }}
+          name: caddy-bounded-staging-runtime-${{ env.SOURCE_SHA }}
           path: |
             bounded-staging-runtime-evidence.json
             bounded-staging-runtime.txt
@@ -153,11 +174,13 @@ jobs:
     runs-on: [self-hosted, codestra-production-canary]
     environment: production-readonly-canary
     timeout-minutes: 45
+    outputs:
+      production_canary_evidence_sha256: ${{ steps.production_evidence.outputs.sha256 }}
     env:
-      CADDY_CANARY_SOURCE_SHA: ${{ needs.bounded-staging-runtime.outputs.source_sha }}
-      CADDY_CANARY_IMAGE: ${{ needs.bounded-staging-runtime.outputs.image }}
-      CADDY_CANARY_IMAGE_DIGEST: ${{ needs.bounded-staging-runtime.outputs.image_digest }}
-      CADDY_CANARY_CONFIG_SHA256: ${{ needs.bounded-staging-runtime.outputs.config_sha256 }}
+      CADDY_CANARY_SOURCE_SHA: ${{ inputs.source_sha }}
+      CADDY_CANARY_IMAGE: ${{ inputs.image }}
+      CADDY_CANARY_IMAGE_DIGEST: ${{ inputs.image_digest }}
+      CADDY_CANARY_CONFIG_SHA256: ${{ inputs.config_sha256 }}
       CADDY_STAGING_EVIDENCE_SHA256: ${{ needs.bounded-staging-runtime.outputs.staging_evidence_sha256 }}
       CADDY_PRODUCTION_MTLS_CLIENT_CERT: ${{ vars.CADDY_PRODUCTION_MTLS_CLIENT_CERT }}
       CADDY_PRODUCTION_MTLS_CLIENT_KEY: ${{ vars.CADDY_PRODUCTION_MTLS_CLIENT_KEY }}
@@ -169,10 +192,14 @@ jobs:
           echo CADDY_PRODUCTION_RUNNER_LABEL=codestra-production-canary
           echo CADDY_PRODUCTION_ENVIRONMENT=production-readonly-canary
 
-      - name: Require production read-only probe paths
+      - name: Require the same exact tuple and read-only probe paths
         run: |
           set -Eeuo pipefail
+          [[ "$CADDY_CANARY_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CADDY_CANARY_IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$CADDY_CANARY_CONFIG_SHA256" =~ ^[0-9a-f]{64}$ ]]
           [[ "$CADDY_STAGING_EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test "$CADDY_CANARY_IMAGE" = "ghcr.io/${GITHUB_REPOSITORY_OWNER}/codestra-caddy@${CADDY_CANARY_IMAGE_DIGEST}"
           for value in \
             "$CADDY_PRODUCTION_MTLS_CLIENT_CERT" \
             "$CADDY_PRODUCTION_MTLS_CLIENT_KEY" \
@@ -191,12 +218,12 @@ jobs:
       - name: Prove the same immutable source and configuration
         run: |
           set -Eeuo pipefail
+          test "$GITHUB_REF" = refs/heads/production
           test "$(git rev-parse HEAD)" = "$CADDY_CANARY_SOURCE_SHA"
+          test -z "$(git status --porcelain)"
           git fetch origin production --depth=1
           test "$(git rev-parse origin/production)" = "$CADDY_CANARY_SOURCE_SHA"
           test "$(python3 scripts/hash_config_tree.py config)" = "$CADDY_CANARY_CONFIG_SHA256"
-          test "$CADDY_CANARY_IMAGE" = \
-            "ghcr.io/${GITHUB_REPOSITORY_OWNER}/codestra-caddy@${CADDY_CANARY_IMAGE_DIGEST}"
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
@@ -211,15 +238,19 @@ jobs:
       - name: Verify the same signature and source attestation
         run: |
           set -Eeuo pipefail
+          docker pull "$CADDY_CANARY_IMAGE" >/dev/null
+          identity='^https://github.com/appolon1908-hue/Caddy/.github/workflows/(immutable-release|manual-production-orchestrator)\.yml@refs/heads/production$'
           cosign verify \
-            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
+            --certificate-identity-regexp "$identity" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "$CADDY_CANARY_IMAGE" >/dev/null
           cosign verify-attestation \
             --type https://codestra.co/attestations/caddy-source/v2 \
-            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
+            --certificate-identity-regexp "$identity" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "$CADDY_CANARY_IMAGE" > verified-production-attestation.json
+          test "$(docker image inspect "$CADDY_CANARY_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$CADDY_CANARY_SOURCE_SHA"
+          test "$(docker image inspect "$CADDY_CANARY_IMAGE" --format '{{index .Config.Labels "io.codestra.caddy.config.sha256"}}')" = "$CADDY_CANARY_CONFIG_SHA256"
 
       - name: Run bounded production read-only canary
         run: |
@@ -228,6 +259,33 @@ jobs:
 
       - name: Record the exact staging evidence identity
         run: printf 'STAGING_EVIDENCE_SHA256=%s\n' "$CADDY_STAGING_EVIDENCE_SHA256" > staging-evidence-identity.txt
+
+      - id: production_evidence
+        name: Bind production canary evidence to the same tuple
+        run: |
+          set -Eeuo pipefail
+          test -s production-canary-evidence.json
+          python3 - "$CADDY_CANARY_SOURCE_SHA" "$CADDY_CANARY_IMAGE" "$CADDY_CANARY_CONFIG_SHA256" <<'PY'
+          import json, sys
+          from pathlib import Path
+          source, image, config = sys.argv[1:]
+          value = json.loads(Path('production-canary-evidence.json').read_text(encoding='utf-8'))
+          assert value['schema'] == 'codestra.caddy.production-readonly-canary.v2'
+          assert value['candidate_source_sha'] == source
+          assert value['candidate_image'] == image
+          assert value['candidate_config_sha256'] == config
+          assert value['bounded_staging_runtime'] == 'PASS'
+          assert value['candidate_signature_and_attestation'] == 'PASS'
+          assert value['live_runtime_unchanged'] is True
+          assert value['write_requests_sent'] is False
+          assert value['candidate_started_on_production'] is False
+          assert value['public_traffic_changed'] is False
+          assert value['dns_changed'] is False
+          assert value['firewall_changed'] is False
+          assert value['ssh_changed'] is False
+          assert value['result'] == 'PASS'
+          PY
+          echo "sha256=$(sha256sum production-canary-evidence.json | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Upload production read-only evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
