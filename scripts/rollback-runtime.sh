@@ -7,11 +7,18 @@ COMPOSE="$ROOT/deploy/compose.runtime.yaml"
 DEFAULT_BASELINE="$ROOT/config/release-baseline.v1.json"
 BASELINE="${CADDY_ROLLBACK_BASELINE_FILE:-$DEFAULT_BASELINE}"
 ROLLBACK_EVIDENCE_FILE="${CADDY_ROLLBACK_EVIDENCE_FILE:-}"
+CANARY_PACKET_DIR="$ROOT/activation-evidence"
+ATTESTATION_VERIFIER="$ROOT/scripts/verify-image-attestation.py"
 DOCKER_BIN=/usr/bin/docker
 COSIGN_BIN=/usr/local/bin/cosign
 PYTHON_BIN=/usr/bin/python3
+MTLS_CLIENT_CERT="${CADDY_PRODUCTION_MTLS_CLIENT_CERT:-}"
+MTLS_CLIENT_KEY="${CADDY_PRODUCTION_MTLS_CLIENT_KEY:-}"
+MTLS_CA_CERT="${CADDY_PRODUCTION_MTLS_CA_CERT:-}"
 CERTIFICATE_IDENTITY_REGEXP='^https://github.com/appolon1908-hue/Caddy/.github/workflows/immutable-release\.yml@refs/heads/production$'
 CERTIFICATE_ISSUER='https://token.actions.githubusercontent.com'
+ATTESTATION_TYPE='https://codestra.co/attestations/caddy-source/v2'
+ATTESTATION_REPOSITORY='https://github.com/appolon1908-hue/Caddy'
 
 fail() { printf 'CADDY_ROLLBACK=FAIL:%s\n' "$1" >&2; exit 2; }
 
@@ -53,18 +60,22 @@ load_environment_file() {
 }
 
 write_rollback_evidence() {
-  local canary_sha="$1" completed_at="$2" payload
+  local canary_output_sha="$1" canary_evidence_sha="$2" canary_manifest_sha="$3"
+  local attestation_sha="$4" attestation_verification_sha="$5" completed_at="$6" payload
   [[ -n "$ROLLBACK_EVIDENCE_FILE" ]] || return 0
   [[ "$ROLLBACK_EVIDENCE_FILE" =~ ^/var/lib/codestra/caddy/evidence/caddy-orchestrator-[A-Za-z0-9._-]+-rollback-result\.json$ ]] || fail rollback_evidence_path
   payload="$(mktemp)"
   "$PYTHON_BIN" - "$payload" "$baseline_schema" "$baseline_source" "$baseline_image" "$computed_config_sha" \
-    "$baseline_release_id" "$BASELINE" "$baseline_environment_sha" "$canary_sha" "$completed_at" <<'PY'
+    "$baseline_release_id" "$BASELINE" "$baseline_environment_sha" "$canary_output_sha" "$canary_evidence_sha" \
+    "$canary_manifest_sha" "$attestation_sha" "$attestation_verification_sha" "$completed_at" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 (path, schema, source, image, config, release_id, baseline_file,
- environment_sha, canary_sha, completed) = sys.argv[1:]
+ environment_sha, canary_output_sha, canary_evidence_sha,
+ canary_manifest_sha, attestation_sha, attestation_verification_sha,
+ completed) = sys.argv[1:]
 value = {
     "schema": "codestra.caddy-runtime-rollback-result.v1",
     "baseline_schema": schema,
@@ -74,7 +85,17 @@ value = {
     "release_id": release_id,
     "baseline_file": baseline_file,
     "runtime_environment_sha256": environment_sha,
-    "canary_output_sha256": canary_sha,
+    "canary_mode": "rollback",
+    "canary_output_sha256": canary_output_sha,
+    "canary_evidence_sha256": canary_evidence_sha,
+    "canary_packet_manifest_sha256": canary_manifest_sha,
+    "source_attestation_type": "https://codestra.co/attestations/caddy-source/v2",
+    "source_attestation_verified": True,
+    "source_attestation_sha256": attestation_sha,
+    "source_attestation_verification_sha256": attestation_verification_sha,
+    "attested_source_sha": source,
+    "attested_image_digest": image.rsplit("@", 1)[1],
+    "attested_config_sha256": config,
     "completed_at": completed,
     "container": "codestra-caddy",
     "container_health": "healthy",
@@ -84,6 +105,7 @@ value = {
     "config_readback": "PASS",
     "release_readback": "PASS",
     "production_canary": "PASS",
+    "restored_image_validated_independently_of_checkout": True,
     "result": "PASS",
 }
 Path(path).write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -96,6 +118,11 @@ PY
 [[ $# -eq 0 ]] || fail arguments_not_allowed
 [[ "$(id -u)" -eq 0 ]] || fail root_required
 for binary in "$DOCKER_BIN" "$COSIGN_BIN" "$PYTHON_BIN"; do trusted_executable "$binary"; done
+[[ -f "$ATTESTATION_VERIFIER" && ! -L "$ATTESTATION_VERIFIER" && -r "$ATTESTATION_VERIFIER" ]] || fail attestation_verifier
+for path in "$MTLS_CLIENT_CERT" "$MTLS_CLIENT_KEY" "$MTLS_CA_CERT"; do
+  [[ "$path" = /* && "$path" != *..* && "$path" != *//* ]] || fail protected_mtls_path
+  [[ -f "$path" && ! -L "$path" && -r "$path" ]] || fail protected_mtls_file
+done
 [[ -f "$BASELINE" && ! -L "$BASELINE" ]] || fail baseline_file
 if [[ "$BASELINE" != "$DEFAULT_BASELINE" ]]; then
   [[ "$BASELINE" =~ ^/var/lib/codestra/caddy/evidence/caddy-orchestrator-[A-Za-z0-9._-]+-rollback-baseline\.json$ ]] || fail dynamic_baseline_path
@@ -161,6 +188,21 @@ image_config_sha="$($DOCKER_BIN image inspect --format '{{index .Config.Labels "
 work="$(mktemp -d)"; probe="codestra-caddy-rollback-probe-$$"
 cleanup() { "$DOCKER_BIN" rm -f "$probe" >/dev/null 2>&1 || true; rm -rf -- "$work"; }
 trap cleanup EXIT
+verified_attestation="$work/rollback-source-attestation.verified.json"
+attestation_verification="$work/rollback-source-attestation-verification.txt"
+"$COSIGN_BIN" verify-attestation \
+  --type "$ATTESTATION_TYPE" \
+  --certificate-identity-regexp "$CERTIFICATE_IDENTITY_REGEXP" \
+  --certificate-oidc-issuer "$CERTIFICATE_ISSUER" \
+  "$baseline_image" > "$verified_attestation"
+[[ -s "$verified_attestation" ]] || fail source_attestation_missing
+"$PYTHON_BIN" "$ATTESTATION_VERIFIER" \
+  "$verified_attestation" "$baseline_digest" "$ATTESTATION_REPOSITORY" \
+  "$baseline_source" "$image_config_sha" > "$attestation_verification"
+grep -Fxq 'CADDY_SOURCE_ATTESTATION=PASS' "$attestation_verification" || fail source_attestation_binding
+[[ "$(stat -c '%u:%g:%a' -- "$verified_attestation")" == 0:0:600 ]] || fail source_attestation_permissions
+[[ "$(stat -c '%u:%g:%a' -- "$attestation_verification")" == 0:0:600 ]] || fail source_attestation_verification_permissions
+
 mkdir -p "$work/config"
 "$DOCKER_BIN" create --name "$probe" "$baseline_image" >/dev/null
 "$DOCKER_BIN" cp "$probe:/etc/caddy/." "$work/config"
@@ -184,9 +226,155 @@ final_config="$($DOCKER_BIN inspect --format '{{index .Config.Labels "io.codestr
 final_release="$($DOCKER_BIN inspect --format '{{index .Config.Labels "io.codestra.caddy.release.id"}}' codestra-caddy)"
 [[ "$final_image" == "$baseline_image" && "$final_source" == "$baseline_source" ]] || fail image_or_source_readback
 [[ "$final_config" == "$computed_config_sha" && "$final_release" == "$baseline_release_id" ]] || fail config_or_release_readback
-rollback_canary="$($ROOT/scripts/production-canary.sh)" || fail rollback_canary
-rollback_canary_sha256="$(printf '%s' "$rollback_canary" | sha256sum | awk '{print $1}')"
-write_rollback_evidence "$rollback_canary_sha256" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+rollback_canary="$(
+  CADDY_PRODUCTION_CANARY_MODE=rollback \
+  CADDY_PRODUCTION_MTLS_CLIENT_CERT="$MTLS_CLIENT_CERT" \
+  CADDY_PRODUCTION_MTLS_CLIENT_KEY="$MTLS_CLIENT_KEY" \
+  CADDY_PRODUCTION_MTLS_CA_CERT="$MTLS_CA_CERT" \
+  CADDY_ROLLBACK_ATTESTATION_FILE="$verified_attestation" \
+  CADDY_ROLLBACK_ATTESTATION_VERIFICATION_FILE="$attestation_verification" \
+  "$ROOT/scripts/production-canary.sh"
+)" || fail rollback_canary
+rollback_canary_output_file="$work/rollback-canary-output.txt"
+printf '%s\n' "$rollback_canary" > "$rollback_canary_output_file"
+rollback_evidence="$CANARY_PACKET_DIR/rollback-canary-evidence.json"
+rollback_before="$CANARY_PACKET_DIR/rollback-canary-runtime-before.json"
+rollback_after="$CANARY_PACKET_DIR/rollback-canary-runtime-after.json"
+rollback_log="$CANARY_PACKET_DIR/rollback-canary.txt"
+rollback_manifest="$CANARY_PACKET_DIR/rollback-canary.SHA256SUMS"
+rollback_attestation="$CANARY_PACKET_DIR/rollback-source-attestation.verified.json"
+rollback_attestation_verification="$CANARY_PACKET_DIR/rollback-source-attestation-verification.txt"
+for path in "$rollback_evidence" "$rollback_before" "$rollback_after" "$rollback_log" "$rollback_manifest" \
+  "$rollback_attestation" "$rollback_attestation_verification"; do
+  [[ -s "$path" && ! -L "$path" ]] || fail "rollback_canary_packet_missing:${path##*/}"
+done
+(
+  cd "$CANARY_PACKET_DIR"
+  sha256sum --check --strict rollback-canary.SHA256SUMS
+)
+"$PYTHON_BIN" - "$rollback_manifest" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+expected = {
+    "rollback-canary-evidence.json",
+    "rollback-canary-runtime-before.json",
+    "rollback-canary-runtime-after.json",
+    "rollback-canary.txt",
+    "rollback-source-attestation.verified.json",
+    "rollback-source-attestation-verification.txt",
+}
+entries = []
+for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    match = re.fullmatch(r"[0-9a-f]{64}  ([A-Za-z0-9._-]+)", line)
+    assert match, line
+    entries.append(match.group(1))
+assert len(entries) == len(expected)
+assert set(entries) == expected
+PY
+readarray -t canary_claims < <("$PYTHON_BIN" - "$rollback_canary_output_file" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+lines = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+assert lines.count("CADDY_PRODUCTION_CANARY=PASS") == 1
+required = [
+    "EVIDENCE",
+    "ARTIFACT_PACKET_MANIFEST_SHA256",
+    "ROLLBACK_SOURCE_ATTESTATION_SHA256",
+    "ROLLBACK_SOURCE_ATTESTATION_VERIFICATION_SHA256",
+    "FULL_CANARY_SHA256",
+]
+values = {}
+for key in required:
+    matches = [line.split("=", 1)[1] for line in lines if line.startswith(key + "=")]
+    assert len(matches) == 1, key
+    values[key] = matches[0]
+assert re.fullmatch(r"/var/lib/codestra/caddy/evidence/caddy-production-rollback-canary-[0-9]{8}T[0-9]{6}Z\.json", values["EVIDENCE"])
+for key in required[1:]:
+    assert re.fullmatch(r"[0-9a-f]{64}", values[key]), key
+for key in required:
+    print(values[key])
+PY
+)
+[[ ${#canary_claims[@]} -eq 5 ]] || fail rollback_canary_output_contract
+rollback_receipt="${canary_claims[0]}"
+claimed_manifest_sha256="${canary_claims[1]}"
+claimed_attestation_sha256="${canary_claims[2]}"
+claimed_attestation_verification_sha256="${canary_claims[3]}"
+claimed_full_canary_sha256="${canary_claims[4]}"
+[[ -f "$rollback_receipt" && ! -L "$rollback_receipt" ]] || fail rollback_canary_receipt
+[[ "$(stat -c '%u:%g:%a' -- "$rollback_receipt")" == 0:0:600 ]] || fail rollback_canary_receipt_permissions
+rollback_canary_evidence_sha256="$(sha256sum "$rollback_evidence" | awk '{print $1}')"
+rollback_canary_manifest_sha256="$(sha256sum "$rollback_manifest" | awk '{print $1}')"
+rollback_attestation_sha256="$(sha256sum "$rollback_attestation" | awk '{print $1}')"
+rollback_attestation_verification_sha256="$(sha256sum "$rollback_attestation_verification" | awk '{print $1}')"
+[[ "$claimed_full_canary_sha256" == "$rollback_canary_evidence_sha256" ]] || fail rollback_canary_evidence_claim
+[[ "$claimed_manifest_sha256" == "$rollback_canary_manifest_sha256" ]] || fail rollback_canary_manifest_claim
+[[ "$claimed_attestation_sha256" == "$rollback_attestation_sha256" ]] || fail rollback_attestation_claim
+[[ "$claimed_attestation_verification_sha256" == "$rollback_attestation_verification_sha256" ]] || \
+  fail rollback_attestation_verification_claim
+"$PYTHON_BIN" - "$rollback_evidence" "$rollback_receipt" "$baseline_source" "$baseline_image" \
+  "$computed_config_sha" "$rollback_canary_evidence_sha256" "$rollback_canary_manifest_sha256" \
+  "$rollback_attestation_sha256" "$rollback_attestation_verification_sha256" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+(
+    evidence_path,
+    receipt_path,
+    source,
+    image,
+    config,
+    evidence_sha,
+    manifest_sha,
+    attestation_sha,
+    attestation_verification_sha,
+) = sys.argv[1:]
+value = json.loads(Path(evidence_path).read_text(encoding="utf-8"))
+assert value["schema"] == "codestra.caddy.production-readonly-canary.v2"
+assert value["canary_mode"] == "rollback"
+assert value["expected_source_sha"] == source
+assert value["expected_image"] == image
+assert value["expected_config_sha256"] == config
+assert value["expected_image_config_sha256"] == config
+assert value["bounded_staging_runtime"] == "NOT_APPLICABLE"
+assert value["live_source_sha"] == source
+assert value["live_image_digest"] == image.rsplit("@", 1)[1]
+assert value["live_config_sha256"] == config
+assert value["live_runtime_is_expected_tuple"] is True
+assert value["live_runtime_is_candidate"] is False
+assert value["rollback_validation"] is True
+assert value["candidate_started_on_production"] is False
+assert value["live_runtime_unchanged"] is True
+assert value["live_mtls_server_certificate_verified"] is True
+assert value["write_requests_sent"] is False
+assert value["public_traffic_changed"] is False
+assert value["result"] == "PASS"
+receipt = json.loads(Path(receipt_path).read_text(encoding="utf-8"))
+assert receipt["schema"] == "codestra.caddy-container-validation.v2"
+assert receipt["production_canary_mode"] == "rollback"
+assert receipt["full_fixed_target_canary"] == "PASS"
+assert receipt["full_post_activation_canary"] == "NOT_APPLICABLE"
+assert receipt["rollback_fixed_target_canary"] == "PASS"
+assert receipt["full_canary_evidence_sha256"] == evidence_sha
+assert receipt["artifact_packet_manifest_sha256"] == manifest_sha
+assert receipt["rollback_source_attestation_sha256"] == attestation_sha
+assert receipt["rollback_source_attestation_verification_sha256"] == attestation_verification_sha
+assert receipt["source_sha"] == source
+assert receipt["image_digest"] == image.rsplit("@", 1)[1]
+assert receipt["config_sha256"] == config
+PY
+rollback_canary_output_sha256="$(sha256sum "$rollback_canary_output_file" | awk '{print $1}')"
+write_rollback_evidence "$rollback_canary_output_sha256" "$rollback_canary_evidence_sha256" \
+  "$rollback_canary_manifest_sha256" "$rollback_attestation_sha256" \
+  "$rollback_attestation_verification_sha256" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 printf '%s\n' "$rollback_canary"
-printf 'CADDY_ROLLBACK=PASS\nBASELINE_SCHEMA=%s\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nRELEASE_ID=%s\nBASELINE_FILE=%s\n' \
-  "$baseline_schema" "$baseline_source" "$baseline_image" "$computed_config_sha" "$baseline_release_id" "$BASELINE"
+printf 'CADDY_ROLLBACK=PASS\nBASELINE_SCHEMA=%s\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nRELEASE_ID=%s\nBASELINE_FILE=%s\nROLLBACK_CANARY_EVIDENCE_SHA256=%s\nROLLBACK_CANARY_MANIFEST_SHA256=%s\nROLLBACK_SOURCE_ATTESTATION_SHA256=%s\nROLLBACK_SOURCE_ATTESTATION_VERIFICATION_SHA256=%s\n' \
+  "$baseline_schema" "$baseline_source" "$baseline_image" "$computed_config_sha" "$baseline_release_id" "$BASELINE" \
+  "$rollback_canary_evidence_sha256" "$rollback_canary_manifest_sha256" \
+  "$rollback_attestation_sha256" "$rollback_attestation_verification_sha256"

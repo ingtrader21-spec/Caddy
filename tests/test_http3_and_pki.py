@@ -31,7 +31,9 @@ class Http3AndPkiTests(unittest.TestCase):
             "exec codestra-caddy /usr/bin/codestra-http3-probe",
             production,
         )
-        self.assertIn("data['http3_canary']='PASS'", production)
+        self.assertIn('data["http3_canary"] = "PASS"', production)
+        self.assertIn('data["full_fixed_target_canary"] = "PASS"', production)
+        self.assertIn("FULL_FIXED_TARGET_CANARY=PASS", production)
         self.assertIn("HTTP3=PASS", production)
 
     def test_mtls_canary_uses_the_contract_method(self):
