@@ -50,6 +50,25 @@ class ProductionCanaryP1RegressionTests(unittest.TestCase):
         ):
             self.assertIn(token, self.bounded)
 
+    def test_rollback_does_not_claim_staging_certification(self) -> None:
+        self.assertIn(
+            'bounded_staging_runtime = "NOT_APPLICABLE" if rollback_validation else "PASS"',
+            self.bounded,
+        )
+        self.assertIn(
+            '"bounded_staging_runtime": bounded_staging_runtime',
+            self.bounded,
+        )
+        self.assertIn(
+            '[[ "$MODE" == rollback ]] && bounded_staging_runtime=NOT_APPLICABLE',
+            self.bounded,
+        )
+        self.assertIn(
+            '"BOUNDED_STAGING_RUNTIME=$bounded_staging_runtime"',
+            self.bounded,
+        )
+        self.assertNotIn('"bounded_staging_runtime": "PASS"', self.bounded)
+
     def test_authenticated_mtls_probe_verifies_the_server_certificate(self) -> None:
         with_cert = self.command_assignment("with_cert")
         self.assertNotIn(" -k", with_cert)
