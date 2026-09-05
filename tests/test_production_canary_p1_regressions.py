@@ -104,6 +104,23 @@ class ProductionCanaryP1RegressionTests(unittest.TestCase):
         ):
             self.assertIn(token, self.rollback)
 
+    def test_rollback_verifies_source_attestation_before_replacement(self) -> None:
+        for token in (
+            "verify-attestation",
+            "https://codestra.co/attestations/caddy-source/v2",
+            "verify-image-attestation.py",
+            "CADDY_SOURCE_ATTESTATION=PASS",
+            "source_attestation_verified",
+            "attested_source_sha",
+            "attested_image_digest",
+            "attested_config_sha256",
+        ):
+            self.assertIn(token, self.rollback)
+        self.assertLess(
+            self.rollback.index('"$COSIGN_BIN" verify-attestation'),
+            self.rollback.index('"$DOCKER_BIN" compose -f "$COMPOSE" up'),
+        )
+
     def test_protected_activation_environment_requires_mtls_paths(self) -> None:
         for token in (
             "CADDY_PRODUCTION_MTLS_CLIENT_CERT",
@@ -149,6 +166,12 @@ class ProductionCanaryP1RegressionTests(unittest.TestCase):
             "canary_packet_manifest_sha256",
             "ROLLBACK_CANARY_MANIFEST_SHA256",
             'sha256sum --check --strict rollback-canary.SHA256SUMS',
+            "rollback-source-attestation.verified.json",
+            "rollback-source-attestation-verification.txt",
+            "source_attestation_sha256",
+            "source_attestation_verification_sha256",
+            "ROLLBACK_SOURCE_ATTESTATION_SHA256",
+            "ROLLBACK_SOURCE_ATTESTATION_VERIFICATION_SHA256",
         ):
             self.assertIn(token, self.rollback)
 
