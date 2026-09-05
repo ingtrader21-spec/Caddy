@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -42,6 +43,19 @@ class PlatformEdgeCertificationTests(unittest.TestCase):
         self.assertEqual(result["status"]["sourceContract"], "READY")
         self.assertEqual(result["status"]["runtimeCertification"], "REQUIRED")
         self.assertIs(result["status"]["productionCertified"], False)
+
+    def test_cli_reserves_certification_pass_for_runtime_evidence(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(VALIDATOR)],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertIn("CADDY_PLATFORM_EDGE_SOURCE_CONTRACT=PASS", result.stdout)
+        self.assertNotIn("CADDY_PLATFORM_EDGE_CERTIFICATION=PASS", result.stdout)
+        self.assertIn("RUNTIME_CERTIFICATION_REMAINS_REQUIRED=true", result.stdout)
+        self.assertIn("PRODUCTION_CERTIFIED=false", result.stdout)
 
     def test_contract_pins_current_deployable_config_tree_and_digest(self) -> None:
         authority = self.value["configurationAuthority"]
