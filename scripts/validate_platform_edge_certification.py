@@ -462,7 +462,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         value = validate_contract(ROOT, contract_path)
     except (ContractError, OSError, ValueError) as exc:
-        print(f"CADDY_PLATFORM_EDGE_CERTIFICATION=FAIL:{exc}", file=sys.stderr)
+        print(f"CADDY_PLATFORM_EDGE_SOURCE_CONTRACT=FAIL:{exc}", file=sys.stderr)
         return 2
 
     authority = value["configurationAuthority"]
@@ -471,7 +471,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"CADDY_CONFIG_IDENTITY_POLICY={authority['configurationIdentityPolicy']}")
     print("PLATFORM_INTEGRATION_AUTHORITY=PASS")
     print("CADDY_PRINCIPAL_CONFIGURATION_AUTHORITY=PASS")
-    print("CADDY_PLATFORM_EDGE_CERTIFICATION=PASS")
+    print("CADDY_PLATFORM_EDGE_SOURCE_CONTRACT=PASS")
     print("RUNTIME_CERTIFICATION_REMAINS_REQUIRED=true")
     print("PRODUCTION_CERTIFIED=false")
     return 0
