@@ -242,6 +242,7 @@ if pre != post:
 expected_tuple_live = mode in {"post-activation", "rollback"}
 post_activation = mode == "post-activation"
 rollback_validation = mode == "rollback"
+bounded_staging_runtime = "NOT_APPLICABLE" if rollback_validation else "PASS"
 if expected_tuple_live:
     if (
         pre["source_sha"] != source_sha
@@ -260,7 +261,7 @@ evidence = {
     "expected_config_sha256": config_sha256,
     "expected_image_config_sha256": image_config_sha256,
     "candidate_signature_and_attestation": "PASS",
-    "bounded_staging_runtime": "PASS",
+    "bounded_staging_runtime": bounded_staging_runtime,
     "candidate_offline_config_validation": "PASS",
     "live_container_validation_before": "PASS",
     "live_container_validation_after": "PASS",
@@ -302,9 +303,11 @@ PY
 candidate_started=false
 expected_tuple_live=false
 rollback_validation=false
+bounded_staging_runtime=PASS
 [[ "$MODE" == post-activation ]] && candidate_started=true
 [[ "$MODE" != pre-activation ]] && expected_tuple_live=true
 [[ "$MODE" == rollback ]] && rollback_validation=true
+[[ "$MODE" == rollback ]] && bounded_staging_runtime=NOT_APPLICABLE
 printf '%s\n' \
   'CADDY_PRODUCTION_READONLY_CANARY=PASS' \
   "CADDY_PRODUCTION_CANARY_MODE=$MODE" \
@@ -312,6 +315,7 @@ printf '%s\n' \
   "CANDIDATE_IMAGE=$IMAGE" \
   "CANDIDATE_CONFIG_SHA256=$CONFIG_SHA256" \
   "IMAGE_CONFIG_SHA256=$image_config_sha256" \
+  "BOUNDED_STAGING_RUNTIME=$bounded_staging_runtime" \
   "LIVE_RUNTIME_IS_EXPECTED_TUPLE=$expected_tuple_live" \
   "ROLLBACK_VALIDATION=$rollback_validation" \
   "LIVE_RUNTIME_UNCHANGED_SHA256=$post_sha256" \
