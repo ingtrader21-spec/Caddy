@@ -137,6 +137,7 @@ path, mode, source_sha, image, config_sha256 = sys.argv[1:]
 value = json.loads(Path(path).read_text(encoding="utf-8"))
 post_activation = mode == "post-activation"
 rollback = mode == "rollback"
+expected_staging = "NOT_APPLICABLE" if rollback else "PASS"
 assert value["schema"] == "codestra.caddy.production-readonly-canary.v2"
 assert value["canary_mode"] == mode
 assert value["candidate_source_sha"] == source_sha
@@ -146,6 +147,7 @@ assert value["expected_source_sha"] == source_sha
 assert value["expected_image"] == image
 assert value["expected_config_sha256"] == config_sha256
 assert value["expected_image_config_sha256"] == config_sha256
+assert value["bounded_staging_runtime"] == expected_staging
 assert value["live_source_sha"] == source_sha
 assert value["live_image_digest"] == image.rsplit("@", 1)[1]
 assert value["live_config_sha256"] == config_sha256
