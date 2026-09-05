@@ -179,20 +179,56 @@ class ProductionCanaryP1RegressionTests(unittest.TestCase):
         self.assertIn("path: activation-evidence/", self.workflow)
         self.assertNotIn("rm -rf activation-evidence", self.workflow)
 
+    def test_rollback_manifest_is_complete_before_receipt_is_bound(self) -> None:
+        for token in (
+            "CADDY_ROLLBACK_ATTESTATION_FILE",
+            "CADDY_ROLLBACK_ATTESTATION_VERIFICATION_FILE",
+            'manifest_files+=("$rollback_attestation_name" "$rollback_attestation_verification_name")',
+            'data["rollback_source_attestation_sha256"]',
+            'data["rollback_source_attestation_verification_sha256"]',
+            "ROLLBACK_SOURCE_ATTESTATION_SHA256",
+            "ROLLBACK_SOURCE_ATTESTATION_VERIFICATION_SHA256",
+        ):
+            self.assertIn(token, self.canary)
+        self.assertLess(
+            self.canary.index(
+                'manifest_files+=("$rollback_attestation_name" "$rollback_attestation_verification_name")'
+            ),
+            self.canary.index('packet_manifest_sha256="$('),
+        )
+        self.assertNotIn(">> rollback-canary.SHA256SUMS", self.rollback)
+
     def test_rollback_receipt_binds_the_uploaded_canary_packet(self) -> None:
         for token in (
             "canary_evidence_sha256",
             "canary_packet_manifest_sha256",
             "ROLLBACK_CANARY_MANIFEST_SHA256",
-            'sha256sum --check --strict rollback-canary.SHA256SUMS',
+            "sha256sum --check --strict rollback-canary.SHA256SUMS",
             "rollback-source-attestation.verified.json",
             "rollback-source-attestation-verification.txt",
             "source_attestation_sha256",
             "source_attestation_verification_sha256",
             "ROLLBACK_SOURCE_ATTESTATION_SHA256",
             "ROLLBACK_SOURCE_ATTESTATION_VERIFICATION_SHA256",
+            "rollback_canary_manifest_claim",
+            'receipt["artifact_packet_manifest_sha256"] == manifest_sha',
+            'receipt["rollback_source_attestation_sha256"] == attestation_sha',
+            'receipt["rollback_source_attestation_verification_sha256"] == attestation_verification_sha',
         ):
             self.assertIn(token, self.rollback)
+
+    def test_rollback_manifest_has_an_exact_evidence_member_set(self) -> None:
+        for name in (
+            "rollback-canary-evidence.json",
+            "rollback-canary-runtime-before.json",
+            "rollback-canary-runtime-after.json",
+            "rollback-canary.txt",
+            "rollback-source-attestation.verified.json",
+            "rollback-source-attestation-verification.txt",
+        ):
+            self.assertIn(name, self.rollback)
+        self.assertIn("assert len(entries) == len(expected)", self.rollback)
+        self.assertIn("assert set(entries) == expected", self.rollback)
 
 
 if __name__ == "__main__":
