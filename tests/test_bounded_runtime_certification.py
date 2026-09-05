@@ -66,7 +66,7 @@ class BoundedRuntimeCertificationTests(unittest.TestCase):
         self.assertNotIn("run-immutable-runtime.sh", script)
         self.assertNotIn("rollback-runtime.sh", script)
 
-    def test_production_canary_is_strictly_read_only(self):
+    def test_production_canary_is_strictly_read_only_by_default(self):
         script = (ROOT / "scripts/bounded-production-readonly-canary-v2.sh").read_text()
         for token in (
             "caddy_readonly_validator.py",
@@ -75,8 +75,11 @@ class BoundedRuntimeCertificationTests(unittest.TestCase):
             "cmp -s pre-canary-runtime.json post-canary-runtime.json",
             "codestra-http3-probe",
             "websocket_probe.py",
+            'readonly MODE="${CADDY_PRODUCTION_CANARY_MODE:-pre-activation}"',
+            'post_activation = mode == "post-activation"',
             '"write_requests_sent": False',
-            '"candidate_started_on_production": False',
+            '"candidate_started_on_production": post_activation',
+            '"live_runtime_is_candidate": post_activation',
             '"public_traffic_changed": False',
         ):
             self.assertIn(token, script)
