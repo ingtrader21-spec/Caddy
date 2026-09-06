@@ -239,6 +239,21 @@ class ManualProductionOrchestratorTests(unittest.TestCase):
             self.activation.rindex("wrapper_rollback_armed=false"),
         )
 
+    def test_stale_rollback_proof_is_removed_before_activation(self) -> None:
+        reset = 'rm -f -- "$ROLLBACK_RESULT_FILE"'
+        activation = 'bash "$ROOT/scripts/run-immutable-runtime.sh"'
+        self.assertIn("invalid_evidence_id", self.activation)
+        self.assertIn(reset, self.activation)
+        self.assertLess(
+            self.activation.index('baseline_sha256="$(sha256sum "$BASELINE_FILE"'),
+            self.activation.index(reset),
+        )
+        self.assertLess(self.activation.index(reset), self.activation.index(activation))
+        self.assertLess(
+            self.activation.index("rollback_result_reset_failed"),
+            self.activation.index("wrapper_rollback_armed=true"),
+        )
+
     def test_unified_compose_remains_the_only_runtime(self) -> None:
         self.assertIn("deploy/compose.runtime.yaml", self.all_source)
         for forbidden in (
