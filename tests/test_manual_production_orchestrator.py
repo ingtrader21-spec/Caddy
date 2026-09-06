@@ -223,6 +223,22 @@ class ManualProductionOrchestratorTests(unittest.TestCase):
         ):
             self.assertIn(token, self.activation)
 
+    def test_wrapper_rollback_remains_armed_through_final_receipt(self) -> None:
+        for token in (
+            "trap rollback_wrapper_on_exit EXIT HUP INT TERM",
+            "wrapper_terminated_before_durable_receipt",
+            "wrapper_rollback_armed=true",
+        ):
+            self.assertIn(token, self.activation)
+        self.assertLess(
+            self.activation.index("wrapper_rollback_armed=true"),
+            self.activation.index('bash "$ROOT/scripts/run-immutable-runtime.sh"'),
+        )
+        self.assertLess(
+            self.activation.index("CADDY_MANUAL_PRODUCTION_ACTIVATION=PASS"),
+            self.activation.rindex("wrapper_rollback_armed=false"),
+        )
+
     def test_unified_compose_remains_the_only_runtime(self) -> None:
         self.assertIn("deploy/compose.runtime.yaml", self.all_source)
         for forbidden in (

@@ -34,6 +34,7 @@ activation_output_sha256=""
 final_runtime_sha256=""
 post_activation_canary_sha256=""
 rollback_status="NOT_REQUIRED"
+wrapper_rollback_armed=false
 
 fail() {
   printf 'CADDY_MANUAL_PRODUCTION_ACTIVATION=FAIL:%s\n' "$1" >&2
@@ -138,6 +139,7 @@ write_evidence() {
 
 rollback_wrapper_failure() {
   local reason="$1" rollback_exit previous_restored=false
+  wrapper_rollback_armed=false
   set +e
   bash "$ROOT/scripts/rollback-runtime.sh" > "$WRAPPER_ROLLBACK_LOG" 2>&1
   rollback_exit=$?
@@ -159,6 +161,18 @@ rollback_wrapper_failure() {
   fi
   exit 1
 }
+
+rollback_wrapper_on_exit() {
+  local exit_status=$?
+  trap - EXIT HUP INT TERM
+  if [[ "$wrapper_rollback_armed" == true ]]; then
+    wrapper_rollback_armed=false
+    rollback_wrapper_failure wrapper_terminated_before_durable_receipt
+  fi
+  exit "$exit_status"
+}
+
+trap rollback_wrapper_on_exit EXIT HUP INT TERM
 
 load_runtime_environment() {
   local line key value
@@ -293,6 +307,7 @@ fi
 baseline_sha256="$(sha256sum "$BASELINE_FILE" | awk '{print $1}')"
 
 phase=activation
+wrapper_rollback_armed=true
 set +e
 bash "$ROOT/scripts/run-immutable-runtime.sh" > "$ACTIVATION_LOG" 2>&1
 activation_status=$?
@@ -303,6 +318,7 @@ if [[ "$activation_status" -ne 0 ]]; then
   if [[ -f "$ROLLBACK_RESULT_FILE" ]] && \
      "$JQ_BIN" -e '.schema == "codestra.caddy-runtime-rollback-result.v1" and .result == "PASS"' \
        "$ROLLBACK_RESULT_FILE" >/dev/null 2>&1; then
+    wrapper_rollback_armed=false
     write_evidence NO_GO activation_failed false true
     exit 1
   fi
@@ -373,3 +389,4 @@ if [[ "$evidence_status" -ne 0 ]]; then
 fi
 printf 'CADDY_MANUAL_PRODUCTION_ACTIVATION=PASS\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nROLLBACK_BASELINE_SHA256=%s\n' \
   "$SOURCE_SHA" "$IMAGE" "$CONFIG_SHA256" "$baseline_sha256"
+wrapper_rollback_armed=false
