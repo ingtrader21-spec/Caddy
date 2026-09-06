@@ -19,6 +19,8 @@ CERTIFICATE_IDENTITY_REGEXP='^https://github.com/appolon1908-hue/Caddy/.github/w
 CERTIFICATE_ISSUER='https://token.actions.githubusercontent.com'
 CADDY_DATA_DIR="${CADDY_DATA_DIR:-/var/lib/codestra/caddy/data}"
 CADDY_CONFIG_DIR="${CADDY_CONFIG_DIR:-/var/lib/codestra/caddy/runtime-config}"
+mutation_armed=false
+attestation_output=""
 
 fail() {
   printf 'CADDY_ACTIVATION=FAIL:%s\n' "$1" >&2
@@ -39,6 +41,7 @@ trusted_executable() {
 
 rollback_after_failure() {
   local reason="$1" rollback_output rollback_status
+  mutation_armed=false
   set +e
   rollback_output="$($ROOT/scripts/rollback-runtime.sh 2>&1)"
   rollback_status=$?
@@ -48,6 +51,28 @@ rollback_after_failure() {
     fail "activation_rolled_back:$reason"
   fi
   fail "activation_and_rollback_failed:$reason"
+}
+
+cleanup_and_rollback_on_exit() {
+  local status=$? rollback_output rollback_status
+  trap - EXIT HUP INT TERM
+  if [[ "$mutation_armed" == true ]]; then
+    mutation_armed=false
+    set +e
+    rollback_output="$("$ROOT/scripts/rollback-runtime.sh" 2>&1)"
+    rollback_status=$?
+    set -e
+    printf '%s\n' "$rollback_output" >&2
+    if [[ "$rollback_status" -ne 0 ]] || ! grep -q '^CADDY_ROLLBACK=PASS$' <<<"$rollback_output"; then
+      printf 'CADDY_ACTIVATION=FAIL:termination_rollback_failed\n' >&2
+      status=1
+    else
+      printf 'CADDY_ACTIVATION=FAIL:termination_rolled_back\n' >&2
+      [[ "$status" -ne 0 ]] || status=1
+    fi
+  fi
+  [[ -z "$attestation_output" ]] || rm -f -- "$attestation_output"
+  exit "$status"
 }
 
 [[ $# -eq 0 ]] || fail arguments_not_allowed
@@ -112,8 +137,7 @@ export CADDY_ROLLBACK_BASELINE_FILE CADDY_ROLLBACK_EVIDENCE_FILE
   "$IMAGE_REF" >/dev/null
 
 attestation_output="$(mktemp)"
-cleanup() { rm -f -- "$attestation_output"; }
-trap cleanup EXIT
+trap cleanup_and_rollback_on_exit EXIT HUP INT TERM
 "$COSIGN_BIN" verify-attestation \
   --type https://codestra.co/attestations/caddy-source/v2 \
   --certificate-identity-regexp "$CERTIFICATE_IDENTITY_REGEXP" \
@@ -134,6 +158,7 @@ image_config="$("$DOCKER_BIN" image inspect --format '{{index .Config.Labels "io
 
 "$DOCKER_BIN" compose -f "$COMPOSE" run --rm --no-deps \
   caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+mutation_armed=true
 if ! "$DOCKER_BIN" compose -f "$COMPOSE" up -d --pull never --no-build caddy; then
   rollback_after_failure compose_up
 fi
@@ -165,6 +190,7 @@ if [[ "$actual_image" != "$IMAGE_REF" || "$actual_source" != "$REVIEWED_SHA" || 
   rollback_after_failure final_identity_readback
 fi
 
+mutation_armed=false
 printf '%s\n' "$canary_output"
 printf 'CADDY_ACTIVATION=PASS\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nROLLBACK_BASELINE_FILE=%s\n' \
   "$REVIEWED_SHA" "$IMAGE_REF" "$CADDY_CONFIG_SHA256" "$ROLLBACK_BASELINE_FILE"
