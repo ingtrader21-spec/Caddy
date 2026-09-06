@@ -238,6 +238,11 @@ class ManualProductionOrchestratorTests(unittest.TestCase):
             self.activation.index("CADDY_MANUAL_PRODUCTION_ACTIVATION=PASS"),
             self.activation.rindex("wrapper_rollback_armed=false"),
         )
+        self.assertIn(
+            "CADDY_ACTIVATION_SIGNAL_ROLLBACK_OWNER=wrapper",
+            self.activation,
+        )
+        self.assertIn("termination_rollback_delegated", self.run)
 
     def test_stale_rollback_proof_is_removed_before_activation(self) -> None:
         reset = 'rm -f -- "$ROLLBACK_RESULT_FILE"'

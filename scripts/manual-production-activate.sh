@@ -318,7 +318,8 @@ fi
 phase=activation
 wrapper_rollback_armed=true
 set +e
-bash "$ROOT/scripts/run-immutable-runtime.sh" > "$ACTIVATION_LOG" 2>&1
+CADDY_ACTIVATION_SIGNAL_ROLLBACK_OWNER=wrapper \
+  bash "$ROOT/scripts/run-immutable-runtime.sh" > "$ACTIVATION_LOG" 2>&1
 activation_status=$?
 set -e
 cat "$ACTIVATION_LOG"

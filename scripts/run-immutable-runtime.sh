@@ -19,6 +19,7 @@ CERTIFICATE_IDENTITY_REGEXP='^https://github.com/appolon1908-hue/Caddy/.github/w
 CERTIFICATE_ISSUER='https://token.actions.githubusercontent.com'
 CADDY_DATA_DIR="${CADDY_DATA_DIR:-/var/lib/codestra/caddy/data}"
 CADDY_CONFIG_DIR="${CADDY_CONFIG_DIR:-/var/lib/codestra/caddy/runtime-config}"
+SIGNAL_ROLLBACK_OWNER="${CADDY_ACTIVATION_SIGNAL_ROLLBACK_OWNER:-inner}"
 mutation_armed=false
 attestation_output=""
 
@@ -56,7 +57,7 @@ rollback_after_failure() {
 cleanup_and_rollback_on_exit() {
   local status=$? rollback_output rollback_status
   trap - EXIT HUP INT TERM
-  if [[ "$mutation_armed" == true ]]; then
+  if [[ "$mutation_armed" == true && "$SIGNAL_ROLLBACK_OWNER" == inner ]]; then
     mutation_armed=false
     set +e
     rollback_output="$("$ROOT/scripts/rollback-runtime.sh" 2>&1)"
@@ -70,6 +71,9 @@ cleanup_and_rollback_on_exit() {
       printf 'CADDY_ACTIVATION=FAIL:termination_rolled_back\n' >&2
       [[ "$status" -ne 0 ]] || status=1
     fi
+  elif [[ "$mutation_armed" == true ]]; then
+    printf 'CADDY_ACTIVATION=FAIL:termination_rollback_delegated\n' >&2
+    [[ "$status" -ne 0 ]] || status=1
   fi
   [[ -z "$attestation_output" ]] || rm -f -- "$attestation_output"
   exit "$status"
@@ -78,6 +82,8 @@ cleanup_and_rollback_on_exit() {
 [[ $# -eq 0 ]] || fail arguments_not_allowed
 [[ "$(id -u)" -eq 0 ]] || fail root_required
 [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]] || fail invalid_source_sha
+[[ "$SIGNAL_ROLLBACK_OWNER" == inner || "$SIGNAL_ROLLBACK_OWNER" == wrapper ]] || \
+  fail invalid_signal_rollback_owner
 [[ "$IMAGE_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail invalid_image_digest
 [[ "$ROLLBACK_BASELINE_FILE" =~ ^/var/lib/codestra/caddy/evidence/caddy-orchestrator-[A-Za-z0-9._-]+-rollback-baseline\.json$ ]] || \
   fail rollback_baseline_required
