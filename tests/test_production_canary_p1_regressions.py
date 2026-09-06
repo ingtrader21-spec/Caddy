@@ -233,6 +233,24 @@ class ProductionCanaryP1RegressionTests(unittest.TestCase):
         self.assertIn("assert len(entries) == len(expected)", self.rollback)
         self.assertIn("assert set(entries) == expected", self.rollback)
 
+    def test_activation_rolls_back_on_termination_after_mutation_starts(self) -> None:
+        for token in (
+            "cleanup_and_rollback_on_exit",
+            "trap cleanup_and_rollback_on_exit EXIT HUP INT TERM",
+            "mutation_armed=true",
+            "termination_rolled_back",
+            "termination_rollback_failed",
+        ):
+            self.assertIn(token, self.run)
+        self.assertLess(
+            self.run.index("mutation_armed=true"),
+            self.run.index('compose -f "$COMPOSE" up -d'),
+        )
+        self.assertLess(
+            self.run.index("CADDY_ACTIVATION=PASS"),
+            self.run.rindex("mutation_armed=false"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
