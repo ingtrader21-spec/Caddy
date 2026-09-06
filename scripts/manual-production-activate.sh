@@ -238,6 +238,7 @@ load_runtime_environment() {
 [[ "$(id -u)" -eq 0 ]] || fail dedicated_root_runner_required
 [[ "${GITHUB_REF:-}" == refs/heads/production ]] || fail wrong_workflow_ref
 [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail invalid_source_sha
+[[ "$EVIDENCE_ID" =~ ^[A-Za-z0-9._-]+$ ]] || fail invalid_evidence_id
 [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || fail invalid_image_digest
 [[ "$IMAGE" == "ghcr.io/appolon1908-hue/codestra-caddy@$IMAGE_DIGEST" ]] || fail image_identity
 [[ "$CONFIG_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail invalid_config_sha256
@@ -305,6 +306,14 @@ if [[ "$baseline_status" -ne 0 ]]; then
 fi
 [[ -f "$BASELINE_FILE" && ! -L "$BASELINE_FILE" ]] || fail baseline_not_written
 baseline_sha256="$(sha256sum "$BASELINE_FILE" | awk '{print $1}')"
+
+# A rollback receipt belongs only to this activation attempt. Reused evidence IDs
+# must never allow a prior PASS to disarm the wrapper guard for a new mutation.
+if [[ -e "$ROLLBACK_RESULT_FILE" || -L "$ROLLBACK_RESULT_FILE" ]]; then
+  rm -f -- "$ROLLBACK_RESULT_FILE"
+fi
+[[ ! -e "$ROLLBACK_RESULT_FILE" && ! -L "$ROLLBACK_RESULT_FILE" ]] || \
+  fail rollback_result_reset_failed
 
 phase=activation
 wrapper_rollback_armed=true
