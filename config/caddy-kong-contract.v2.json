@@ -17,15 +17,16 @@
     "middlewareRevalidatesPrivilegedAuthorization": true
   },
   "kongManagedPathPrefixes": [
-    "/api/v1/control",
+    "/api/v1/control/messages",
+    "/api/v1/control/campaigns",
+    "/api/v1/control/agents",
+    "/api/v1/control/memberships",
+    "/api/v1/control/adapters",
     "/api/v1/messages",
     "/api/v1/events",
     "/api/v1/results",
     "/api/v1/reconciliation",
     "/api/v1/health",
-    "/api/v1/callbacks",
-    "/api/v1/automation/policy-check",
-    "/api/v1/integrations/n8n/results",
     "/v1/integrations/n8n",
     "/v1/admin/system",
     "/v1/crm",
@@ -33,6 +34,24 @@
     "/v1/sms",
     "/v1/webhooks",
     "/v1/intake"
+  ],
+  "blockedUntilImplemented": [
+    {
+      "pathPrefix": "/api/v1/control/callbacks",
+      "reason": "Kong declares the callback control route but current Middleware main has no matching API implementation"
+    },
+    {
+      "pathPrefix": "/api/v1/callbacks",
+      "reason": "Kong declares the callback read route but current Middleware main has no matching API implementation"
+    },
+    {
+      "pathPrefix": "/api/v1/automation/policy-check",
+      "reason": "Kong declares the campaign policy route but current Middleware main has no matching API implementation"
+    },
+    {
+      "pathPrefix": "/api/v1/integrations/n8n/results",
+      "reason": "Kong declares the campaign result route but current Middleware main has no matching API implementation"
+    }
   ],
   "explicitCompatibilityPaths": [
     "/ws/agent",

@@ -1,0 +1,5 @@
+self-hosted-runner:
+  labels:
+    - codestra-staging
+    - codestra-production-canary
+    - codestra-production
