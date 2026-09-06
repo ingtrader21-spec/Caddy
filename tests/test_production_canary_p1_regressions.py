@@ -247,8 +247,8 @@ class ProductionCanaryP1RegressionTests(unittest.TestCase):
             self.run.index('compose -f "$COMPOSE" up -d'),
         )
         self.assertLess(
-            self.run.index("mutation_armed=false\nprintf '%s\\n' \"$canary_output\""),
             self.run.index("CADDY_ACTIVATION=PASS"),
+            self.run.rindex("mutation_armed=false"),
         )
 
 
