@@ -19,6 +19,9 @@ caddy_config/
 *.tmp
 backups/
 activation-evidence/
+release-evidence/
+staging-evidence/
+readonly-evidence/
 post-activation-canary-evidence.json
 post-activation-canary-runtime-before.json
 post-activation-canary-runtime-after.json

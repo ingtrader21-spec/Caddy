@@ -176,6 +176,9 @@ class ProductionCanaryP1RegressionTests(unittest.TestCase):
         ):
             self.assertIn(token, self.canary)
         self.assertIn("activation-evidence/", self.gitignore)
+        self.assertIn("release-evidence/", self.gitignore)
+        self.assertIn("staging-evidence/", self.gitignore)
+        self.assertIn("readonly-evidence/", self.gitignore)
         self.assertIn("path: activation-evidence/", self.workflow)
         self.assertNotIn("rm -rf activation-evidence", self.workflow)
 
