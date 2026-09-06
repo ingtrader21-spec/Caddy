@@ -190,7 +190,7 @@ if [[ "$actual_image" != "$IMAGE_REF" || "$actual_source" != "$REVIEWED_SHA" || 
   rollback_after_failure final_identity_readback
 fi
 
-mutation_armed=false
 printf '%s\n' "$canary_output"
 printf 'CADDY_ACTIVATION=PASS\nSOURCE_SHA=%s\nIMAGE=%s\nCONFIG_SHA256=%s\nROLLBACK_BASELINE_FILE=%s\n' \
   "$REVIEWED_SHA" "$IMAGE_REF" "$CADDY_CONFIG_SHA256" "$ROLLBACK_BASELINE_FILE"
+mutation_armed=false
