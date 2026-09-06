@@ -240,6 +240,8 @@ class ProductionCanaryP1RegressionTests(unittest.TestCase):
             "mutation_armed=true",
             "termination_rolled_back",
             "termination_rollback_failed",
+            "CADDY_ACTIVATION_SIGNAL_ROLLBACK_OWNER",
+            "termination_rollback_delegated",
         ):
             self.assertIn(token, self.run)
         self.assertLess(

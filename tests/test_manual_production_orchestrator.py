@@ -223,6 +223,42 @@ class ManualProductionOrchestratorTests(unittest.TestCase):
         ):
             self.assertIn(token, self.activation)
 
+    def test_wrapper_rollback_remains_armed_through_final_receipt(self) -> None:
+        for token in (
+            "trap rollback_wrapper_on_exit EXIT HUP INT TERM",
+            "wrapper_terminated_before_durable_receipt",
+            "wrapper_rollback_armed=true",
+        ):
+            self.assertIn(token, self.activation)
+        self.assertLess(
+            self.activation.index("wrapper_rollback_armed=true"),
+            self.activation.index('bash "$ROOT/scripts/run-immutable-runtime.sh"'),
+        )
+        self.assertLess(
+            self.activation.index("CADDY_MANUAL_PRODUCTION_ACTIVATION=PASS"),
+            self.activation.rindex("wrapper_rollback_armed=false"),
+        )
+        self.assertIn(
+            "CADDY_ACTIVATION_SIGNAL_ROLLBACK_OWNER=wrapper",
+            self.activation,
+        )
+        self.assertIn("termination_rollback_delegated", self.run)
+
+    def test_stale_rollback_proof_is_removed_before_activation(self) -> None:
+        reset = 'rm -f -- "$ROLLBACK_RESULT_FILE"'
+        activation = 'bash "$ROOT/scripts/run-immutable-runtime.sh"'
+        self.assertIn("invalid_evidence_id", self.activation)
+        self.assertIn(reset, self.activation)
+        self.assertLess(
+            self.activation.index('baseline_sha256="$(sha256sum "$BASELINE_FILE"'),
+            self.activation.index(reset),
+        )
+        self.assertLess(self.activation.index(reset), self.activation.index(activation))
+        self.assertLess(
+            self.activation.index("rollback_result_reset_failed"),
+            self.activation.index("wrapper_rollback_armed=true"),
+        )
+
     def test_unified_compose_remains_the_only_runtime(self) -> None:
         self.assertIn("deploy/compose.runtime.yaml", self.all_source)
         for forbidden in (
