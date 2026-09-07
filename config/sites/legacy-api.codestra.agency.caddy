@@ -9,7 +9,10 @@ api.codestra.agency {
 	}
 
 	route {
-		@kong path /api/v1/control* /api/v1/messages* /api/v1/events* /api/v1/results* /api/v1/reconciliation* /api/v1/health* /api/v1/callbacks* /api/v1/automation/policy-check /api/v1/integrations/n8n/results /v1/integrations/n8n* /v1/admin/system* /v1/crm* /v1/email* /v1/sms* /v1/webhooks* /v1/intake*
+		# This matcher must remain identical to the canonical host. Broad
+		# /api/v1/control matching and unimplemented Middleware endpoints are
+		# intentionally excluded so the legacy hostname cannot widen exposure.
+		@kong path /api/v1/control/messages* /api/v1/control/campaigns* /api/v1/control/agents* /api/v1/control/memberships* /api/v1/control/adapters* /api/v1/messages* /api/v1/events* /api/v1/results* /api/v1/reconciliation* /api/v1/health* /v1/integrations/n8n* /v1/admin/system* /v1/crm* /v1/email* /v1/sms* /v1/webhooks* /v1/intake*
 		handle @kong {
 			reverse_proxy {$CADDY_KONG_UPSTREAM} {
 				header_up Host api.codestra.co
