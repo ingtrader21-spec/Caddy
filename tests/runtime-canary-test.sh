@@ -159,11 +159,12 @@ openssl s_client -connect 127.0.0.2:443 -servername api.codestra.co -alpn h2 </d
 
 STAGE="public-readonly-canary-methods"
 for path in /healthz /readyz /version; do
-  for method in GET HEAD; do
-    status="$(curl -ksS -X "$method" -o /dev/null -w '%{http_code}' \
-      --resolve api.codestra.co:443:127.0.0.2 "https://api.codestra.co${path}")"
-    test "$status" = 200
-  done
+  get_status="$(curl -ksS -o /dev/null -w '%{http_code}' \
+    --resolve api.codestra.co:443:127.0.0.2 "https://api.codestra.co${path}")"
+  test "$get_status" = 200
+  head_status="$(curl -ksSI -o /dev/null -w '%{http_code}' \
+    --resolve api.codestra.co:443:127.0.0.2 "https://api.codestra.co${path}")"
+  test "$head_status" = 200
   for method in POST PUT PATCH DELETE; do
     status="$(curl -ksS -X "$method" -o /dev/null -w '%{http_code}' \
       --resolve api.codestra.co:443:127.0.0.2 "https://api.codestra.co${path}")"
