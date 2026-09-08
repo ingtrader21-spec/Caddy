@@ -157,6 +157,20 @@ grep -qi '^strict-transport-security: max-age=31536000' <<<"$headers"
 grep -qi '^HTTP/.* 200' <<<"$headers"
 openssl s_client -connect 127.0.0.2:443 -servername api.codestra.co -alpn h2 </dev/null 2>/dev/null | grep -q 'ALPN protocol: h2'
 
+STAGE="public-readonly-canary-methods"
+for path in /healthz /readyz /version; do
+  for method in GET HEAD; do
+    status="$(curl -ksS -X "$method" -o /dev/null -w '%{http_code}' \
+      --resolve api.codestra.co:443:127.0.0.2 "https://api.codestra.co${path}")"
+    test "$status" = 200
+  done
+  for method in POST PUT PATCH DELETE; do
+    status="$(curl -ksS -X "$method" -o /dev/null -w '%{http_code}' \
+      --resolve api.codestra.co:443:127.0.0.2 "https://api.codestra.co${path}")"
+    test "$status" = 405
+  done
+done
+
 STAGE="websocket-and-http3"
 python3 "$ROOT/scripts/websocket_probe.py" api.codestra.co 127.0.0.2 /ws/agent
 
