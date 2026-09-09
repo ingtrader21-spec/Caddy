@@ -82,6 +82,7 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
   seen["$name"]=1
 done <"$ENV_FILE"
 for name in "${required[@]}"; do [[ -n "${values[$name]:-}" ]] || fail "missing_env:${name}"; done
+[[ "${values[CADDY_STAGING_KONG_UPSTREAM]}" != "${values[CADDY_KONG_UPSTREAM]}" ]] || fail staging_kong_not_dedicated
 
 # Preserve actual staging upstreams. Loopback upstreams are translated to the
 # Docker host gateway because the candidate has a private network namespace.
@@ -216,6 +217,35 @@ api_status="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
 case "$api_status" in 200|204|401|403) ;; *) fail "kong_readonly:${api_status}" ;; esac
 grep -Eqi '^strict-transport-security: max-age=31536000' "$api_headers" || fail hsts
 
+staging_api_status="$($CURL --noproxy '*' -ksS --max-time 15 \
+  --output /dev/null --write-out '%{http_code}' \
+  --resolve api.staging.internal.codestra.agency:18443:127.0.0.1 \
+  -H "${AUTH_HEADER_NAME}: ${AUTH_SCHEME} bounded-staging-invalid" \
+  https://api.staging.internal.codestra.agency:18443/api/v1/health)"
+case "$staging_api_status" in 200|204|401|403) ;; *) fail "staging_api_readonly:${staging_api_status}" ;; esac
+staging_api_unknown="$($CURL --noproxy '*' -ksS --max-time 15 \
+  --output /dev/null --write-out '%{http_code}' \
+  --resolve api.staging.internal.codestra.agency:18443:127.0.0.1 \
+  https://api.staging.internal.codestra.agency:18443/not-a-contracted-route)"
+[[ "$staging_api_unknown" == 404 ]] || fail "staging_api_unknown:${staging_api_unknown}"
+
+bridge_staging_status="$($CURL --noproxy '*' -ksS --max-time 15 \
+  --output /dev/null --write-out '%{http_code}' \
+  --resolve bridge-staging.codestra.agency:18443:127.0.0.1 \
+  -H "${AUTH_HEADER_NAME}: ${AUTH_SCHEME} bounded-staging-invalid" \
+  https://bridge-staging.codestra.agency:18443/api/v1/health)"
+case "$bridge_staging_status" in 200|204|401|403) ;; *) fail "bridge_staging_readonly:${bridge_staging_status}" ;; esac
+bridge_staging_unknown="$($CURL --noproxy '*' -ksS --max-time 15 \
+  --output /dev/null --write-out '%{http_code}' \
+  --resolve bridge-staging.codestra.agency:18443:127.0.0.1 \
+  https://bridge-staging.codestra.agency:18443/not-a-contracted-route)"
+[[ "$bridge_staging_unknown" == 404 ]] || fail "bridge_staging_unknown:${bridge_staging_unknown}"
+bridge_private_callback="$($CURL --noproxy '*' -ksS --max-time 15 \
+  --output /dev/null --write-out '%{http_code}' \
+  --resolve bridge-staging.codestra.agency:18443:127.0.0.1 \
+  https://bridge-staging.codestra.agency:18443/api/v1/events/vicidial)"
+[[ "$bridge_private_callback" == 404 ]] || fail "bridge_private_callback:${bridge_private_callback}"
+
 version_status="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
   --output "$work/version.body" --write-out '%{http_code}' \
   --resolve api.codestra.co:18443:127.0.0.1 https://api.codestra.co:18443/version)"
@@ -327,10 +357,24 @@ for endpoint in 127.0.0.1:18080 127.0.0.1:18443 127.0.0.1:12020 127.0.0.1:28080;
   ! "$SS" -H -lntup | grep -Fq "$endpoint" || fail "listener_not_released:${endpoint}"
 done
 
-"$PYTHON" - "$SOURCE_SHA" "$IMAGE" "$CONFIG_SHA256" "$runtime_config_sha256" "$module_sha256" "$api_status" "$version_status" "$keycloak_status" <<'PY'
+"$PYTHON" - "$SOURCE_SHA" "$IMAGE" "$CONFIG_SHA256" "$runtime_config_sha256" "$module_sha256" "$api_status" "$version_status" "$keycloak_status" "$staging_api_status" "$staging_api_unknown" "$bridge_staging_status" "$bridge_staging_unknown" "$bridge_private_callback" <<'PY'
 import json, sys
 from pathlib import Path
-source_sha, image, config_sha256, runtime_config_sha256, module_sha256, api_status, version_status, keycloak_status = sys.argv[1:]
+(
+    source_sha,
+    image,
+    config_sha256,
+    runtime_config_sha256,
+    module_sha256,
+    api_status,
+    version_status,
+    keycloak_status,
+    staging_api_status,
+    staging_api_unknown,
+    bridge_staging_status,
+    bridge_staging_unknown,
+    bridge_private_callback,
+) = sys.argv[1:]
 evidence = {
     "schema": "codestra.caddy.bounded-staging-runtime.v2",
     "source_sha": source_sha,
@@ -348,6 +392,12 @@ evidence = {
     "kong_readonly_status": int(api_status),
     "realtime_readonly_status": int(version_status),
     "keycloak_readonly_status": int(keycloak_status),
+    "staging_gateway_readonly": "PASS",
+    "staging_api_readonly_status": int(staging_api_status),
+    "staging_api_unknown_status": int(staging_api_unknown),
+    "bridge_staging_readonly_status": int(bridge_staging_status),
+    "bridge_staging_unknown_status": int(bridge_staging_unknown),
+    "bridge_private_callback_denial_status": int(bridge_private_callback),
     "editor_openbao_denial": "PASS",
     "mtls_handshake_and_denial": "PASS",
     "sanitized_logs": "PASS",
