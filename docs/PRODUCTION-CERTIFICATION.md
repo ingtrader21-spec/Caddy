@@ -12,7 +12,15 @@ The repository must prove all of the following before a runtime candidate exists
 - OCI source/revision labels, non-root UID/GID, read-only filesystem, and capability restrictions pass;
 - SBOM, provenance, binary-build attestation, Cosign signature, and the HIGH/CRITICAL vulnerability gate pass;
 - the isolated release canary passes TCP 80/443, UDP 443, HTTP/2, HTTP/3, TLS, redirects, HSTS, request limits, WebSockets, Kong handoff, Keycloak behavior, mTLS, editor/OpenBao denial, upstream reachability, and complete log redaction;
-- the previous immutable rollback baseline still verifies and boots in the disposable rehearsal.
+- the previous immutable rollback baseline still verifies and boots in a protected-push disposable rehearsal.
+
+## Required PR validation credential boundary
+
+`.github/workflows/validate.yml` keeps every pull-request job credential-light. The source, synthetic merge, promotion, and `immutable-release-gate` jobs have only `contents: read`; they may build, test, scan, and upload source evidence, but they never receive `packages: read`, never authenticate Docker to GHCR, and never execute rollback code after a package credential is installed.
+
+Signed rollback verification is a separate `protected-rollback-gate` that runs only for pushes to one of the five protected promotion branches after source validation succeeds. That job verifies the exact local and remote protected-branch SHA before receiving `packages: read`, authenticating to GHCR, and executing `scripts/verify-rollback-baseline.sh` from already-protected code. The aggregate `validate` context requires this protected rollback gate on branch pushes and requires it to be skipped on pull requests.
+
+This separation means a required PR check cannot expose a package-readable token to PR-head code while preserving the protected rollback proof before subsequent branch promotion.
 
 ## Staging source certification
 
@@ -86,6 +94,6 @@ The fixed-target validator must return `codestra.caddy-container-validation.v2` 
 
 ## Rollback boundary
 
-The previous immutable digest in `config/release-baseline.v1.json` must remain signed by the protected production workflow identity. The protected staging push and the release gate rehearse the baseline in disposable runtimes. A real production rollback remains a separate operator action through `scripts/rollback-runtime.sh`; the read-only canary never invokes it.
+The previous immutable digest in `config/release-baseline.v1.json` must remain signed by the protected production workflow identity. Protected branch pushes, the protected staging push, and the release gate rehearse the baseline in disposable runtimes as applicable. A real production rollback remains a separate operator action through `scripts/rollback-runtime.sh`; the read-only canary never invokes it.
 
 No source-only check is represented as live runtime evidence, no production-PR source check is represented as a protected staging rollback pass, and no queued or skipped self-hosted job is represented as a pass.
