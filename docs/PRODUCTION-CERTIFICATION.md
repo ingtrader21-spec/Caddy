@@ -16,13 +16,13 @@ The repository must prove all of the following before a runtime candidate exists
 
 ## Staging source certification
 
-A push to `staging` and a `staging -> production` pull request run `.github/workflows/staging-certification.yml` in the protected `staging-readonly` environment. The job builds the exact source SHA, runs the full disposable protocol/security canary, scans the image, verifies the prior rollback baseline, and uploads `staging-certification.json`.
+A push to `staging` and a governed `staging -> production` pull request run `.github/workflows/staging-certification.yml` as isolated GitHub-hosted CI on `ubuntu-24.04`. This source-certification job intentionally does **not** request the protected `staging-readonly` environment and consumes no protected environment variables. It first validates the exact direct or governed reconciliation promotion route, then builds the exact source SHA, runs the full disposable protocol/security canary, scans the image, verifies the prior rollback baseline, and uploads `staging-certification.json`.
 
-This source gate does not reload a host Caddy process, bind a public interface, change DNS, modify firewall or SSH policy, or move traffic.
+This source gate does not reload a host Caddy process, bind a public interface, change DNS, modify firewall or SSH policy, move traffic, or constitute protected runtime-environment admission. Protected `staging-readonly` admission is reserved for the later self-hosted bounded staging runtime described below.
 
 ## Signed bounded staging runtime
 
-After the protected production push publishes and signs the new immutable digest, `.github/workflows/bounded-runtime-certification.yml` waits for that exact digest and signature. The `caddy-staging-readonly` runner then executes `scripts/bounded-staging-runtime-v2.sh` with paths supplied only by the protected `staging-readonly` environment.
+After the protected production push publishes and signs the new immutable digest, `.github/workflows/bounded-runtime-certification.yml` waits for that exact digest and signature. The `codestra-staging` self-hosted runner executes `scripts/bounded-staging-runtime-v2.sh` only through the protected `staging-readonly` environment, with its runtime paths supplied by protected environment configuration.
 
 The staging runtime:
 
@@ -39,7 +39,7 @@ No public listener or live staging edge is replaced.
 
 ## Production read-only canary
 
-Only after the bounded staging runtime passes does the `caddy-production-readonly` runner execute `scripts/bounded-production-readonly-canary-v2.sh` in the protected `production-readonly` environment.
+Only after the bounded staging runtime passes does the `codestra-production-canary` self-hosted runner execute `scripts/bounded-production-readonly-canary-v2.sh` in the protected `production-readonly-canary` environment.
 
 The production canary does **not** start the candidate, reload Caddy, alter traffic allocation, or send a write request. It:
 
