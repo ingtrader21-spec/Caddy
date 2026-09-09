@@ -32,6 +32,17 @@ class StagingCertificationReconciliationTests(unittest.TestCase):
         self.assertLess(workflow.index(checkout), workflow.index(route_proof))
         self.assertLess(workflow.index(route_proof), workflow.index(validate_source))
 
+    def test_isolated_ci_does_not_request_protected_runtime_environment_admission(self) -> None:
+        workflow = (ROOT / ".github/workflows/staging-certification.yml").read_text()
+        bounded_runtime = (ROOT / ".github/workflows/bounded-runtime-certification.yml").read_text()
+
+        self.assertNotIn("environment: staging-readonly", workflow)
+        self.assertNotIn("${{ vars.", workflow)
+        self.assertIn("runs-on: ubuntu-24.04", workflow)
+
+        self.assertIn("runs-on: [self-hosted, codestra-staging]", bounded_runtime)
+        self.assertIn("environment: staging-readonly", bounded_runtime)
+
 
 if __name__ == "__main__":
     unittest.main()
