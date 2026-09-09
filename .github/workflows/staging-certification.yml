@@ -12,25 +12,31 @@ on:
         required: false
         type: string
 
+# Pull-request source certification is deliberately credential-light. Package
+# credentials are granted only to the separate rollback job on a protected
+# staging push, never to a production PR head.
 permissions:
   contents: read
-  packages: read
 
 concurrency:
   group: caddy-bounded-staging-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  staging-certification:
+  source_certification:
     name: staging-certification
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      contents: read
     # This is isolated GitHub-hosted CI. Protected staging runtime admission is
     # enforced separately by the self-hosted bounded-runtime workflow.
     env:
       SOURCE_SHA: ${{ inputs.source_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha) || github.sha }}
       BASE_REF: ${{ github.base_ref }}
       HEAD_REF: ${{ github.head_ref }}
+      HEAD_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || '' }}
       BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
       CADDY_UPSTREAM_SHA: e2eee6a7fce366321294c9c2a79f3146891dcbdf
     steps:
@@ -41,6 +47,7 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == push ]]; then
             test "$GITHUB_REF" = refs/heads/staging
           elif [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            test "$HEAD_REPO" = "$GITHUB_REPOSITORY"
             test "$BASE_REF" = production
             if [[ "$HEAD_REF" == staging ]]; then
               :
@@ -125,6 +132,86 @@ jobs:
           ignore-unfixed: false
           exit-code: '1'
 
+      - name: Write credential-free staging source evidence
+        run: |
+          set -Eeuo pipefail
+          image_id="$(docker image inspect "$LOCAL_IMAGE" --format '{{.Id}}')"
+          python3 - "$SOURCE_SHA" "$CONFIG_SHA256" "$image_id" "$GITHUB_EVENT_NAME" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          source_sha, config_sha256, image_id, event_name = sys.argv[1:]
+          evidence = {
+              "schema": "codestra.caddy.staging-source-certification.v2",
+              "source_sha": source_sha,
+              "config_sha256": config_sha256,
+              "local_image_id": image_id,
+              "event_name": event_name,
+              "source_validation": "PASS",
+              "immutable_image_validation": "PASS",
+              "nonroot_privileged_ports": "PASS",
+              "tls_http2_http3": "PASS",
+              "kong_keycloak_mtls": "PASS",
+              "request_limits_websockets": "PASS",
+              "sanitized_logs": "PASS",
+              "vulnerability_gate": "PASS",
+              "rollback_rehearsal": "SEPARATE_PROTECTED_STAGING_PUSH_GATE",
+              "credentialed_rollback_in_source_job": False,
+              "protected_runtime_admission": False,
+              "public_traffic_changed": False,
+              "result": "PASS",
+          }
+          Path("staging-certification.json").write_text(
+              json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload credential-free staging source packet
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caddy-staging-source-certification-${{ env.SOURCE_SHA }}
+          path: |
+            staging-certification.json
+            staging-candidate-certification.txt
+            build/config-sha256.txt
+            build/caddy-binary-build-attestation.json
+            build/caddy-go-version.txt
+            build/http3-probe-go-version.txt
+            build/caddy-modules.txt
+            build/caddy-module-overrides.patch
+          if-no-files-found: error
+
+  rollback_certification:
+    name: staging-rollback-certification
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/staging' }}
+    needs: source_certification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    env:
+      SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - name: Check out the protected staging source for rollback proof
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove rollback job is bound to the protected staging push
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = refs/heads/staging
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git rev-parse --verify --quiet refs/remotes/origin/staging >/dev/null
+          test "$(git rev-parse origin/staging)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+
       - name: Authenticate to GHCR for rollback baseline
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
@@ -135,56 +222,65 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
 
-      - name: Rehearse the previous immutable rollback baseline
+      - name: Rehearse the previous immutable rollback baseline from protected code
         run: |
           set -o pipefail
           scripts/verify-rollback-baseline.sh | tee staging-rollback-rehearsal.txt
 
-      - name: Write bounded staging evidence
+      - name: Write protected staging rollback evidence
         run: |
           set -Eeuo pipefail
-          image_id="$(docker image inspect "$LOCAL_IMAGE" --format '{{.Id}}')"
-          python3 - "$SOURCE_SHA" "$CONFIG_SHA256" "$image_id" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
+          rollback_sha256="$(sha256sum staging-rollback-rehearsal.txt | awk '{print $1}')"
+          jq -n \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg rollback_sha256 "$rollback_sha256" \
+            '{
+              schema:"codestra.caddy.staging-rollback-certification.v1",
+              source_sha:$source_sha,
+              rollback_rehearsal:"PASS",
+              rollback_output_sha256:$rollback_sha256,
+              credential_source:"protected_staging_push_only",
+              public_traffic_changed:false,
+              result:"PASS"
+            }' > staging-rollback-certification.json
 
-          source_sha, config_sha256, image_id = sys.argv[1:]
-          evidence = {
-              "schema": "codestra.caddy.bounded-staging-certification.v1",
-              "source_sha": source_sha,
-              "config_sha256": config_sha256,
-              "local_image_id": image_id,
-              "source_validation": "PASS",
-              "immutable_image_validation": "PASS",
-              "nonroot_privileged_ports": "PASS",
-              "tls_http2_http3": "PASS",
-              "kong_keycloak_mtls": "PASS",
-              "request_limits_websockets": "PASS",
-              "sanitized_logs": "PASS",
-              "vulnerability_gate": "PASS",
-              "rollback_rehearsal": "PASS",
-              "public_traffic_changed": False,
-              "result": "PASS",
-          }
-          Path("staging-certification.json").write_text(
-              json.dumps(evidence, indent=2, sort_keys=True) + "\n",
-              encoding="utf-8",
-          )
-          PY
-
-      - name: Upload bounded staging certification packet
+      - name: Upload protected staging rollback packet
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: caddy-bounded-staging-certification-${{ env.SOURCE_SHA }}
+          name: caddy-staging-rollback-certification-${{ env.SOURCE_SHA }}
           path: |
-            staging-certification.json
-            staging-candidate-certification.txt
+            staging-rollback-certification.json
             staging-rollback-rehearsal.txt
-            build/config-sha256.txt
-            build/caddy-binary-build-attestation.json
-            build/caddy-go-version.txt
-            build/http3-probe-go-version.txt
-            build/caddy-modules.txt
-            build/caddy-module-overrides.patch
           if-no-files-found: error
+
+  certification_gate:
+    name: staging-certification-gate
+    if: ${{ always() }}
+    needs: [source_certification, rollback_certification]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    env:
+      EVENT_NAME: ${{ github.event_name }}
+      SOURCE_RESULT: ${{ needs.source_certification.result }}
+      ROLLBACK_RESULT: ${{ needs.rollback_certification.result }}
+    steps:
+      - name: Enforce credential separation and event-specific certification
+        run: |
+          set -Eeuo pipefail
+          if [[ "$EVENT_NAME" == push ]]; then
+            test "$SOURCE_RESULT" = success
+            test "$ROLLBACK_RESULT" = success
+            echo CADDY_STAGING_SOURCE_CERTIFICATION=PASS
+            echo CADDY_STAGING_ROLLBACK_CERTIFICATION=PASS
+          elif [[ "$EVENT_NAME" == pull_request ]]; then
+            test "$SOURCE_RESULT" = success
+            test "$ROLLBACK_RESULT" = skipped
+            echo CADDY_PRODUCTION_PR_SOURCE_CERTIFICATION=PASS
+            echo CADDY_PRODUCTION_PR_PACKAGE_CREDENTIALS=NOT_GRANTED
+          else
+            test "$SOURCE_RESULT" = success
+            test "$ROLLBACK_RESULT" = skipped
+            echo CADDY_STAGING_SOURCE_CERTIFICATION=PASS
+            echo CADDY_CREDENTIALED_ROLLBACK=NOT_RUN
+          fi
