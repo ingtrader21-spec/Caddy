@@ -33,7 +33,7 @@ for path in \
 done
 
 [[ "$(git rev-parse HEAD)" == "$CADDY_STAGING_SOURCE_SHA" ]]
-git fetch origin production --depth=1
+git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
 [[ "$(git rev-parse origin/production)" == "$CADDY_STAGING_SOURCE_SHA" ]]
 [[ "$(python3 scripts/hash_config_tree.py config)" == "$CADDY_STAGING_CONFIG_SHA256" ]]
 [[ -f deploy/compose.runtime.yaml ]]
