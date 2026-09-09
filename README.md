@@ -1,141 +1,161 @@
-# Codestra Caddy Edge
+# Codestra Caddy edge authority
 
-Canonical Git source for Codestra shared Caddy edge configuration and release policy.
+This repository is the authoritative source for the Codestra public Caddy edge. It owns the reviewed Caddy configuration, custom immutable image, unified production Compose service, edge validation, signed release evidence, bounded staging certification, read-only production canary, exact-digest production activation, and rollback controls.
 
-## Principal authority
+It does **not** own application business logic, Keycloak realm administration, Kong route administration, DNS-provider credentials, production secrets, or application/provider write authorization.
 
-This repository is the **principal source** for shared Caddy TLS termination, public host selection, reverse-proxy configuration, shared edge request policy, security-header imports, access-log redaction, validation, and Caddy release evidence.
+## Canonical source and runtime
 
-For the shared API edge, the required ownership chain is:
+The only deployable configuration tree is:
 
 ```text
-client
-  -> Caddy
-  -> Kong
-  -> Middleware
-  -> owned downstream service
+config/
 ```
 
-Caddy does not authenticate application users/services, does not issue identity, and does not create trusted application identity headers. It preserves the bearer token and canonical host so Kong can apply Keycloak OIDC/JWT, scope, route, rate, and request policy. Middleware then revalidates privileged authorization and remains the cross-system write boundary.
+The only production runtime composition is:
 
-Each system keeps its own source authority:
+```text
+deploy/compose.runtime.yaml
+```
 
-- `appolon1908-hue/Caddy` — shared Caddy TLS/reverse-proxy edge source and policy.
-- `appolon1908-hue/Kong` — Kong gateway services, routes, plugins, OIDC/scope policy and gateway reconciliation.
-- `appolon1908-hue/Keycloak` — identity, clients, scopes and token issuance.
-- `appolon1908-hue/Middleware-` — cross-system command/event control plane and privileged provider orchestration.
-- product/provider repositories — their own application and runtime source.
-- `appolon1908-hue/codestra-production-platform` — historical runtime/deployment/reconciliation/rollback evidence only. It is a migration reference, not principal source for future Caddy changes.
+The production service is `codestra-caddy`. The Compose model requires an exact `image@sha256:...` identity, exact protected source SHA, canonical configuration SHA-256, release ID, non-root UID/GID `65532:65532`, read-only root filesystem, dropped capabilities except `NET_BIND_SERVICE`, and `no-new-privileges`.
 
-## Canonical source layout
+A second Dockerfile, production Compose model, Caddy configuration root, mutable image tag, or host-systemd deployment authority is prohibited.
 
-- `Caddyfile` — complete root source; Caddy admin API is loopback-only.
-- `snippets/security_headers.caddy` — shared security-header snippet owned here, including HSTS. Every site block must import it; `scripts/validate_repository.py` fails the build if one does not.
-- `sites/api.codestra.co.caddy` — shared API-edge routing source.
-- `sites/automation.codestra.co.caddy` — administrative editor host gated by Kong's Keycloak browser flow (see "Two editor hosts, two gates").
-- `config/caddy-kong-contract.v1.json` — machine-readable Caddy/Kong/Keycloak/Middleware boundary.
-- `config/runtime-values.example` — non-secret runtime variable names and repository-backed reference listeners.
-- `docs/CADDY_KONG_INTEGRATION.md` — migration and validation gates.
-- `sites/n8n-editor.community.caddy` — Keycloak/oauth2-proxy boundary for the community-edition editor.
-- `deploy/community-n8n/` — fail-closed node and outbound-network policy overlay.
-- `config/community-n8n-credentials.v1.json` — metadata-only ownership and rotation contract.
-- `config/observability-exposure.v1.json` — repository-only public/private observability URL contract.
-- `sites/codestra.media.observability.caddy` — the only permitted observability UI/restricted-management routes.
+## CI
 
-Grafana and Superset are the only public observability UI routes. OpenBao has a
-separate source-network gate in addition to native OIDC and policy enforcement.
-Prometheus, Alertmanager, Loki, Tempo, OpenTelemetry, Alloy, every exporter, and
-cAdvisor have no public Caddy site. In particular, `pgex.codestra.media` is a
-prohibited public name, not a denial page or certificate target.
+Pull-request CI validates the exact head and GitHub synthetic merge result. The required gates are:
 
-The runtime identity remains the canonical Keycloak-managed `n8n-automation`
-client. The editor gateway uses the existing `n8n_operator` and `n8n_admin`
-roles. Until OpenBao is commissioned, its client and cookie material is supplied
-as root-owned Docker secret files; only paths and rotation metadata belong here.
+```text
+validate-source
+validate-merge-result
+promotion-guard
+immutable-release-gate
+```
 
-## Two editor hosts, two gates
+The checks prove the single configuration authority, unified Compose ownership, Caddy-to-Kong route contract, unknown-route denial, non-root privileged-port binding, HTTP/2 and HTTP/3, TLS, HSTS, request limits, WebSockets, Keycloak redirects, mTLS, complete credential redaction, HIGH/CRITICAL vulnerability status, signed rollback compatibility, and absence of a competing runtime.
 
-This repository deliberately ships two n8n editor edges. They are different
-hosts with different audiences and different authentication gates, and both are
-current source authority. Neither supersedes the other.
+Run the same source contract locally with:
 
-| Host | Chain | Gate | Audience |
-| --- | --- | --- | --- |
-| `automation.codestra.co` | Caddy -> Kong -> n8n | Kong runs the Keycloak authorization-code browser flow; n8n's native owner login stays enabled behind it | Codestra platform administrators |
-| `{$CADDY_N8N_EDITOR_HOST}` | Caddy -> oauth2-proxy -> n8n | oauth2-proxy owns the Keycloak OIDC session and injects identity | Community-edition editor users |
+```bash
+bash scripts/validate-ci.sh
+```
 
-`automation.codestra.co` additionally applies a `CADDY_EDITOR_ADMIN_CIDRS`
-source-range gate ahead of the browser flow. Caddy authenticates nobody on
-either host: it terminates TLS, strips spoofable identity headers, and hands off
-to the gate that owns identity for that host. Adding a third editor edge, or
-pointing either host directly at n8n on `:5678`, is prohibited.
+## Manual one-click CD
 
-## Runtime values that must be supplied before deployment
+The production entry point is:
 
-`config/runtime-values.example` ships deliberately unusable defaults. They fail
-closed — Caddy refuses to load or the host answers `404`/`403` — so a missing
-value can never widen access. None of them are deployable as written:
+```text
+.github/workflows/manual-production-orchestrator.yml
+```
 
-| Variable | Shipped value | Why it cannot ship as-is |
-| --- | --- | --- |
-| `CADDY_EDITOR_ADMIN_CIDRS` | `REPLACE_WITH_VERIFIED_ADMIN_CIDRS` | Not a CIDR; Caddy fails to parse the `remote_ip` matcher and refuses the config. |
-| `CADDY_N8N_EDITOR_HOST` | `n8n-editor.invalid` | Reserved TLD; no DNS, no ACME certificate. |
-| `CADDY_OPENBAO_ALLOWED_CIDRS` | `192.0.2.0/24 198.51.100.0/24` | TEST-NET-1/TEST-NET-2 documentation ranges; no real client matches, so OpenBao answers `403`. |
-| `CADDY_GRAFANA_UPSTREAM`, `CADDY_SUPERSET_UPSTREAM`, `CADDY_OPENBAO_UPSTREAM` | loopback high ports | Repository-only validation references; they assert no production listener. |
+From **Actions → Caddy one-click production orchestrator**, select the exact `production` branch, enter:
 
-Supplying real values is a deployment-review step performed outside Git, and
-`validate_observability_exposure.py` fails if the committed examples are ever
-replaced with routable ranges.
+```text
+RUN_CADDY_PRODUCTION
+```
 
-## Caddy -> Kong integration
+and dispatch once. There are no free-form image, digest, source, host, command, percentage, or script inputs. Protected-environment approvals may pause the run and must not be bypassed.
 
-The reviewed Kong repository exposes host-bound `api.codestra.co` route contracts and exercises the Kong data plane on loopback port `8000`. The Caddy source therefore uses `CADDY_KONG_UPSTREAM` for path families already represented in Kong source and preserves `Host: api.codestra.co` on that handoff.
+The fixed chain is:
 
-The historical `codestra-production-platform` Caddy source used loopback listeners `18101` and `18102`. They are retained only as explicit environment-controlled migration fallbacks for paths that do not yet have proven Kong parity. They are **not** principal source authority and must be removed after the equivalent Kong routes pass staging acceptance.
+```text
+current protected production SHA
+  → active no-bypass ruleset and protected-environment readback
+  → exact signed image and release-evidence verification
+  → bounded staging deployment and certification
+  → historical rollback rehearsal and evidence hash
+  → production GET/HEAD/handshake-only canary
+  → byte-identical pre/post live-runtime readback
+  → capture current live image/environment/mount/release baseline
+  → exact-digest Caddy activation through unified Compose
+  → health, source, image, config, listener and redaction readback
+  → automatic exact-live-baseline rollback on failure
+  → machine-readable FULL_PRODUCTION_GO or NO_GO
+```
 
-No new shared API route should be added as a direct Caddy -> Middleware or Caddy -> provider path. The owning repository must add the service contract, Kong must own the gateway route/security policy, and Caddy then owns the outer edge handoff.
+A successful source push, pull-request check, image release, or read-only canary is not a complete deployment. The final workflow artifact must report:
 
-## Branch model
+```text
+CADDY_ONE_CLICK_PRODUCTION=FULL_PRODUCTION_GO
+FULL_PRODUCTION_GO=true
+CADDY_RUNTIME_LIVE=true
+APPLICATION_WRITES_AUTHORIZED=false
+```
 
-- `development` — active integration branch.
-- `test` — configuration promoted after validation.
-- `production` — release-candidate source for a live Caddy host.
-- `main` — reviewed canonical baseline and release history.
+## Protected environments and runners
 
-Promotion flow: `feature/*` -> `development` -> `test` -> `production` -> `main`.
+| Environment | Required runner | Authority |
+|---|---|---|
+| `staging-readonly` | `self-hosted`, `codestra-staging` | Isolated exact-digest staging deployment and rollback rehearsal |
+| `production-readonly-canary` | `self-hosted`, `codestra-production-canary` | Read-only live inspection with no container replacement |
+| `production-activation` | `self-hosted`, `codestra-production` | Exact-digest Caddy replacement with captured live rollback |
 
-The repository may use short-lived authority or migration branches for source-convergence work, but accepted shared-edge source must end on reviewed `main` before an immutable release is created.
+All three environments must allow protected branches only. The preflight reads that policy through the GitHub API before any runtime job starts.
 
-## Historical reference
+The production runner must be dedicated to this private repository and protected environment, execute the reviewed job as root, and provide root-owned, non-group/world-writable `/usr/bin/docker`, `/usr/bin/python3`, `/usr/bin/jq`, and `/usr/local/bin/cosign`. It must not accept pull-request or unrelated-repository jobs.
 
-The first `api.codestra.co` source was imported from:
+`production-activation` must expose only the variable:
 
-`appolon1908-hue/codestra-production-platform:release/production-activation:operations/caddy/api.codestra.co.caddy`
+```text
+CADDY_PRODUCTION_ENV_FILE=/absolute/root-owned/path/caddy-production.env
+```
 
-That repository is reference/evidence only. Its historical source does not prove a live host currently matches this repository.
+The referenced file must be root-owned, mode `0600`, not a symlink, and contain the non-secret variables declared in `config/runtime-values.example`. The parser rejects unknown or duplicate keys and never evaluates shell syntax.
 
-Before any Caddy cutover:
+## Immutable release authority
 
-1. inventory the live runtime read-only;
-2. record active config/listener checksums;
-3. compare live behavior with this repository;
-4. validate Caddy -> Kong -> Middleware in write-disabled staging;
-5. prove invalid identity is rejected at Kong;
-6. rehearse rollback;
-7. build/accept an immutable Caddy source artifact;
-8. obtain explicit deployment approval;
-9. reload using the reviewed artifact/config only;
-10. perform post-change read-back.
+Production pushes build the exact protected SHA and publish only the exact SHA tag plus immutable digest. The release pipeline produces:
 
-## Safety rules
+- custom patched Caddy binary evidence;
+- OCI source, revision, and configuration labels;
+- zero-HIGH/zero-CRITICAL image gate;
+- SBOM and BuildKit provenance;
+- keyless image signature;
+- Codestra source attestation;
+- HTTP/2, HTTP/3, TLS, mTLS, Kong, Keycloak, denial, limit, WebSocket, and log-redaction canary evidence;
+- historical rollback rehearsal.
 
-1. Never commit TLS private keys, API tokens, credentials, passwords, `.env` files, ACME account data, or Caddy data-directory contents.
-2. Validate the complete root `Caddyfile` before a reload.
-3. Keep the Caddy admin API on `127.0.0.1:2019`; never expose it publicly.
-4. Caddy must not manufacture `X-Authenticated-*` or gateway-secret headers.
-5. Caddy must preserve the bearer token for Kong; Authorization is redacted from logs only.
-6. Shared API paths represented in Kong source must route Caddy -> Kong, never directly to Middleware.
-7. Back up active runtime configuration before replacement.
-8. A failed validation must leave the running configuration untouched.
-9. A merge does not automatically authorize a production reload, DNS/TLS change, or traffic cutover.
-10. `codestra-production-platform` may be consulted for historical evidence, but new Caddy source changes belong here.
+The one-click workflow consumes and re-verifies this existing release. It never substitutes `latest`, rebuilds on a runtime host, or retags an image.
+
+## Exact live rollback
+
+Before production replacement, `scripts/capture-runtime-baseline.sh` verifies the current healthy `codestra-caddy` container and writes root-owned mode-`0600` records containing:
+
+- live source SHA, immutable image digest, configuration digest, and release ID;
+- Cosign signature proof;
+- validator-output checksum, health, Caddy-only listener ownership, and redaction state;
+- exact allowlisted runtime environment in a separate protected file;
+- `/data` and `/config` host mount identities.
+
+`scripts/run-immutable-runtime.sh` requires that captured baseline. Candidate health, production canary, or final source/image/configuration mismatch invokes `scripts/rollback-runtime.sh`. Rollback restores the captured image, runtime environment, state mounts, configuration, source, and release identity, then reruns the production canary. A rollback failure is surfaced as `activation_and_rollback_failed`; it is never hidden.
+
+The committed `config/release-baseline.v1.json` remains the independently tested historical CI authority. It is not substituted for the captured live baseline during production activation.
+
+## Edge routing contract
+
+Known shared API families use:
+
+```text
+client → Caddy → Kong → Middleware or owned downstream service
+```
+
+`api.codestra.co` is canonical. `api.codestra.agency` is legacy compatibility only. Both follow the governed Caddy/Kong contract. Unknown API routes return `404`; there is no unrestricted fallback to the old Middleware listener.
+
+Every access log imports the shared sanitizer and removes authorization headers, cookies, API keys, OAuth/OIDC query values, response cookies, and access-token response headers.
+
+## Branch flow
+
+Source changes move through protected branches:
+
+```text
+development → test → staging → production → main
+```
+
+No force push, direct unreviewed branch update, or administrator bypass is part of the release model. The current governance source requires one independent exact-head approval, stale-review dismissal, last-push approval, resolved conversations, required status checks, and linear history.
+
+## Safety boundary
+
+The one-click workflow authorizes only the reviewed Caddy edge runtime. It does not authorize application writes, payments, withdrawals, trading, dialing, email, SMS, provider delivery, campaign activation, Odoo writes, n8n external delivery, DNS changes, firewall changes, SSH-policy changes, or unrelated workload changes.
+
+Never commit tokens, private keys, bearer credentials, registry passwords, certificate private material, environment payloads, or live service secrets. GitHub protected environments and root-owned host paths are the only accepted runtime binding locations.

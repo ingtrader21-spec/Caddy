@@ -1,0 +1,502 @@
+name: Caddy one-click production orchestrator
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type RUN_CADDY_PRODUCTION to execute release verification, bounded staging, rollback, read-only canary, and exact-digest Caddy activation
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  deployments: read
+  id-token: write
+  packages: read
+
+concurrency:
+  group: caddy-one-click-production
+  cancel-in-progress: false
+
+env:
+  EXPECTED_CONFIRMATION: RUN_CADDY_PRODUCTION
+
+jobs:
+  verify-production-candidate:
+    name: verify-exact-production-candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      source_sha: ${{ steps.candidate.outputs.source_sha }}
+      image: ${{ steps.candidate.outputs.image }}
+      image_digest: ${{ steps.candidate.outputs.image_digest }}
+      config_sha256: ${{ steps.candidate.outputs.config_sha256 }}
+      release_run_id: ${{ steps.candidate.outputs.release_run_id }}
+      release_artifact_sha256: ${{ steps.release_evidence.outputs.release_artifact_sha256 }}
+    env:
+      GH_TOKEN: ${{ secrets.CODESTRA_REPOSITORY_ADMIN_TOKEN || github.token }}
+    steps:
+      - name: Check out the selected production revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+
+      - name: Authenticate to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refresh current production authority immediately before preflight
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: production
+          fetch-depth: 0
+          persist-credentials: false
+          clean: false
+
+      - name: Prove production authority at preflight use time
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF" = refs/heads/production
+          test "$(git branch --show-current)" = production
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
+          test "$(git rev-parse origin/production)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo CADDY_PRODUCTION_AUTHORITY_AT_PREFLIGHT_USE=PASS
+
+      - id: candidate
+        name: Verify branch governance, protected environments, source, signed digest, labels, attestation, and release identity
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: bash scripts/manual-production-preflight.sh "$CONFIRMATION"
+
+      - name: Download the exact immutable release evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: caddy-release-evidence-${{ steps.candidate.outputs.source_sha }}
+          path: release-evidence
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.candidate.outputs.release_run_id }}
+          github-token: ${{ github.token }}
+
+      - id: release_evidence
+        name: Bind the immutable release packet to this deployment
+        run: |
+          set -Eeuo pipefail
+          test "$(find release-evidence -type f | wc -l)" -ge 3
+          grep -R -F -- "${{ steps.candidate.outputs.source_sha }}" release-evidence >/dev/null
+          grep -R -F -- "${{ steps.candidate.outputs.image_digest }}" release-evidence >/dev/null
+          grep -R -F -- "${{ steps.candidate.outputs.config_sha256 }}" release-evidence >/dev/null
+          find release-evidence -type f -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > release-evidence.SHA256SUMS
+          release_artifact_sha256="$(sha256sum release-evidence.SHA256SUMS | awk '{print $1}')"
+          echo "release_artifact_sha256=$release_artifact_sha256" >> "$GITHUB_OUTPUT"
+          echo CADDY_RELEASE_EVIDENCE_BOUND=PASS
+
+      - name: Upload preflight evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caddy-one-click-preflight-${{ steps.candidate.outputs.source_sha }}
+          path: |
+            exact-production-candidate.json
+            canonical-ruleset.json
+            environment-staging-readonly.json
+            environment-production-readonly-canary.json
+            environment-production-activation.json
+            release.json
+            immutable-runs.json
+            release-artifacts.json
+            release-evidence.SHA256SUMS
+            verified-image-signature.json
+            verified-source-attestation.json
+          if-no-files-found: error
+          retention-days: 90
+
+  bounded-staging-and-rollback:
+    name: bounded-staging-certification-and-rollback
+    needs: verify-production-candidate
+    runs-on: [self-hosted, codestra-staging]
+    environment: staging-readonly
+    timeout-minutes: 120
+    outputs:
+      staging_evidence_sha256: ${{ steps.certify.outputs.staging_evidence_sha256 }}
+      rollback_evidence_sha256: ${{ steps.certify.outputs.rollback_evidence_sha256 }}
+    env:
+      CADDY_STAGING_IMAGE: ${{ needs.verify-production-candidate.outputs.image }}
+      CADDY_STAGING_SOURCE_SHA: ${{ needs.verify-production-candidate.outputs.source_sha }}
+      CADDY_STAGING_CONFIG_SHA256: ${{ needs.verify-production-candidate.outputs.config_sha256 }}
+      CADDY_STAGING_ENV_FILE: ${{ vars.CADDY_STAGING_ENV_FILE }}
+      CADDY_STAGING_DATA_SOURCE: ${{ vars.CADDY_STAGING_DATA_SOURCE }}
+      CADDY_STAGING_MTLS_CLIENT_CERT: ${{ vars.CADDY_STAGING_MTLS_CLIENT_CERT }}
+      CADDY_STAGING_MTLS_CLIENT_KEY: ${{ vars.CADDY_STAGING_MTLS_CLIENT_KEY }}
+      CADDY_STAGING_MTLS_CA_CERT: ${{ vars.CADDY_STAGING_MTLS_CA_CERT }}
+    steps:
+      - name: Check out the exact protected production source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.verify-production-candidate.outputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+
+      - name: Authenticate to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refresh current production authority immediately before bounded staging use
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: production
+          fetch-depth: 0
+          persist-credentials: false
+          clean: false
+
+      - name: Prove production authority at bounded staging use time
+        run: |
+          set -Eeuo pipefail
+          test "$(git branch --show-current)" = production
+          test "$(git rev-parse HEAD)" = "$CADDY_STAGING_SOURCE_SHA"
+          git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
+          test "$(git rev-parse origin/production)" = "$CADDY_STAGING_SOURCE_SHA"
+          test "$(python3 scripts/hash_config_tree.py config)" = "$CADDY_STAGING_CONFIG_SHA256"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo CADDY_PRODUCTION_AUTHORITY_AT_MANUAL_STAGING_USE=PASS
+
+      - id: certify
+        name: Deploy exact digest, certify bounded staging, and prove rollback
+        run: bash scripts/manual-staging-certify.sh
+
+      - name: Upload bounded staging and rollback evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caddy-one-click-staging-${{ needs.verify-production-candidate.outputs.source_sha }}
+          path: |
+            bounded-staging-runtime-evidence.json
+            bounded-staging-runtime.txt
+            bounded-staging-rollback.txt
+            one-click-rollback-evidence.json
+            verified-staging-signature.json
+            verified-staging-attestation.json
+          if-no-files-found: error
+          retention-days: 90
+
+  production-readonly-canary:
+    name: protected-production-readonly-canary
+    needs: [verify-production-candidate, bounded-staging-and-rollback]
+    runs-on: [self-hosted, codestra-production-canary]
+    environment: production-readonly-canary
+    timeout-minutes: 60
+    env:
+      CADDY_CANARY_SOURCE_SHA: ${{ needs.verify-production-candidate.outputs.source_sha }}
+      CADDY_CANARY_IMAGE: ${{ needs.verify-production-candidate.outputs.image }}
+      CADDY_CANARY_IMAGE_DIGEST: ${{ needs.verify-production-candidate.outputs.image_digest }}
+      CADDY_CANARY_CONFIG_SHA256: ${{ needs.verify-production-candidate.outputs.config_sha256 }}
+      CADDY_RELEASE_EVIDENCE_SHA256: ${{ needs.verify-production-candidate.outputs.release_artifact_sha256 }}
+      CADDY_STAGING_EVIDENCE_SHA256: ${{ needs.bounded-staging-and-rollback.outputs.staging_evidence_sha256 }}
+      CADDY_ROLLBACK_EVIDENCE_SHA256: ${{ needs.bounded-staging-and-rollback.outputs.rollback_evidence_sha256 }}
+      CADDY_PRODUCTION_MTLS_CLIENT_CERT: ${{ vars.CADDY_PRODUCTION_MTLS_CLIENT_CERT }}
+      CADDY_PRODUCTION_MTLS_CLIENT_KEY: ${{ vars.CADDY_PRODUCTION_MTLS_CLIENT_KEY }}
+      CADDY_PRODUCTION_MTLS_CA_CERT: ${{ vars.CADDY_PRODUCTION_MTLS_CA_CERT }}
+    steps:
+      - name: Check out the same exact protected production source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.verify-production-candidate.outputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the exact staging and rollback packet
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: caddy-one-click-staging-${{ needs.verify-production-candidate.outputs.source_sha }}
+          path: staging-evidence
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+
+      - name: Authenticate to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refresh current production authority immediately before read-only canary use
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: production
+          fetch-depth: 0
+          persist-credentials: false
+          clean: false
+
+      - name: Prove production authority at read-only canary use time
+        run: |
+          set -Eeuo pipefail
+          test "$(git branch --show-current)" = production
+          test "$(git rev-parse HEAD)" = "$CADDY_CANARY_SOURCE_SHA"
+          git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
+          test "$(git rev-parse origin/production)" = "$CADDY_CANARY_SOURCE_SHA"
+          test "$(python3 scripts/hash_config_tree.py config)" = "$CADDY_CANARY_CONFIG_SHA256"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo CADDY_PRODUCTION_AUTHORITY_AT_MANUAL_CANARY_USE=PASS
+
+      - name: Verify all evidence and execute the read-only production canary
+        run: bash scripts/manual-production-readonly-canary.sh
+
+      - name: Upload final production read-only evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caddy-one-click-production-${{ needs.verify-production-candidate.outputs.source_sha }}
+          path: |
+            one-click-production-receipt.json
+            production-canary-evidence.json
+            production-readonly-canary.txt
+            pre-canary-runtime.json
+            post-canary-runtime.json
+            verified-production-signature.json
+            verified-production-attestation.json
+          if-no-files-found: error
+          retention-days: 90
+
+  production-activation:
+    name: protected-exact-digest-production-activation
+    needs: [verify-production-candidate, bounded-staging-and-rollback, production-readonly-canary]
+    runs-on: [self-hosted, codestra-production]
+    environment: production-activation
+    timeout-minutes: 60
+    outputs:
+      activation_evidence_sha256: ${{ steps.activation_receipt.outputs.activation_evidence_sha256 }}
+    env:
+      CADDY_ACTIVATION_SOURCE_SHA: ${{ needs.verify-production-candidate.outputs.source_sha }}
+      CADDY_ACTIVATION_IMAGE: ${{ needs.verify-production-candidate.outputs.image }}
+      CADDY_ACTIVATION_IMAGE_DIGEST: ${{ needs.verify-production-candidate.outputs.image_digest }}
+      CADDY_ACTIVATION_CONFIG_SHA256: ${{ needs.verify-production-candidate.outputs.config_sha256 }}
+      CADDY_RELEASE_EVIDENCE_SHA256: ${{ needs.verify-production-candidate.outputs.release_artifact_sha256 }}
+      CADDY_STAGING_EVIDENCE_SHA256: ${{ needs.bounded-staging-and-rollback.outputs.staging_evidence_sha256 }}
+      CADDY_ROLLBACK_EVIDENCE_SHA256: ${{ needs.bounded-staging-and-rollback.outputs.rollback_evidence_sha256 }}
+      CADDY_PRODUCTION_ENV_FILE: ${{ vars.CADDY_PRODUCTION_ENV_FILE }}
+      CADDY_READONLY_RECEIPT: readonly-evidence/one-click-production-receipt.json
+    steps:
+      - name: Check out the current production branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: production
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove the activation checkout is still the exact candidate
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF" = refs/heads/production
+          test "$(git branch --show-current)" = production
+          test "$(git rev-parse HEAD)" = "$CADDY_ACTIVATION_SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Download the exact staging and rollback evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: caddy-one-click-staging-${{ needs.verify-production-candidate.outputs.source_sha }}
+          path: staging-evidence
+
+      - name: Download the exact production read-only receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: caddy-one-click-production-${{ needs.verify-production-candidate.outputs.source_sha }}
+          path: readonly-evidence
+
+      - name: Require dedicated root runner and protected runtime environment file
+        run: |
+          set -Eeuo pipefail
+          test "$(id -u)" -eq 0
+          test -n "$CADDY_PRODUCTION_ENV_FILE"
+          [[ "$CADDY_PRODUCTION_ENV_FILE" = /* && "$CADDY_PRODUCTION_ENV_FILE" != *..* && "$CADDY_PRODUCTION_ENV_FILE" != *//* ]]
+          test -f "$CADDY_PRODUCTION_ENV_FILE"
+          test ! -L "$CADDY_PRODUCTION_ENV_FILE"
+          test "$(stat -c '%u:%g:%a' "$CADDY_PRODUCTION_ENV_FILE")" = 0:0:600
+          test -x /usr/bin/docker
+          test -x /usr/local/bin/cosign
+          test -x /usr/bin/python3
+          test -x /usr/bin/jq
+
+      - name: Authenticate the dedicated production runner to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refresh current production authority immediately before activation use
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: production
+          fetch-depth: 0
+          persist-credentials: false
+          clean: false
+
+      - name: Prove production authority at activation use time
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF" = refs/heads/production
+          test "$(git branch --show-current)" = production
+          test "$(git rev-parse HEAD)" = "$CADDY_ACTIVATION_SOURCE_SHA"
+          git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
+          test "$(git rev-parse origin/production)" = "$CADDY_ACTIVATION_SOURCE_SHA"
+          test "$(python3 scripts/hash_config_tree.py config)" = "$CADDY_ACTIVATION_CONFIG_SHA256"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo CADDY_PRODUCTION_AUTHORITY_AT_ACTIVATION_USE=PASS
+
+      - id: activate
+        name: Capture the live baseline and activate the exact signed digest
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          bash scripts/manual-production-activate.sh 2>&1 | tee production-activation-console.txt
+
+      - id: activation_receipt
+        name: Preserve activation or rollback evidence
+        if: always()
+        env:
+          ACTIVATION_OUTCOME: ${{ steps.activate.outcome }}
+        run: |
+          set -Eeuo pipefail
+          if [[ ! -s production-activation-evidence.json ]]; then
+            jq -n \
+              --arg source_sha "$CADDY_ACTIVATION_SOURCE_SHA" \
+              --arg image "$CADDY_ACTIVATION_IMAGE" \
+              --arg config_sha256 "$CADDY_ACTIVATION_CONFIG_SHA256" \
+              --arg outcome "$ACTIVATION_OUTCOME" \
+              '{schema:"codestra.caddy.production-activation.v1",source_sha:$source_sha,image:$image,config_sha256:$config_sha256,automatic_rollback_armed:true,candidate_runtime_live:false,application_writes_authorized:false,reason:("activation_step_"+$outcome),result:"NO_GO"}' \
+              > production-activation-evidence.json
+          fi
+          mkdir -p activation-evidence
+          cp production-activation-evidence.json activation-evidence/
+          for file in production-activation.txt production-activation-console.txt baseline-capture.txt final-production-runtime.json final-readback-rollback.txt; do
+            [[ -f "$file" ]] && cp "$file" activation-evidence/
+          done
+          evidence_prefix="/var/lib/codestra/caddy/evidence/caddy-orchestrator-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          [[ -f "${evidence_prefix}-rollback-baseline.json" ]] && cp "${evidence_prefix}-rollback-baseline.json" activation-evidence/
+          [[ -f "${evidence_prefix}-rollback-result.json" ]] && cp "${evidence_prefix}-rollback-result.json" activation-evidence/
+          activation_evidence_sha256="$(sha256sum production-activation-evidence.json | awk '{print $1}')"
+          echo "activation_evidence_sha256=$activation_evidence_sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Upload production activation and rollback evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caddy-one-click-activation-${{ needs.verify-production-candidate.outputs.source_sha }}
+          path: activation-evidence/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Enforce the activation gate
+        env:
+          ACTIVATION_OUTCOME: ${{ steps.activate.outcome }}
+        run: |
+          set -Eeuo pipefail
+          test "$ACTIVATION_OUTCOME" = success
+          jq -e \
+            --arg source "$CADDY_ACTIVATION_SOURCE_SHA" \
+            --arg image "$CADDY_ACTIVATION_IMAGE" \
+            --arg config "$CADDY_ACTIVATION_CONFIG_SHA256" '
+              .schema == "codestra.caddy.production-activation.v1" and
+              .source_sha == $source and .image == $image and .config_sha256 == $config and
+              .automatic_rollback_armed == true and .candidate_runtime_live == true and
+              .application_writes_authorized == false and .result == "PASS"
+            ' production-activation-evidence.json >/dev/null
+          echo CADDY_PRODUCTION_ACTIVATION_GATE=PASS
+
+  final-verdict:
+    name: one-click-final-verdict
+    if: always()
+    needs: [verify-production-candidate, bounded-staging-and-rollback, production-readonly-canary, production-activation]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - id: verdict
+        name: Record the complete fail-closed result
+        env:
+          PREFLIGHT_RESULT: ${{ needs.verify-production-candidate.result }}
+          STAGING_RESULT: ${{ needs.bounded-staging-and-rollback.result }}
+          CANARY_RESULT: ${{ needs.production-readonly-canary.result }}
+          ACTIVATION_RESULT: ${{ needs.production-activation.result }}
+          SOURCE_SHA: ${{ needs.verify-production-candidate.outputs.source_sha }}
+          IMAGE: ${{ needs.verify-production-candidate.outputs.image }}
+          CONFIG_SHA256: ${{ needs.verify-production-candidate.outputs.config_sha256 }}
+          RELEASE_EVIDENCE_SHA256: ${{ needs.verify-production-candidate.outputs.release_artifact_sha256 }}
+          STAGING_EVIDENCE_SHA256: ${{ needs.bounded-staging-and-rollback.outputs.staging_evidence_sha256 }}
+          ROLLBACK_EVIDENCE_SHA256: ${{ needs.bounded-staging-and-rollback.outputs.rollback_evidence_sha256 }}
+          ACTIVATION_EVIDENCE_SHA256: ${{ needs.production-activation.outputs.activation_evidence_sha256 }}
+        run: |
+          set -Eeuo pipefail
+          verdict=NO_GO
+          full_production_go=false
+          if [[ "$PREFLIGHT_RESULT" = success && "$STAGING_RESULT" = success && "$CANARY_RESULT" = success && "$ACTIVATION_RESULT" = success ]]; then
+            verdict=FULL_PRODUCTION_GO
+            full_production_go=true
+          fi
+          jq -n \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg image "$IMAGE" \
+            --arg config_sha256 "$CONFIG_SHA256" \
+            --arg release_evidence_sha256 "$RELEASE_EVIDENCE_SHA256" \
+            --arg staging_evidence_sha256 "$STAGING_EVIDENCE_SHA256" \
+            --arg rollback_evidence_sha256 "$ROLLBACK_EVIDENCE_SHA256" \
+            --arg activation_evidence_sha256 "$ACTIVATION_EVIDENCE_SHA256" \
+            --arg preflight "$PREFLIGHT_RESULT" \
+            --arg staging "$STAGING_RESULT" \
+            --arg canary "$CANARY_RESULT" \
+            --arg activation "$ACTIVATION_RESULT" \
+            --arg verdict "$verdict" \
+            --argjson full_production_go "$full_production_go" \
+            '{schema:"codestra.caddy.manual-production-final-verdict.v2",source_sha:$source_sha,image:$image,config_sha256:$config_sha256,release_evidence_sha256:$release_evidence_sha256,staging_evidence_sha256:$staging_evidence_sha256,rollback_evidence_sha256:$rollback_evidence_sha256,activation_evidence_sha256:$activation_evidence_sha256,preflight:$preflight,staging:$staging,production_readonly_canary:$canary,production_activation:$activation,caddy_runtime_live:$full_production_go,full_production_go:$full_production_go,application_writes_authorized:false,provider_delivery_authorized:false,email_authorized:false,sms_authorized:false,pstn_authorized:false,campaign_activation_authorized:false,verdict:$verdict}' \
+            > one-click-final-verdict.json
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          {
+            echo '## Caddy one-click production result'
+            echo
+            echo "- Source: \`$SOURCE_SHA\`"
+            echo "- Image: \`$IMAGE\`"
+            echo "- Configuration: \`$CONFIG_SHA256\`"
+            echo "- Preflight: **$PREFLIGHT_RESULT**"
+            echo "- Bounded staging and rollback: **$STAGING_RESULT**"
+            echo "- Production read-only canary: **$CANARY_RESULT**"
+            echo "- Exact-digest Caddy activation: **$ACTIVATION_RESULT**"
+            echo "- Verdict: **$verdict**"
+            echo '- Application and provider live effects: **not authorized**'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload final verdict
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caddy-one-click-final-verdict-${{ github.run_id }}
+          path: one-click-final-verdict.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Enforce the final fail-closed verdict
+        env:
+          VERDICT: ${{ steps.verdict.outputs.verdict }}
+        run: |
+          set -Eeuo pipefail
+          if [[ "$VERDICT" != FULL_PRODUCTION_GO ]]; then
+            echo CADDY_ONE_CLICK_PRODUCTION=NO_GO >&2
+            exit 1
+          fi
+          jq -e '.full_production_go == true and .caddy_runtime_live == true and .application_writes_authorized == false' one-click-final-verdict.json >/dev/null
+          echo CADDY_ONE_CLICK_PRODUCTION=FULL_PRODUCTION_GO

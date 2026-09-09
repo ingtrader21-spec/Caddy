@@ -1,0 +1,25 @@
+monitoring.codestra.co {
+	import security_headers
+	encode zstd gzip
+
+	request_body {
+		max_size 256KB
+	}
+
+	route {
+		@monitoring_receiver path /healthz /readyz /api/v1/alerts/* /api/v1/dashboard
+		reverse_proxy @monitoring_receiver {$CADDY_MONITORING_UPSTREAM} {
+			import proxy_common
+		}
+		respond 404
+	}
+
+	log {
+		output file /var/log/caddy/monitoring-codestra-co-access.log {
+			roll_size 20MiB
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		import sanitized_access_log
+	}
+}

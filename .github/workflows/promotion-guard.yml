@@ -1,0 +1,32 @@
+name: Reusable Caddy promotion guard
+
+on:
+  workflow_call:
+    inputs:
+      base:
+        required: true
+        type: string
+      head:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  promotion-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate requested promotion
+        env:
+          BASE: ${{ inputs.base }}
+          HEAD: ${{ inputs.head }}
+        run: |
+          set -Eeuo pipefail
+          case "$BASE:$HEAD" in
+            development:feat/*|development:fix/*|development:chore/*|development:docs/*|development:refactor/*|test:development|staging:test|production:staging|main:production)
+              echo PROMOTION_CONTRACT=PASS ;;
+            *)
+              echo "Invalid promotion: $HEAD -> $BASE" >&2
+              exit 1 ;;
+          esac

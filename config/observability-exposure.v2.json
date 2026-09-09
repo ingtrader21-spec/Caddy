@@ -1,0 +1,41 @@
+{
+  "schema": "codestra.caddy-observability-exposure.v2",
+  "publicUiHosts": [
+    "graf.codestra.media",
+    "supe.codestra.media",
+    "bao.codestra.media"
+  ],
+  "privateOnlyServices": [
+    "prometheus",
+    "alertmanager",
+    "loki",
+    "tempo",
+    "otel",
+    "alloy",
+    "cadvisor",
+    "node-exporter",
+    "postgres-exporter",
+    "redis-exporter"
+  ],
+  "prohibitedPublicHosts": [
+    "prom.codestra.media",
+    "aler.codestra.media",
+    "loki.codestra.media",
+    "temp.codestra.media",
+    "otel.codestra.media",
+    "allo.codestra.media",
+    "cadv.codestra.media",
+    "node.codestra.media",
+    "pgex.codestra.media",
+    "rdex.codestra.media"
+  ],
+  "metrics": {
+    "listenPort": 2020,
+    "bindEnvironmentVariable": "CADDY_PRIVATE_METRICS_BIND",
+    "publicExposureAllowed": false
+  },
+  "activation": {
+    "dnsChangedByRepository": false,
+    "reloadAuthorizedBySource": false
+  }
+}
