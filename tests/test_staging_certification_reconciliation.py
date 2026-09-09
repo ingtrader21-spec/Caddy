@@ -32,6 +32,35 @@ class StagingCertificationReconciliationTests(unittest.TestCase):
         self.assertLess(workflow.index(checkout), workflow.index(route_proof))
         self.assertLess(workflow.index(route_proof), workflow.index(validate_source))
 
+    def test_isolated_ci_does_not_request_protected_runtime_environment_admission(self) -> None:
+        workflow = (ROOT / ".github/workflows/staging-certification.yml").read_text()
+        bounded_runtime = (ROOT / ".github/workflows/bounded-runtime-certification.yml").read_text()
+
+        self.assertNotIn("environment: staging-readonly", workflow)
+        self.assertNotIn("${{ vars.", workflow)
+        self.assertIn("runs-on: ubuntu-24.04", workflow)
+
+        self.assertIn("runs-on: [self-hosted, codestra-staging]", bounded_runtime)
+        self.assertIn("environment: staging-readonly", bounded_runtime)
+
+    def test_documentation_distinguishes_source_ci_from_protected_runtime(self) -> None:
+        docs = (ROOT / "docs/PRODUCTION-CERTIFICATION.md").read_text()
+
+        self.assertIn(
+            "source-certification job intentionally does **not** request the protected `staging-readonly` environment",
+            docs,
+        )
+        self.assertIn(
+            "Protected `staging-readonly` admission is reserved for the later self-hosted bounded staging runtime",
+            docs,
+        )
+        self.assertIn("`codestra-staging` self-hosted runner", docs)
+        self.assertIn("protected `production-readonly-canary` environment", docs)
+        self.assertNotIn(
+            "run `.github/workflows/staging-certification.yml` in the protected `staging-readonly` environment",
+            docs,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
