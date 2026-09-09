@@ -5,8 +5,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class BoundedRuntimeCertificationTests(unittest.TestCase):
-    def test_staging_source_certification_is_complete_and_non_live(self):
+    def test_staging_source_certification_is_complete_non_live_and_credential_free(self):
         workflow = (ROOT / ".github/workflows/staging-certification.yml").read_text()
+        source_part, rollback_and_gate = workflow.split("  rollback_certification:", 1)
+        rollback_part, gate_part = rollback_and_gate.split("  certification_gate:", 1)
+
         for token in (
             "name: staging-certification",
             "runs-on: ubuntu-24.04",
@@ -14,15 +17,42 @@ class BoundedRuntimeCertificationTests(unittest.TestCase):
             "scripts/build-release-inputs.sh",
             "tests/runtime-bind-test.sh",
             "tests/runtime-canary-test.sh",
-            "scripts/verify-rollback-baseline.sh",
             "aquasecurity/trivy-action@",
+            '"credentialed_rollback_in_source_job": False',
+            '"protected_runtime_admission": False',
             '"public_traffic_changed": False',
         ):
-            self.assertIn(token, workflow)
-        self.assertNotIn("environment: staging-readonly", workflow)
-        self.assertNotIn("${{ vars.", workflow)
-        self.assertNotIn("run-immutable-runtime.sh", workflow)
-        self.assertNotIn("docker compose up", workflow)
+            self.assertIn(token, source_part)
+
+        for forbidden in (
+            "packages: read",
+            "docker/login-action@",
+            "cosign-installer@",
+            "verify-rollback-baseline.sh",
+            "environment: staging-readonly",
+            "${{ vars.",
+            "run-immutable-runtime.sh",
+            "docker compose up",
+        ):
+            self.assertNotIn(forbidden, source_part)
+
+        for token in (
+            "name: staging-rollback-certification",
+            "github.event_name == 'push' && github.ref == 'refs/heads/staging'",
+            "packages: read",
+            "docker/login-action@",
+            "cosign-installer@",
+            "scripts/verify-rollback-baseline.sh",
+            "credential_source:\"protected_staging_push_only\"",
+        ):
+            self.assertIn(token, rollback_part)
+
+        for token in (
+            "name: staging-certification-gate",
+            "CADDY_PRODUCTION_PR_PACKAGE_CREDENTIALS=NOT_GRANTED",
+            "CADDY_STAGING_ROLLBACK_CERTIFICATION=PASS",
+        ):
+            self.assertIn(token, gate_part)
 
     def test_runtime_workflow_chains_the_same_signed_digest(self):
         workflow = (ROOT / ".github/workflows/bounded-runtime-certification.yml").read_text()
