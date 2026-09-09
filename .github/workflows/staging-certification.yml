@@ -30,6 +30,7 @@ jobs:
       SOURCE_SHA: ${{ inputs.source_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha) || github.sha }}
       BASE_REF: ${{ github.base_ref }}
       HEAD_REF: ${{ github.head_ref }}
+      BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
       CADDY_UPSTREAM_SHA: e2eee6a7fce366321294c9c2a79f3146891dcbdf
     steps:
       - name: Validate bounded staging invocation
@@ -40,7 +41,14 @@ jobs:
             test "$GITHUB_REF" = refs/heads/staging
           elif [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
             test "$BASE_REF" = production
-            test "$HEAD_REF" = staging
+            if [[ "$HEAD_REF" == staging ]]; then
+              :
+            elif [[ "$HEAD_REF" =~ ^reconcile/staging-to-production-[0-9]{8}([.-][A-Za-z0-9._-]+)?$ ]]; then
+              [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+            else
+              echo CADDY_STAGING_INVOCATION=FAIL:invalid_production_source >&2
+              exit 2
+            fi
           fi
 
       - name: Check out exact staging source
@@ -50,8 +58,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove exact source identity
-        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Prove exact source and governed promotion identity
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            EVENT_NAME=pull_request \
+            BASE_BRANCH="$BASE_REF" \
+            HEAD_BRANCH="$HEAD_REF" \
+            HEAD_SHA="$SOURCE_SHA" \
+            BASE_SHA="$BASE_SHA" \
+              bash scripts/validate-promotion-route.sh
+          fi
 
       - name: Pin Go toolchain
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
