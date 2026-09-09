@@ -6,8 +6,9 @@ on:
   push:
     branches: [development, test, staging, production, main]
 
-# Pull-request checks are credential-light. Package credentials are granted
-# only to protected-branch push rollback verification after source validation.
+# Pull-request checks are credential-light. Any package-readable rollback job is
+# downstream of a separate credential-free proof that the exact SHA is already
+# the protected branch tip for this push.
 permissions:
   contents: read
 
@@ -157,10 +158,49 @@ jobs:
           path: immutable-source-gate.txt
           if-no-files-found: error
 
+  protected-rollback-authority:
+    name: protected-rollback-authority
+    if: github.event_name == 'push'
+    needs: [validate-source]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      verified_sha: ${{ steps.authority.outputs.verified_sha }}
+      protected_branch: ${{ steps.authority.outputs.protected_branch }}
+    env:
+      EXPECTED_SHA: ${{ github.sha }}
+    steps:
+      - name: Check out exact protected-branch source without package access
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.EXPECTED_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove exact protected branch authority without package access
+        id: authority
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          branch="${GITHUB_REF#refs/heads/}"
+          case "$branch" in
+            development|test|staging|production|main) ;;
+            *) echo CADDY_PROTECTED_ROLLBACK_AUTHORITY=FAIL:unexpected_branch >&2; exit 2 ;;
+          esac
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git rev-parse --verify --quiet "refs/remotes/origin/$branch" >/dev/null
+          test "$(git rev-parse "origin/$branch")" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain)"
+          echo "verified_sha=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
+          echo "protected_branch=$branch" >> "$GITHUB_OUTPUT"
+          echo CADDY_PROTECTED_ROLLBACK_AUTHORITY=PASS
+
   protected-rollback-gate:
     name: protected-rollback-gate
     if: github.event_name == 'push'
-    needs: [validate-source]
+    needs: [validate-source, protected-rollback-authority]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -168,25 +208,29 @@ jobs:
       packages: read
     env:
       EXPECTED_SHA: ${{ github.sha }}
+      VERIFIED_SHA: ${{ needs.protected-rollback-authority.outputs.verified_sha }}
+      VERIFIED_BRANCH: ${{ needs.protected-rollback-authority.outputs.protected_branch }}
     steps:
-      - name: Check out exact protected-branch source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ env.EXPECTED_SHA }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Prove rollback credentials are bound to a protected branch push
+      - name: Accept credential-free protected SHA proof before checkout
         run: |
           set -Eeuo pipefail
-          test "$GITHUB_EVENT_NAME" = push
-          branch="${GITHUB_REF#refs/heads/}"
-          case "$branch" in
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$VERIFIED_SHA" = "$EXPECTED_SHA"
+          case "$VERIFIED_BRANCH" in
             development|test|staging|production|main) ;;
-            *) echo CADDY_PROTECTED_ROLLBACK=FAIL:unexpected_branch >&2; exit 2 ;;
+            *) echo CADDY_PROTECTED_ROLLBACK=FAIL:unverified_branch >&2; exit 2 ;;
           esac
-          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          git rev-parse --verify --quiet "refs/remotes/origin/$branch" >/dev/null
-          test "$(git rev-parse "origin/$branch")" = "$EXPECTED_SHA"
+          echo CADDY_PROTECTED_ROLLBACK_AUTHORITY_CONSUMED=PASS
+      - name: Check out previously verified protected source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.VERIFIED_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove credentialed job checked out only the verified SHA
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$VERIFIED_SHA"
           test -z "$(git status --porcelain)"
       - name: Install Cosign for protected rollback verification
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
@@ -196,7 +240,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Rehearse the signed historical rollback baseline from protected code
+      - name: Rehearse the signed historical rollback baseline from verified protected code
         run: |
           set -o pipefail
           scripts/verify-rollback-baseline.sh | tee rollback-baseline-ci.txt
@@ -210,7 +254,7 @@ jobs:
   validate:
     name: validate
     if: always()
-    needs: [validate-source, validate-merge-result, promotion-guard, immutable-release-gate, protected-rollback-gate]
+    needs: [validate-source, validate-merge-result, promotion-guard, immutable-release-gate, protected-rollback-authority, protected-rollback-gate]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     permissions: {}
@@ -222,6 +266,7 @@ jobs:
           MERGE_RESULT: ${{ needs.validate-merge-result.result }}
           PROMOTION: ${{ needs.promotion-guard.result }}
           IMMUTABLE: ${{ needs.immutable-release-gate.result }}
+          ROLLBACK_AUTHORITY: ${{ needs.protected-rollback-authority.result }}
           ROLLBACK: ${{ needs.protected-rollback-gate.result }}
         run: |
           set -Eeuo pipefail
@@ -230,11 +275,14 @@ jobs:
           test "$IMMUTABLE" = success
           if [[ "$EVENT_NAME" == pull_request ]]; then
             test "$MERGE_RESULT" = success
+            test "$ROLLBACK_AUTHORITY" = skipped
             test "$ROLLBACK" = skipped
             echo CADDY_PR_PACKAGE_CREDENTIALS=NOT_GRANTED
           else
             test "$MERGE_RESULT" = skipped
+            test "$ROLLBACK_AUTHORITY" = success
             test "$ROLLBACK" = success
+            echo CADDY_PROTECTED_ROLLBACK_AUTHORITY=PASS
             echo CADDY_PROTECTED_ROLLBACK=PASS
           fi
           echo CADDY_PROTECTED_AGGREGATE=PASS
