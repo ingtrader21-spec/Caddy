@@ -12,9 +12,9 @@ on:
         required: false
         type: string
 
-# Pull-request source certification is deliberately credential-light. Package
-# credentials are granted only to the separate rollback job on a protected
-# staging push, never to a production PR head.
+# Pull-request source certification is deliberately credential-light. A
+# credential-free staging authority proof must pass before any package-readable
+# rollback job can start on a protected staging push.
 permissions:
   contents: read
 
@@ -183,10 +183,44 @@ jobs:
             build/caddy-module-overrides.patch
           if-no-files-found: error
 
+  rollback_authority:
+    name: staging-rollback-authority
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/staging' }}
+    needs: source_certification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      verified_sha: ${{ steps.authority.outputs.verified_sha }}
+    env:
+      SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - name: Check out protected staging without package access
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact staging authority without package access
+        id: authority
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = refs/heads/staging
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git rev-parse --verify --quiet refs/remotes/origin/staging >/dev/null
+          test "$(git rev-parse origin/staging)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "verified_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo CADDY_STAGING_ROLLBACK_AUTHORITY=PASS
+
   rollback_certification:
     name: staging-rollback-certification
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/staging' }}
-    needs: source_certification
+    needs: [source_certification, rollback_authority]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -194,22 +228,26 @@ jobs:
       packages: read
     env:
       SOURCE_SHA: ${{ github.sha }}
+      VERIFIED_SHA: ${{ needs.rollback_authority.outputs.verified_sha }}
     steps:
-      - name: Check out the protected staging source for rollback proof
+      - name: Accept credential-free staging authority before checkout
+        run: |
+          set -Eeuo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$VERIFIED_SHA" = "$SOURCE_SHA"
+          echo CADDY_STAGING_ROLLBACK_AUTHORITY_CONSUMED=PASS
+
+      - name: Check out previously verified protected staging source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ env.SOURCE_SHA }}
+          ref: ${{ env.VERIFIED_SHA }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove rollback job is bound to the protected staging push
+      - name: Prove credentialed job checked out only the verified staging SHA
         run: |
           set -Eeuo pipefail
-          test "$GITHUB_EVENT_NAME" = push
-          test "$GITHUB_REF" = refs/heads/staging
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          git rev-parse --verify --quiet refs/remotes/origin/staging >/dev/null
-          test "$(git rev-parse origin/staging)" = "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$VERIFIED_SHA"
           test -z "$(git status --porcelain)"
 
       - name: Authenticate to GHCR for rollback baseline
@@ -222,7 +260,7 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
 
-      - name: Rehearse the previous immutable rollback baseline from protected code
+      - name: Rehearse the previous immutable rollback baseline from verified protected code
         run: |
           set -o pipefail
           scripts/verify-rollback-baseline.sh | tee staging-rollback-rehearsal.txt
@@ -235,11 +273,12 @@ jobs:
             --arg source_sha "$SOURCE_SHA" \
             --arg rollback_sha256 "$rollback_sha256" \
             '{
-              schema:"codestra.caddy.staging-rollback-certification.v1",
+              schema:"codestra.caddy.staging-rollback-certification.v2",
               source_sha:$source_sha,
+              rollback_authority:"PASS",
               rollback_rehearsal:"PASS",
               rollback_output_sha256:$rollback_sha256,
-              credential_source:"protected_staging_push_only",
+              credential_source:"dependent_on_credential_free_staging_authority",
               public_traffic_changed:false,
               result:"PASS"
             }' > staging-rollback-certification.json
@@ -256,13 +295,14 @@ jobs:
   certification_gate:
     name: staging-certification-gate
     if: ${{ always() }}
-    needs: [source_certification, rollback_certification]
+    needs: [source_certification, rollback_authority, rollback_certification]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
     env:
       EVENT_NAME: ${{ github.event_name }}
       SOURCE_RESULT: ${{ needs.source_certification.result }}
+      ROLLBACK_AUTHORITY_RESULT: ${{ needs.rollback_authority.result }}
       ROLLBACK_RESULT: ${{ needs.rollback_certification.result }}
     steps:
       - name: Enforce credential separation and event-specific certification
@@ -270,16 +310,20 @@ jobs:
           set -Eeuo pipefail
           if [[ "$EVENT_NAME" == push ]]; then
             test "$SOURCE_RESULT" = success
+            test "$ROLLBACK_AUTHORITY_RESULT" = success
             test "$ROLLBACK_RESULT" = success
             echo CADDY_STAGING_SOURCE_CERTIFICATION=PASS
+            echo CADDY_STAGING_ROLLBACK_AUTHORITY=PASS
             echo CADDY_STAGING_ROLLBACK_CERTIFICATION=PASS
           elif [[ "$EVENT_NAME" == pull_request ]]; then
             test "$SOURCE_RESULT" = success
+            test "$ROLLBACK_AUTHORITY_RESULT" = skipped
             test "$ROLLBACK_RESULT" = skipped
             echo CADDY_PRODUCTION_PR_SOURCE_CERTIFICATION=PASS
             echo CADDY_PRODUCTION_PR_PACKAGE_CREDENTIALS=NOT_GRANTED
           else
             test "$SOURCE_RESULT" = success
+            test "$ROLLBACK_AUTHORITY_RESULT" = skipped
             test "$ROLLBACK_RESULT" = skipped
             echo CADDY_STAGING_SOURCE_CERTIFICATION=PASS
             echo CADDY_CREDENTIALED_ROLLBACK=NOT_RUN
