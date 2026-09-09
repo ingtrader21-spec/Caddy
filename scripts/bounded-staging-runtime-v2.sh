@@ -82,7 +82,6 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
   seen["$name"]=1
 done <"$ENV_FILE"
 for name in "${required[@]}"; do [[ -n "${values[$name]:-}" ]] || fail "missing_env:${name}"; done
-[[ "${values[CADDY_STAGING_KONG_UPSTREAM]}" != "${values[CADDY_KONG_UPSTREAM]}" ]] || fail staging_kong_not_dedicated
 
 # Preserve actual staging upstreams. Loopback upstreams are translated to the
 # Docker host gateway because the candidate has a private network namespace.
@@ -93,6 +92,7 @@ for name in "${required[@]}"; do
     localhost:*) values["$name"]="host.docker.internal:${values[$name]#localhost:}" ;;
   esac
 done
+[[ "${values[CADDY_STAGING_KONG_UPSTREAM]}" != "${values[CADDY_KONG_UPSTREAM]}" ]] || fail staging_kong_not_dedicated
 
 for endpoint in 127.0.0.1:18080 127.0.0.1:18443 127.0.0.1:12020 127.0.0.1:28080; do
   "$SS" -H -lntup | grep -Fq "$endpoint" && fail "bounded_listener_in_use:${endpoint}"
