@@ -9,7 +9,7 @@ class BoundedRuntimeCertificationTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/staging-certification.yml").read_text()
         for token in (
             "name: staging-certification",
-            "environment: staging-readonly",
+            "runs-on: ubuntu-24.04",
             "scripts/validate-ci.sh",
             "scripts/build-release-inputs.sh",
             "tests/runtime-bind-test.sh",
@@ -19,6 +19,8 @@ class BoundedRuntimeCertificationTests(unittest.TestCase):
             '"public_traffic_changed": False',
         ):
             self.assertIn(token, workflow)
+        self.assertNotIn("environment: staging-readonly", workflow)
+        self.assertNotIn("${{ vars.", workflow)
         self.assertNotIn("run-immutable-runtime.sh", workflow)
         self.assertNotIn("docker compose up", workflow)
 
