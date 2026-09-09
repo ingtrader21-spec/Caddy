@@ -66,7 +66,7 @@ jobs:
           set -Eeuo pipefail
           test "$GITHUB_REF" = refs/heads/production
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          git fetch origin production --depth=1
+          git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
           test "$(git rev-parse origin/production)" = "$SOURCE_SHA"
 
       - name: Install Cosign
@@ -220,7 +220,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           test "$(git rev-parse HEAD)" = "$CADDY_CANARY_SOURCE_SHA"
-          git fetch origin production --depth=1
+          git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
           test "$(git rev-parse origin/production)" = "$CADDY_CANARY_SOURCE_SHA"
           test "$(python3 scripts/hash_config_tree.py config)" = "$CADDY_CANARY_CONFIG_SHA256"
           test "$CADDY_CANARY_IMAGE" = \
