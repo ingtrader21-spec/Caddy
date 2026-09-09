@@ -217,30 +217,38 @@ api_status="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
 case "$api_status" in 200|204|401|403) ;; *) fail "kong_readonly:${api_status}" ;; esac
 grep -Eqi '^strict-transport-security: max-age=31536000' "$api_headers" || fail hsts
 
-staging_api_status="$($CURL --noproxy '*' -ksS --max-time 15 \
+# The internal staging host uses the candidate's private CA. Export only its
+# public root certificate and verify both the chain and requested hostname.
+staging_ca="$work/staging-root.crt"
+docker_cmd cp "$CANDIDATE:/data/caddy/pki/authorities/local/root.crt" "$staging_ca" >/dev/null
+as_root chmod 0644 "$staging_ca"
+[[ -s "$staging_ca" ]] || fail staging_ca_missing
+"$OPENSSL" x509 -in "$staging_ca" -noout -checkend 0 >/dev/null || fail staging_ca_invalid
+
+staging_api_status="$($CURL --noproxy '*' --silent --show-error --cacert "$staging_ca" --max-time 15 \
   --output /dev/null --write-out '%{http_code}' \
   --resolve api.staging.internal.codestra.agency:18443:127.0.0.1 \
   -H "${AUTH_HEADER_NAME}: ${AUTH_SCHEME} bounded-staging-invalid" \
   https://api.staging.internal.codestra.agency:18443/api/v1/health)"
 case "$staging_api_status" in 200|204|401|403) ;; *) fail "staging_api_readonly:${staging_api_status}" ;; esac
-staging_api_unknown="$($CURL --noproxy '*' -ksS --max-time 15 \
+staging_api_unknown="$($CURL --noproxy '*' --silent --show-error --cacert "$staging_ca" --max-time 15 \
   --output /dev/null --write-out '%{http_code}' \
   --resolve api.staging.internal.codestra.agency:18443:127.0.0.1 \
   https://api.staging.internal.codestra.agency:18443/not-a-contracted-route)"
 [[ "$staging_api_unknown" == 404 ]] || fail "staging_api_unknown:${staging_api_unknown}"
 
-bridge_staging_status="$($CURL --noproxy '*' -ksS --max-time 15 \
+bridge_staging_status="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
   --output /dev/null --write-out '%{http_code}' \
   --resolve bridge-staging.codestra.agency:18443:127.0.0.1 \
   -H "${AUTH_HEADER_NAME}: ${AUTH_SCHEME} bounded-staging-invalid" \
   https://bridge-staging.codestra.agency:18443/api/v1/health)"
 case "$bridge_staging_status" in 200|204|401|403) ;; *) fail "bridge_staging_readonly:${bridge_staging_status}" ;; esac
-bridge_staging_unknown="$($CURL --noproxy '*' -ksS --max-time 15 \
+bridge_staging_unknown="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
   --output /dev/null --write-out '%{http_code}' \
   --resolve bridge-staging.codestra.agency:18443:127.0.0.1 \
   https://bridge-staging.codestra.agency:18443/not-a-contracted-route)"
 [[ "$bridge_staging_unknown" == 404 ]] || fail "bridge_staging_unknown:${bridge_staging_unknown}"
-bridge_private_callback="$($CURL --noproxy '*' -ksS --max-time 15 \
+bridge_private_callback="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
   --output /dev/null --write-out '%{http_code}' \
   --resolve bridge-staging.codestra.agency:18443:127.0.0.1 \
   https://bridge-staging.codestra.agency:18443/api/v1/events/vicidial)"
