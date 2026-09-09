@@ -60,7 +60,7 @@ middleware_runtime_evidence_sha256="$(jq -r '.middleware_runtime_evidence_sha256
 [[ "$middleware_runtime_evidence_sha256" =~ ^[0-9a-f]{64}$ ]]
 
 [[ "$(git rev-parse HEAD)" == "$CADDY_CANARY_SOURCE_SHA" ]]
-git fetch origin production --depth=1
+git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
 [[ "$(git rev-parse origin/production)" == "$CADDY_CANARY_SOURCE_SHA" ]]
 [[ "$(python3 scripts/hash_config_tree.py config)" == "$CADDY_CANARY_CONFIG_SHA256" ]]
 [[ -f deploy/compose.runtime.yaml ]]
