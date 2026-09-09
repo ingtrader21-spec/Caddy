@@ -63,13 +63,17 @@ REQUIRED_ENVIRONMENT = {
     "CADDY_OPENBAO_UPSTREAM",
     "CADDY_OPENBAO_ALLOWED_CIDRS",
 }
-UPSTREAM_ENVIRONMENT = {name for name in REQUIRED_ENVIRONMENT if name.endswith("_UPSTREAM")}
+CONFIG_CONDITIONAL_ENVIRONMENT = {
+    "CADDY_STAGING_KONG_UPSTREAM",
+}
+KNOWN_RUNTIME_ENVIRONMENT = REQUIRED_ENVIRONMENT | CONFIG_CONDITIONAL_ENVIRONMENT
+UPSTREAM_ENVIRONMENT = {name for name in KNOWN_RUNTIME_ENVIRONMENT if name.endswith("_UPSTREAM")}
 IP_ENVIRONMENT = {
     "CADDY_PUBLIC_BIND",
     "CADDY_PRIVATE_METRICS_BIND",
     "CADDY_PRIVATE_INGRESS_BIND",
 }
-CIDR_ENVIRONMENT = {name for name in REQUIRED_ENVIRONMENT if name.endswith("_CIDRS")}
+CIDR_ENVIRONMENT = {name for name in KNOWN_RUNTIME_ENVIRONMENT if name.endswith("_CIDRS")}
 
 
 class ValidationError(RuntimeError):
@@ -99,8 +103,25 @@ def parse_environment(entries: list[str]) -> dict[str, str]:
     return output
 
 
-def validate_environment(environment: dict[str, str]) -> None:
-    missing = sorted(name for name in REQUIRED_ENVIRONMENT if not environment.get(name))
+def config_required_environment(root: Path) -> set[str]:
+    """Return requirements implied by the exact running configuration tree."""
+    required = set(REQUIRED_ENVIRONMENT)
+    for name in CONFIG_CONDITIONAL_ENVIRONMENT:
+        marker = f"{{${name}}}".encode()
+        for path in sorted(root.rglob("*"), key=lambda item: item.as_posix()):
+            relative = path.relative_to(root)
+            if relative.parts and relative.parts[0] == "private":
+                continue
+            if path.is_symlink():
+                raise ValidationError("container configuration contains a symbolic link")
+            if path.is_file() and marker in path.read_bytes():
+                required.add(name)
+                break
+    return required
+
+
+def validate_environment(environment: dict[str, str], required: set[str]) -> None:
+    missing = sorted(name for name in required if not environment.get(name))
     if missing:
         raise ValidationError("required runtime environment missing: " + ",".join(missing))
 
@@ -110,7 +131,9 @@ def validate_environment(environment: dict[str, str]) -> None:
         for value in environment[name].split():
             ipaddress.ip_network(value, strict=False)
     for name in UPSTREAM_ENVIRONMENT:
-        value = environment[name]
+        value = environment.get(name)
+        if not value:
+            continue
         if not re.fullmatch(r"(?:[A-Za-z0-9_.-]+|\[[0-9A-Fa-f:]+\]):[0-9]{1,5}", value):
             raise ValidationError(f"invalid upstream environment: {name}")
         if not 1 <= int(value.rsplit(":", 1)[1]) <= 65535:
@@ -263,7 +286,17 @@ def main() -> int:
         raise ValidationError("image runtime user is not non-root")
 
     environment = parse_environment(config.get("Env") or [])
-    validate_environment(environment)
+    copied = Path(tempfile.mkdtemp(prefix="codestra-caddy-config-"))
+    try:
+        run([DOCKER, "cp", f"{CONTAINER}:/etc/caddy/.", str(copied)], timeout=60)
+        actual_config_sha = config_tree_hash(copied)
+        runtime_required_environment = config_required_environment(copied)
+    finally:
+        shutil.rmtree(copied, ignore_errors=True)
+    if actual_config_sha != config_sha:
+        raise ValidationError("running configuration checksum does not match the signed image")
+    validate_environment(environment, runtime_required_environment)
+
     run([DOCKER, "exec", CONTAINER, "/usr/bin/caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"])
     adapted = json.loads(
         run([DOCKER, "exec", CONTAINER, "/usr/bin/caddy", "adapt", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"])
@@ -280,15 +313,6 @@ def main() -> int:
     missing_modules = sorted(REQUIRED_MODULES - modules)
     if missing_modules:
         raise ValidationError("required Caddy modules missing: " + ",".join(missing_modules))
-
-    copied = Path(tempfile.mkdtemp(prefix="codestra-caddy-config-"))
-    try:
-        run([DOCKER, "cp", f"{CONTAINER}:/etc/caddy/.", str(copied)], timeout=60)
-        actual_config_sha = config_tree_hash(copied)
-    finally:
-        shutil.rmtree(copied, ignore_errors=True)
-    if actual_config_sha != config_sha:
-        raise ValidationError("running configuration checksum does not match the signed image")
 
     runtime_pid = caddy_host_pid()
     sockets = run([SS, "-H", "-lntup"])
@@ -336,7 +360,8 @@ def main() -> int:
         "config_identity": "PASS",
         "effective_access_log_redaction": "PASS",
         "effective_access_log_count": access_log_count,
-        "runtime_environment": sorted(REQUIRED_ENVIRONMENT),
+        "runtime_environment": sorted(name for name in KNOWN_RUNTIME_ENVIRONMENT if environment.get(name)),
+        "runtime_environment_required": sorted(runtime_required_environment),
         "module_set_sha256": hashlib.sha256("\n".join(sorted(modules)).encode()).hexdigest(),
         "adapted": adapted_summary(adapted),
         "listeners": listeners,

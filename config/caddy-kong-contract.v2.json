@@ -60,6 +60,21 @@
     "/readyz",
     "/version"
   ],
+  "publicReadOnlyCanary": {
+    "host": "api.codestra.co",
+    "paths": [
+      "/healthz",
+      "/readyz",
+      "/version"
+    ],
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "upstreamAuthority": "websocket-gateway",
+    "kongManaged": false,
+    "writeMethodsDeniedAtEdge": true
+  },
   "legacyApiFallback": {
     "enabled": false,
     "unrestrictedCatchAllAllowed": false,

@@ -109,6 +109,22 @@ def main() -> int:
             token[:-1] if token.endswith("*") else token
             for token in match.group(1).split()
         }
+        if site_name == "api.codestra.co.caddy":
+            canary = contract.get("publicReadOnlyCanary") or {}
+            if canary != {
+                "host": "api.codestra.co",
+                "paths": ["/healthz", "/readyz", "/version"],
+                "methods": ["GET", "HEAD"],
+                "upstreamAuthority": "websocket-gateway",
+                "kongManaged": False,
+                "writeMethodsDeniedAtEdge": True,
+            }:
+                raise SystemExit("CADDY_REPOSITORY_ERROR=public_canary_contract")
+            if "method GET HEAD" not in source or "not method GET HEAD" not in source:
+                raise SystemExit("CADDY_REPOSITORY_ERROR=public_canary_methods")
+            if 'respond "Method Not Allowed" 405' not in source:
+                raise SystemExit("CADDY_REPOSITORY_ERROR=public_canary_write_denial")
+            routed.update(canary["paths"])
         if routed != set(compatibility):
             raise SystemExit(f"CADDY_REPOSITORY_ERROR=realtime_contract_drift:{site_name}")
 
