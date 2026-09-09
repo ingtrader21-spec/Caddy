@@ -9,6 +9,28 @@ api.codestra.co {
 	}
 
 	route {
+		# The initial public canary is deliberately smaller than the API surface.
+		# Fail closed at the terminating edge before a non-read method can reach
+		# the compatibility health authority.
+		@readonly_canary_denied {
+			path /healthz /readyz /version
+			not method GET HEAD
+		}
+		handle @readonly_canary_denied {
+			header Allow "GET, HEAD"
+			respond "Method Not Allowed" 405
+		}
+
+		@readonly_canary {
+			method GET HEAD
+			path /healthz /readyz /version
+		}
+		handle @readonly_canary {
+			reverse_proxy {$CADDY_REALTIME_UPSTREAM} {
+				import proxy_common
+			}
+		}
+
 		# Only route path families backed by reviewed Kong source. Broad
 		# /api/v1/control matching is deliberately avoided so an unimplemented
 		# control subtype cannot become reachable by accident.
@@ -20,7 +42,7 @@ api.codestra.co {
 		}
 
 		# Explicit, monitored compatibility only. There is no generic fallback.
-		@realtime path /ws/agent /api/v1/realtime/sessions /healthz /readyz /version
+		@realtime path /ws/agent /api/v1/realtime/sessions
 		handle @realtime {
 			reverse_proxy {$CADDY_REALTIME_UPSTREAM} {
 				import proxy_common

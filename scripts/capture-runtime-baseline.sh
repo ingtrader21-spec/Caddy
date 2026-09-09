@@ -85,15 +85,16 @@ required = {
     "CADDY_GRAFANA_UPSTREAM", "CADDY_SUPERSET_UPSTREAM", "CADDY_OPENBAO_UPSTREAM",
     "CADDY_OPENBAO_ALLOWED_CIDRS",
 }
+optional = {"CADDY_STAGING_KONG_UPSTREAM"}
 environment = {}
 for entry in config.get("Env") or []:
     if "=" not in entry:
         continue
     key, value = entry.split("=", 1)
-    if key in required:
+    if key in required | optional:
         assert value and "\n" not in value and "\r" not in value
         environment[key] = value
-assert set(environment) == required
+assert required <= set(environment) <= required | optional
 Path(environment_path).write_text(
     "".join(f"{key}={environment[key]}\n" for key in sorted(environment)),
     encoding="utf-8",
