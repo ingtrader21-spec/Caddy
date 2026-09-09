@@ -66,7 +66,7 @@ jobs:
           set -Eeuo pipefail
           test "$GITHUB_REF" = refs/heads/production
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          git fetch origin production --depth=1
+          git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
           test "$(git rev-parse origin/production)" = "$SOURCE_SHA"
 
       - name: Install Cosign
@@ -123,6 +123,26 @@ jobs:
           printf 'source_sha=%s\nimage=%s\nimage_digest=%s\nconfig_sha256=%s\n' \
             "$SOURCE_SHA" "$image" "$image_digest" "$config_sha256" >> "$GITHUB_OUTPUT"
           echo CADDY_SIGNED_CANDIDATE=PASS
+
+      - name: Refresh protected production authority immediately before bounded staging use
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          path: .production-authority-staging
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove production authority at bounded staging use time
+        run: |
+          set -Eeuo pipefail
+          authority=.production-authority-staging
+          test "$(git -C "$authority" rev-parse HEAD)" = "$SOURCE_SHA"
+          git -C "$authority" rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
+          test "$(git -C "$authority" rev-parse origin/production)" = "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(python3 scripts/hash_config_tree.py config)" = "${{ steps.candidate.outputs.config_sha256 }}"
+          rm -rf -- "$authority"
+          echo CADDY_PRODUCTION_AUTHORITY_AT_STAGING_USE=PASS
 
       - name: Deploy and certify exact digest on the bounded staging runtime
         env:
@@ -220,7 +240,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           test "$(git rev-parse HEAD)" = "$CADDY_CANARY_SOURCE_SHA"
-          git fetch origin production --depth=1
+          git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
           test "$(git rev-parse origin/production)" = "$CADDY_CANARY_SOURCE_SHA"
           test "$(python3 scripts/hash_config_tree.py config)" = "$CADDY_CANARY_CONFIG_SHA256"
           test "$CADDY_CANARY_IMAGE" = \
@@ -276,6 +296,26 @@ jobs:
             --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/immutable-release.yml@refs/heads/production$" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "$CADDY_CANARY_IMAGE" > verified-production-attestation.json
+
+      - name: Refresh protected production authority immediately before canary use
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.CADDY_CANARY_SOURCE_SHA }}
+          path: .production-authority-canary
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove production authority at canary use time
+        run: |
+          set -Eeuo pipefail
+          authority=.production-authority-canary
+          test "$(git -C "$authority" rev-parse HEAD)" = "$CADDY_CANARY_SOURCE_SHA"
+          git -C "$authority" rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
+          test "$(git -C "$authority" rev-parse origin/production)" = "$CADDY_CANARY_SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$CADDY_CANARY_SOURCE_SHA"
+          test "$(python3 scripts/hash_config_tree.py config)" = "$CADDY_CANARY_CONFIG_SHA256"
+          rm -rf -- "$authority"
+          echo CADDY_PRODUCTION_AUTHORITY_AT_CANARY_USE=PASS
 
       - name: Run bounded production read-only canary
         run: |
