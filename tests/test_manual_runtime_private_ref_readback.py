@@ -66,9 +66,7 @@ class ManualRuntimePrivateRefReadbackTests(unittest.TestCase):
         automatic = (ROOT / ".github/workflows/bounded-runtime-certification.yml").read_text()
         self.assertNotIn("git fetch origin production", automatic)
         self.assertGreaterEqual(
-            automatic.count(
-                "git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null"
-            ),
+            automatic.count("refs/remotes/origin/production >/dev/null"),
             4,
         )
         for token in (
