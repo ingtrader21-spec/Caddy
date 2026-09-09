@@ -54,6 +54,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Refresh current production authority immediately before preflight
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: production
+          fetch-depth: 0
+          persist-credentials: false
+          clean: false
+
+      - name: Prove production authority at preflight use time
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF" = refs/heads/production
+          test "$(git branch --show-current)" = production
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
+          test "$(git rev-parse origin/production)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo CADDY_PRODUCTION_AUTHORITY_AT_PREFLIGHT_USE=PASS
+
       - id: candidate
         name: Verify branch governance, protected environments, source, signed digest, labels, attestation, and release identity
         env:
@@ -139,6 +158,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Refresh current production authority immediately before bounded staging use
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: production
+          fetch-depth: 0
+          persist-credentials: false
+          clean: false
+
+      - name: Prove production authority at bounded staging use time
+        run: |
+          set -Eeuo pipefail
+          test "$(git branch --show-current)" = production
+          test "$(git rev-parse HEAD)" = "$CADDY_STAGING_SOURCE_SHA"
+          git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
+          test "$(git rev-parse origin/production)" = "$CADDY_STAGING_SOURCE_SHA"
+          test "$(python3 scripts/hash_config_tree.py config)" = "$CADDY_STAGING_CONFIG_SHA256"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo CADDY_PRODUCTION_AUTHORITY_AT_MANUAL_STAGING_USE=PASS
+
       - id: certify
         name: Deploy exact digest, certify bounded staging, and prove rollback
         run: bash scripts/manual-staging-certify.sh
@@ -197,6 +235,25 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refresh current production authority immediately before read-only canary use
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: production
+          fetch-depth: 0
+          persist-credentials: false
+          clean: false
+
+      - name: Prove production authority at read-only canary use time
+        run: |
+          set -Eeuo pipefail
+          test "$(git branch --show-current)" = production
+          test "$(git rev-parse HEAD)" = "$CADDY_CANARY_SOURCE_SHA"
+          git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
+          test "$(git rev-parse origin/production)" = "$CADDY_CANARY_SOURCE_SHA"
+          test "$(python3 scripts/hash_config_tree.py config)" = "$CADDY_CANARY_CONFIG_SHA256"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo CADDY_PRODUCTION_AUTHORITY_AT_MANUAL_CANARY_USE=PASS
 
       - name: Verify all evidence and execute the read-only production canary
         run: bash scripts/manual-production-readonly-canary.sh
@@ -282,6 +339,26 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refresh current production authority immediately before activation use
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: production
+          fetch-depth: 0
+          persist-credentials: false
+          clean: false
+
+      - name: Prove production authority at activation use time
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF" = refs/heads/production
+          test "$(git branch --show-current)" = production
+          test "$(git rev-parse HEAD)" = "$CADDY_ACTIVATION_SOURCE_SHA"
+          git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
+          test "$(git rev-parse origin/production)" = "$CADDY_ACTIVATION_SOURCE_SHA"
+          test "$(python3 scripts/hash_config_tree.py config)" = "$CADDY_ACTIVATION_CONFIG_SHA256"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo CADDY_PRODUCTION_AUTHORITY_AT_ACTIVATION_USE=PASS
 
       - id: activate
         name: Capture the live baseline and activate the exact signed digest

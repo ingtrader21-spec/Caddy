@@ -15,7 +15,7 @@ expected_confirmation="${EXPECTED_CONFIRMATION:-RUN_CADDY_PRODUCTION}"
 [[ "$GITHUB_REF" == refs/heads/production ]]
 [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
 [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
-git fetch origin production --depth=1
+git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null
 [[ "$(git rev-parse origin/production)" == "$GITHUB_SHA" ]]
 [[ -z "$(git status --porcelain)" ]]
 
