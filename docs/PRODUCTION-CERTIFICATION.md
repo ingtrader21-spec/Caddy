@@ -16,9 +16,19 @@ The repository must prove all of the following before a runtime candidate exists
 
 ## Staging source certification
 
-A push to `staging` and a governed `staging -> production` pull request run `.github/workflows/staging-certification.yml` as isolated GitHub-hosted CI on `ubuntu-24.04`. This source-certification job intentionally does **not** request the protected `staging-readonly` environment and consumes no protected environment variables. It first validates the exact direct or governed reconciliation promotion route, then builds the exact source SHA, runs the full disposable protocol/security canary, scans the image, verifies the prior rollback baseline, and uploads `staging-certification.json`.
+A push to `staging` and a governed same-repository `staging -> production` pull request run `.github/workflows/staging-certification.yml` as isolated GitHub-hosted CI on `ubuntu-24.04`. The source-certification job intentionally does **not** request the protected `staging-readonly` environment, does not consume protected environment variables, and has only `contents: read` repository permission. Production pull-request certification is rejected unless the head repository is the canonical repository and the direct or governed reconciliation route validates against the exact protected branch trees.
+
+The source job builds the exact source SHA, runs the full disposable protocol/security canary, scans the image, and uploads `staging-certification.json`. It never authenticates to GHCR, never installs a package-readable Docker credential, and never executes rollback code after such a credential has been installed.
 
 This source gate does not reload a host Caddy process, bind a public interface, change DNS, modify firewall or SSH policy, move traffic, or constitute protected runtime-environment admission. Protected `staging-readonly` admission is reserved for the later self-hosted bounded staging runtime described below.
+
+## Protected staging rollback certification
+
+Rollback rehearsal is a separate job in the same workflow and runs **only** for a push to the protected `staging` branch after source certification succeeds. Only that protected-push job receives `packages: read`, authenticates to GHCR, installs Cosign, and executes `scripts/verify-rollback-baseline.sh`. It rechecks that both the local checkout and `origin/staging` equal the exact protected staging push SHA before credential handling.
+
+Passing rollback evidence is written to `staging-rollback-certification.json` and uploaded separately from the credential-free source packet. A production pull request does not receive package credentials and does not claim a new rollback rehearsal; production promotion must use the exact tree already present on protected `staging` and requires the corresponding protected staging-push rollback gate to be PASS.
+
+The workflow's `staging-certification-gate` requires both source certification and rollback certification on a protected staging push. On a production pull request it requires the credential-free source certification and explicitly requires the credentialed rollback job to be skipped.
 
 ## Signed bounded staging runtime
 
@@ -76,6 +86,6 @@ The fixed-target validator must return `codestra.caddy-container-validation.v2` 
 
 ## Rollback boundary
 
-The previous immutable digest in `config/release-baseline.v1.json` must remain signed by the protected production workflow identity. Staging and the release gate rehearse the baseline in a disposable runtime. A real production rollback remains a separate operator action through `scripts/rollback-runtime.sh`; the read-only canary never invokes it.
+The previous immutable digest in `config/release-baseline.v1.json` must remain signed by the protected production workflow identity. The protected staging push and the release gate rehearse the baseline in disposable runtimes. A real production rollback remains a separate operator action through `scripts/rollback-runtime.sh`; the read-only canary never invokes it.
 
-No source-only check is represented as live runtime evidence, and no queued or skipped self-hosted job is represented as a pass.
+No source-only check is represented as live runtime evidence, no production-PR source check is represented as a protected staging rollback pass, and no queued or skipped self-hosted job is represented as a pass.
