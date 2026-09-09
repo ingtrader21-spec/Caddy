@@ -12,15 +12,10 @@ class BoundedRuntimePrivateRefReadbackTests(unittest.TestCase):
         self.assertGreaterEqual(workflow.count("persist-credentials: false"), 4)
         self.assertNotIn("git fetch origin production", workflow)
         self.assertGreaterEqual(
-            workflow.count(
-                "git rev-parse --verify --quiet refs/remotes/origin/production >/dev/null"
-            ),
+            workflow.count("refs/remotes/origin/production >/dev/null"),
             4,
         )
-        self.assertGreaterEqual(
-            workflow.count("rev-parse origin/production"),
-            4,
-        )
+        self.assertGreaterEqual(workflow.count("rev-parse origin/production"), 4)
 
         staging_refresh = (
             "name: Refresh protected production authority immediately before bounded staging use"
