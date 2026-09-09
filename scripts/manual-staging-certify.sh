@@ -61,12 +61,16 @@ cosign verify-attestation \
 set -o pipefail
 bash scripts/bounded-staging-runtime-v2.sh | tee bounded-staging-runtime.txt
 [[ -s caddy-kong-middleware-runtime-evidence.json ]]
+[[ -s bounded-staging-runtime-evidence.json ]]
 python3 - <<'PY'
 import json
 from pathlib import Path
 
 value = json.loads(Path("caddy-kong-middleware-runtime-evidence.json").read_text())
 assert value["schema"] == "codestra.caddy-kong-middleware-runtime.v1"
+assert value["gateway_environment"] == "staging"
+assert value["route"]["edge_host"] == "bridge-staging.codestra.agency"
+assert value["route"]["gateway_environment"] == "staging"
 assert value["route"]["method"] == "GET"
 assert value["route"]["status"] == 404
 assert value["route"]["middleware_error_code"] == "command_not_found"
@@ -76,10 +80,17 @@ assert value["application_mutations"] == 0
 assert value["provider_effects"] == 0
 assert value["external_effects_authorized"] is False
 assert value["result"] == "PASS"
+
+bounded = json.loads(Path("bounded-staging-runtime-evidence.json").read_text())
+assert bounded["staging_gateway_identity"] == "PASS"
+assert bounded["staging_ca_anchor"] == "PASS"
+assert len(bounded["staging_gateway_identity_evidence_sha256"]) == 64
+assert len(bounded["staging_ca_anchor_sha256"]) == 64
+assert bounded["public_traffic_changed"] is False
+assert bounded["result"] == "PASS"
 PY
 bash scripts/verify-rollback-baseline.sh | tee bounded-staging-rollback.txt
 
-[[ -s bounded-staging-runtime-evidence.json ]]
 grep -F -- "$CADDY_STAGING_SOURCE_SHA" bounded-staging-runtime-evidence.json >/dev/null
 grep -F -- "$CADDY_STAGING_CONFIG_SHA256" bounded-staging-runtime-evidence.json >/dev/null
 
