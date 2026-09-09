@@ -15,3 +15,14 @@ There is no generic legacy upstream and no unrestricted catch-all. Only the expl
 Caddy must not create trusted `X-Authenticated-*` or gateway-secret headers. Browser-supplied identity headers are removed on administrative surfaces, while the incoming bearer token for Kong-managed API routes is preserved in transit and removed from logs.
 
 A green source workflow does not authorize a live reload. Production acceptance additionally requires the signed image identity, actual-container read-back, real-network TLS/Kong/Keycloak checks, and rollback evidence described in `PRODUCTION-CERTIFICATION.md`.
+
+## Staging gateway isolation
+
+Both staging API hosts require `CADDY_STAGING_KONG_UPSTREAM`, a dedicated staging
+Kong proxy configured with staging Middleware routes. The preserved
+`Host: api.codestra.co` selects the host-bound API routes on that staging gateway.
+The endpoint must not point to production Kong or directly to Middleware.
+`CADDY_STAGING_API_UPSTREAM` remains the staging Middleware version-readback
+endpoint; it is not the public shared API proxy. Provision the new variable in
+reviewed runtime environment files before promoting this configuration.
+Historical rollback records without this variable remain accepted.

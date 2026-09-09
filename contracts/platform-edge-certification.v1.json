@@ -7,9 +7,9 @@
     "role": "principal-caddy-configuration-source",
     "candidateBranch": "development",
     "configurationRoot": "config",
-    "configurationTreeGitSha": "2c5da8b5d58ba278a2ecd9cae1d0603b6cae5ae0",
+    "configurationTreeGitSha": "e84ffce3b94306b697e91924d38c004505f29caa",
     "configurationDigestAlgorithm": "codestra.config-tree-sha256.v1",
-    "configurationSha256": "d794b423a8fb16e9c9ca014481159b0d31d8465351f25de9d28c4d7ec92793ba",
+    "configurationSha256": "683b43a24ef045516a2c3dd2c36ed09d8940c062d388456d1c7426fadf7292ef",
     "configurationIdentityPolicy": "git-tree-and-content-digest-survive-squash",
     "excludedTopLevelRuntimeMounts": [
       "private"

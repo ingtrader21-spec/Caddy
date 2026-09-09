@@ -55,7 +55,7 @@ case "$(stat -c %a "$ENV_FILE")" in 400|600) ;; *) fail env_mode ;; esac
 required=(
   CADDY_PUBLIC_BIND CADDY_PRIVATE_METRICS_BIND CADDY_PRIVATE_INGRESS_BIND
   CADDY_KLYROW_SOURCE_CIDRS CADDY_VICIDIAL_SOURCE_CIDRS
-  CADDY_STAGING_EVENT_SOURCE_CIDRS CADDY_KONG_UPSTREAM
+  CADDY_STAGING_EVENT_SOURCE_CIDRS CADDY_KONG_UPSTREAM CADDY_STAGING_KONG_UPSTREAM
   CADDY_REALTIME_UPSTREAM CADDY_KEYCLOAK_UPSTREAM
   CADDY_CRM_RESELLER_UPSTREAM CADDY_CRM_UPSTREAM CADDY_N8N_UPSTREAM
   CADDY_N8N_STAGING_UPSTREAM CADDY_STAGING_API_UPSTREAM
@@ -92,6 +92,7 @@ for name in "${required[@]}"; do
     localhost:*) values["$name"]="host.docker.internal:${values[$name]#localhost:}" ;;
   esac
 done
+[[ "${values[CADDY_STAGING_KONG_UPSTREAM]}" != "${values[CADDY_KONG_UPSTREAM]}" ]] || fail staging_kong_not_dedicated
 
 for endpoint in 127.0.0.1:18080 127.0.0.1:18443 127.0.0.1:12020 127.0.0.1:28080; do
   "$SS" -H -lntup | grep -Fq "$endpoint" && fail "bounded_listener_in_use:${endpoint}"
@@ -216,6 +217,43 @@ api_status="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
 case "$api_status" in 200|204|401|403) ;; *) fail "kong_readonly:${api_status}" ;; esac
 grep -Eqi '^strict-transport-security: max-age=31536000' "$api_headers" || fail hsts
 
+# The internal staging host uses the candidate's private CA. Export only its
+# public root certificate and verify both the chain and requested hostname.
+staging_ca="$work/staging-root.crt"
+docker_cmd cp "$CANDIDATE:/data/caddy/pki/authorities/local/root.crt" "$staging_ca" >/dev/null
+as_root chmod 0644 "$staging_ca"
+[[ -s "$staging_ca" ]] || fail staging_ca_missing
+"$OPENSSL" x509 -in "$staging_ca" -noout -checkend 0 >/dev/null || fail staging_ca_invalid
+
+staging_api_status="$($CURL --noproxy '*' --silent --show-error --cacert "$staging_ca" --max-time 15 \
+  --output /dev/null --write-out '%{http_code}' \
+  --resolve api.staging.internal.codestra.agency:18443:127.0.0.1 \
+  -H "${AUTH_HEADER_NAME}: ${AUTH_SCHEME} bounded-staging-invalid" \
+  https://api.staging.internal.codestra.agency:18443/api/v1/health)"
+case "$staging_api_status" in 200|204|401|403) ;; *) fail "staging_api_readonly:${staging_api_status}" ;; esac
+staging_api_unknown="$($CURL --noproxy '*' --silent --show-error --cacert "$staging_ca" --max-time 15 \
+  --output /dev/null --write-out '%{http_code}' \
+  --resolve api.staging.internal.codestra.agency:18443:127.0.0.1 \
+  https://api.staging.internal.codestra.agency:18443/not-a-contracted-route)"
+[[ "$staging_api_unknown" == 404 ]] || fail "staging_api_unknown:${staging_api_unknown}"
+
+bridge_staging_status="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
+  --output /dev/null --write-out '%{http_code}' \
+  --resolve bridge-staging.codestra.agency:18443:127.0.0.1 \
+  -H "${AUTH_HEADER_NAME}: ${AUTH_SCHEME} bounded-staging-invalid" \
+  https://bridge-staging.codestra.agency:18443/api/v1/health)"
+case "$bridge_staging_status" in 200|204|401|403) ;; *) fail "bridge_staging_readonly:${bridge_staging_status}" ;; esac
+bridge_staging_unknown="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
+  --output /dev/null --write-out '%{http_code}' \
+  --resolve bridge-staging.codestra.agency:18443:127.0.0.1 \
+  https://bridge-staging.codestra.agency:18443/not-a-contracted-route)"
+[[ "$bridge_staging_unknown" == 404 ]] || fail "bridge_staging_unknown:${bridge_staging_unknown}"
+bridge_private_callback="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
+  --output /dev/null --write-out '%{http_code}' \
+  --resolve bridge-staging.codestra.agency:18443:127.0.0.1 \
+  https://bridge-staging.codestra.agency:18443/api/v1/events/vicidial)"
+[[ "$bridge_private_callback" == 404 ]] || fail "bridge_private_callback:${bridge_private_callback}"
+
 version_status="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
   --output "$work/version.body" --write-out '%{http_code}' \
   --resolve api.codestra.co:18443:127.0.0.1 https://api.codestra.co:18443/version)"
@@ -327,10 +365,24 @@ for endpoint in 127.0.0.1:18080 127.0.0.1:18443 127.0.0.1:12020 127.0.0.1:28080;
   ! "$SS" -H -lntup | grep -Fq "$endpoint" || fail "listener_not_released:${endpoint}"
 done
 
-"$PYTHON" - "$SOURCE_SHA" "$IMAGE" "$CONFIG_SHA256" "$runtime_config_sha256" "$module_sha256" "$api_status" "$version_status" "$keycloak_status" <<'PY'
+"$PYTHON" - "$SOURCE_SHA" "$IMAGE" "$CONFIG_SHA256" "$runtime_config_sha256" "$module_sha256" "$api_status" "$version_status" "$keycloak_status" "$staging_api_status" "$staging_api_unknown" "$bridge_staging_status" "$bridge_staging_unknown" "$bridge_private_callback" <<'PY'
 import json, sys
 from pathlib import Path
-source_sha, image, config_sha256, runtime_config_sha256, module_sha256, api_status, version_status, keycloak_status = sys.argv[1:]
+(
+    source_sha,
+    image,
+    config_sha256,
+    runtime_config_sha256,
+    module_sha256,
+    api_status,
+    version_status,
+    keycloak_status,
+    staging_api_status,
+    staging_api_unknown,
+    bridge_staging_status,
+    bridge_staging_unknown,
+    bridge_private_callback,
+) = sys.argv[1:]
 evidence = {
     "schema": "codestra.caddy.bounded-staging-runtime.v2",
     "source_sha": source_sha,
@@ -348,6 +400,12 @@ evidence = {
     "kong_readonly_status": int(api_status),
     "realtime_readonly_status": int(version_status),
     "keycloak_readonly_status": int(keycloak_status),
+    "staging_gateway_readonly": "PASS",
+    "staging_api_readonly_status": int(staging_api_status),
+    "staging_api_unknown_status": int(staging_api_unknown),
+    "bridge_staging_readonly_status": int(bridge_staging_status),
+    "bridge_staging_unknown_status": int(bridge_staging_unknown),
+    "bridge_private_callback_denial_status": int(bridge_private_callback),
     "editor_openbao_denial": "PASS",
     "mtls_handshake_and_denial": "PASS",
     "sanitized_logs": "PASS",

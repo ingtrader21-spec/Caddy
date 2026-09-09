@@ -181,6 +181,17 @@ test "$unknown" = 404
 legacy="$(curl -ksS --resolve api.codestra.agency:443:127.0.0.2 https://api.codestra.agency/api/v1/health)"
 grep -q '"port": 8000' <<<"$legacy"
 
+STAGE="staging-kong-isolation"
+for host in api.staging.internal.codestra.agency bridge-staging.codestra.agency; do
+  staging="$(curl -ksS --resolve "$host:443:127.0.0.2" "https://$host/api/v1/health")"
+  grep -q '"port": 18000' <<<"$staging"
+  grep -q '"host": "api.codestra.co"' <<<"$staging"
+done
+private_callback="$(curl -ksS -o /dev/null -w '%{http_code}' \
+  --resolve bridge-staging.codestra.agency:443:127.0.0.2 \
+  https://bridge-staging.codestra.agency/api/v1/events/vicidial)"
+test "$private_callback" = 404
+
 STAGE="keycloak-and-access-denials"
 redirect_headers="$(curl -ksSI --resolve automation.codestra.co:443:127.0.0.2 https://automation.codestra.co/)"
 grep -q '^HTTP/.* 302' <<<"$redirect_headers"
