@@ -3,8 +3,18 @@ api.staging.internal.codestra.agency {
 	import security_headers
 	encode gzip
 
-	reverse_proxy {$CADDY_STAGING_API_UPSTREAM} {
-		import proxy_common
+	route {
+		@kong path /api/v1/control/messages* /api/v1/control/campaigns* /api/v1/control/agents* /api/v1/control/memberships* /api/v1/control/adapters* /api/v1/messages* /api/v1/events* /api/v1/results* /api/v1/reconciliation* /api/v1/health* /v1/integrations/n8n* /v1/admin/system* /v1/crm* /v1/email* /v1/sms* /v1/webhooks* /v1/intake*
+		handle @kong {
+			reverse_proxy {$CADDY_STAGING_KONG_UPSTREAM} {
+				import proxy_common
+				header_up Host api.codestra.co
+			}
+		}
+
+		handle {
+			respond "Not Found" 404
+		}
 	}
 
 	log {
@@ -118,8 +128,16 @@ bridge-staging.codestra.agency {
 		@private_callback path /api/v1/events/vicidial
 		respond @private_callback 404
 
-		reverse_proxy {$CADDY_STAGING_API_UPSTREAM} {
-			import proxy_common
+		@kong path /api/v1/control/messages* /api/v1/control/campaigns* /api/v1/control/agents* /api/v1/control/memberships* /api/v1/control/adapters* /api/v1/messages* /api/v1/events* /api/v1/results* /api/v1/reconciliation* /api/v1/health* /v1/integrations/n8n* /v1/admin/system* /v1/crm* /v1/email* /v1/sms* /v1/webhooks* /v1/intake*
+		handle @kong {
+			reverse_proxy {$CADDY_STAGING_KONG_UPSTREAM} {
+				import proxy_common
+				header_up Host api.codestra.co
+			}
+		}
+
+		handle {
+			respond "Not Found" 404
 		}
 	}
 

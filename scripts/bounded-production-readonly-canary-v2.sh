@@ -63,14 +63,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Establish the complete immutable live-runtime baseline before any probe.
 run_validator pre-canary-runtime.json
 pre_sha256="$(sha256sum pre-canary-runtime.json | awk '{print $1}')"
 
-# Post-activation and rollback modes both require the actual running immutable
-# tuple to equal the supplied expected tuple. Pre-activation mode deliberately
-# does not impose that identity because it certifies the existing live runtime
-# without starting the candidate.
 if [[ "$MODE" != pre-activation ]]; then
   "$PYTHON" - pre-canary-runtime.json "$SOURCE_SHA" "$IMAGE" "$CONFIG_SHA256" <<'PY'
 import json
@@ -93,10 +88,6 @@ assert value["effective_access_log_redaction"] == "PASS"
 PY
 fi
 
-# Verify the immutable expected image tuple. In rollback mode the protected
-# checkout intentionally remains on the candidate while the restored baseline
-# image may contain an older configuration, so image identity is proven from
-# the signed image contents instead of from ROOT/config.
 docker_cmd pull "$IMAGE" >/dev/null
 [[ "$(docker_cmd image inspect "$IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.source"}}')" == https://github.com/appolon1908-hue/Caddy ]] || fail candidate_source
 [[ "$(docker_cmd image inspect "$IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$SOURCE_SHA" ]] || fail candidate_revision
@@ -115,8 +106,6 @@ if [[ "$MODE" != rollback ]]; then
   [[ "$("$PYTHON" "$HASH_CONFIG" "$ROOT/config")" == "$CONFIG_SHA256" ]] || fail source_config
 fi
 
-# Validate the expected image configuration without networking or replacing the
-# live container. Fixed PKI mounts are read-only.
 docker_cmd run --rm --network none \
   --mount type=bind,src=/etc/caddy/private/klyrow-events,dst=/etc/caddy/private/klyrow-events,readonly \
   --mount type=bind,src=/etc/codestra/pki/middleware-private-ingress,dst=/etc/codestra/pki/middleware-private-ingress,readonly \
@@ -192,9 +181,6 @@ bao_status="$($CURL --interface 127.0.0.3 --noproxy '*' -ksS --output /dev/null 
   --resolve "bao.codestra.media:443:${public_bind}" https://bao.codestra.media/)"
 [[ "$bao_status" == 403 ]] || fail "live_openbao_denial:${bao_status}"
 
-# Both private-ingress probes authenticate the server with the protected CA.
-# The first deliberately omits a client certificate; the second supplies the
-# reviewed client identity and must reach Caddy's route-level 403 denial.
 without_cert="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
   --output /dev/null --write-out '%{http_code}' --cacert "$MTLS_CA_CERT" \
   --resolve "middleware-email-events.internal.codestra.agency:18080:${private_bind}" \
@@ -208,11 +194,9 @@ with_cert="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
 [[ "$with_cert" == 403 ]] || fail "live_mtls_denial:${with_cert}"
 
 grafana_status="$($CURL --noproxy '*' -ksS --output /dev/null --write-out '%{http_code}' \
-  --resolve "grafana.codestra.media:443:${public_bind}" https://grafana.codestra.media/api/health)"
+  --resolve "graf.codestra.media:443:${public_bind}" https://graf.codestra.media/api/health)"
 [[ "$grafana_status" == 200 ]] || fail "live_grafana_status:${grafana_status}"
 
-# Complete the same fixed-target validator and require byte-identical immutable
-# state after all GET/HEAD/handshake probes.
 run_validator post-canary-runtime.json
 post_sha256="$(sha256sum post-canary-runtime.json | awk '{print $1}')"
 cmp -s pre-canary-runtime.json post-canary-runtime.json || fail live_runtime_changed

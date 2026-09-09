@@ -46,7 +46,7 @@ load_environment_file() {
     CADDY_KLYROW_EVENTS_UPSTREAM CADDY_EDITOR_ADMIN_CIDRS CADDY_N8N_EDITOR_MAX_REQUEST_BODY
     CADDY_GRAFANA_UPSTREAM CADDY_SUPERSET_UPSTREAM CADDY_OPENBAO_UPSTREAM CADDY_OPENBAO_ALLOWED_CIDRS
   )
-  for key in "${required[@]}"; do allowed["$key"]=1; done
+  for key in "${required[@]}" CADDY_STAGING_KONG_UPSTREAM; do allowed["$key"]=1; done
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%$'\r'}"
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue

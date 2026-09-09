@@ -23,6 +23,10 @@ SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 TENANT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+ALLOWED_ROUTE_HOSTS = {
+    "api.codestra.co": "canonical",
+    "bridge-staging.codestra.agency": "staging",
+}
 
 
 class CertificationError(RuntimeError):
@@ -147,6 +151,10 @@ def certify(*, ip: str, port: int) -> None:
         return
     if ip != "127.0.0.1" or port != 18443:
         fail("bounded_staging_listener_required")
+    route_host = os.environ.get("CADDY_PROOF_API_HOST", "api.codestra.co").strip()
+    gateway_environment = ALLOWED_ROUTE_HOSTS.get(route_host)
+    if gateway_environment is None:
+        fail("proof_api_host")
     os.umask(0o077)
 
     configured = os.environ.get("CADDY_STAGING_N8N_CLIENT_SECRET_FILE", "").strip()
@@ -255,8 +263,8 @@ def certify(*, ip: str, port: int) -> None:
                 "--noproxy", "*", "--silent", "--show-error", "--max-time", "15",
                 "--config", str(curl_config), "--output", str(route_body),
                 "--write-out", "%{http_code}", "--resolve",
-                f"api.codestra.co:{port}:{ip}",
-                f"https://api.codestra.co:{port}{expected_path}",
+                f"{route_host}:{port}:{ip}",
+                f"https://{route_host}:{port}{expected_path}",
             ]
         )
         try:
@@ -299,6 +307,7 @@ def certify(*, ip: str, port: int) -> None:
             "caddy_source_sha": os.environ.get("CADDY_STAGING_SOURCE_SHA"),
             "caddy_image": os.environ.get("CADDY_STAGING_IMAGE"),
             "caddy_config_sha256": os.environ.get("CADDY_STAGING_CONFIG_SHA256"),
+            "gateway_environment": gateway_environment,
             "keycloak": {
                 "source_sha": identity.get("protectedMainSha"),
                 "environment": "staging",
@@ -311,6 +320,8 @@ def certify(*, ip: str, port: int) -> None:
             },
             "route": {
                 "method": "GET",
+                "edge_host": route_host,
+                "gateway_environment": gateway_environment,
                 "path": expected_path,
                 "status": int(route_status),
                 "middleware_error_code": route_error,
