@@ -208,7 +208,7 @@ with_cert="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
 [[ "$with_cert" == 403 ]] || fail "live_mtls_denial:${with_cert}"
 
 grafana_status="$($CURL --noproxy '*' -ksS --output /dev/null --write-out '%{http_code}' \
-  --resolve "grafana.codestra.media:443:${public_bind}" https://grafana.codestra.media/api/health)"
+  --resolve "graf.codestra.media:443:${public_bind}" https://graf.codestra.media/api/health)"
 [[ "$grafana_status" == 200 ]] || fail "live_grafana_status:${grafana_status}"
 
 # Complete the same fixed-target validator and require byte-identical immutable
