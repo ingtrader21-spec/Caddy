@@ -47,18 +47,27 @@ class StagingProbeTLSTests(unittest.TestCase):
             try:
                 command = match.group(1).replace("18443", str(server.server_port))
                 environment = {
-                    "PATH": os.defpath, "CURL": "/usr/bin/curl",
-                    "staging_ca": str(cert) if trust else "/etc/ssl/certs/ca-certificates.crt",
-                    "AUTH_HEADER_NAME": "Authorization", "AUTH_SCHEME": "Bearer",
+                    "PATH": os.defpath,
+                    "CURL": "/usr/bin/curl",
+                    "expected_staging_ca": (
+                        str(cert) if trust else "/etc/ssl/certs/ca-certificates.crt"
+                    ),
+                    "AUTH_HEADER_NAME": "Authorization",
+                    "AUTH_SCHEME": "Bearer",
                 }
-                return subprocess.run(["bash", "-c", command], env=environment,
-                                      capture_output=True, text=True, timeout=20)
+                return subprocess.run(
+                    ["bash", "-c", command],
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                )
             finally:
                 server.shutdown()
                 server.server_close()
                 thread.join()
 
-    def test_internal_probe_accepts_candidate_ca_and_matching_hostname(self) -> None:
+    def test_internal_probe_accepts_established_ca_and_matching_hostname(self) -> None:
         result = self.probe("staging_api_status", "api.staging.internal.codestra.agency", True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "200")
