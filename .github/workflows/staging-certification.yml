@@ -25,7 +25,8 @@ jobs:
     name: staging-certification
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    environment: staging-readonly
+    # This is isolated GitHub-hosted CI. Protected staging runtime admission is
+    # enforced separately by the self-hosted bounded-runtime workflow.
     env:
       SOURCE_SHA: ${{ inputs.source_sha || (github.event_name == 'pull_request' && github.event.pull_request.head.sha) || github.sha }}
       BASE_REF: ${{ github.base_ref }}
