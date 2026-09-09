@@ -25,9 +25,10 @@ class PR129ReviewRegressionTests(unittest.TestCase):
 
     def test_staging_shared_api_surfaces_route_through_kong(self) -> None:
         source = STAGING.read_text(encoding="utf-8")
-        self.assertEqual(source.count("reverse_proxy {$CADDY_KONG_UPSTREAM}"), 2)
+        self.assertEqual(source.count("reverse_proxy {$CADDY_STAGING_KONG_UPSTREAM}"), 2)
         self.assertEqual(source.count("header_up Host api.codestra.co"), 2)
         self.assertNotIn("reverse_proxy {$CADDY_STAGING_API_UPSTREAM}", source)
+        self.assertNotIn("reverse_proxy {$CADDY_KONG_UPSTREAM}", source)
 
     def test_private_vicidial_callback_remains_denied(self) -> None:
         source = STAGING.read_text(encoding="utf-8")

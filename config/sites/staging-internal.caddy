@@ -3,7 +3,7 @@ api.staging.internal.codestra.agency {
 	import security_headers
 	encode gzip
 
-	reverse_proxy {$CADDY_KONG_UPSTREAM} {
+	reverse_proxy {$CADDY_STAGING_KONG_UPSTREAM} {
 		import proxy_common
 		header_up Host api.codestra.co
 	}
@@ -119,7 +119,7 @@ bridge-staging.codestra.agency {
 		@private_callback path /api/v1/events/vicidial
 		respond @private_callback 404
 
-		reverse_proxy {$CADDY_KONG_UPSTREAM} {
+		reverse_proxy {$CADDY_STAGING_KONG_UPSTREAM} {
 			import proxy_common
 			header_up Host api.codestra.co
 		}
