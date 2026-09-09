@@ -71,34 +71,22 @@ jobs:
   promotion-guard:
     name: promotion-guard
     runs-on: ubuntu-24.04
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
+      - name: Check out the exact promotion source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Enforce the reviewed promotion chain
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE: ${{ github.base_ref }}
-          HEAD: ${{ github.head_ref }}
-        run: |
-          set -Eeuo pipefail
-          if [[ "$EVENT_NAME" != pull_request ]]; then
-            echo PROMOTION_GUARD=PASS
-            exit 0
-          fi
-          case "$BASE" in
-            development)
-              [[ "$HEAD" =~ ^(feat|fix|chore|docs|refactor)/ ]] ;;
-            test)
-              [[ "$HEAD" == development ]] ;;
-            staging)
-              [[ "$HEAD" == test ]] ;;
-            production)
-              [[ "$HEAD" == staging ]] ;;
-            main)
-              [[ "$HEAD" == production ]] ;;
-            *)
-              exit 1 ;;
-          esac
-          echo "PROMOTION_GUARD=PASS route=$HEAD->$BASE"
+          BASE_BRANCH: ${{ github.base_ref }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+        run: bash scripts/validate-promotion-route.sh
 
   immutable-release-gate:
     name: immutable-release-gate
