@@ -77,7 +77,9 @@ class PR129ReviewRegressionTests(unittest.TestCase):
 
     def test_bounded_staging_exercises_dedicated_staging_gateway_hosts(self) -> None:
         source = BOUNDED_STAGING.read_text(encoding="utf-8")
-        self.assertIn("staging_kong_not_dedicated", source)
+        normalization = source.index('127.0.0.1:*) values["$name"]="host.docker.internal:')
+        separation = source.index("staging_kong_not_dedicated")
+        self.assertGreater(separation, normalization)
         for hostname in ("api.staging.internal.codestra.agency", "bridge-staging.codestra.agency"):
             self.assertIn(hostname, source)
         self.assertIn("staging_api_unknown", source)
