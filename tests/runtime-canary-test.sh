@@ -157,6 +157,21 @@ grep -qi '^strict-transport-security: max-age=31536000' <<<"$headers"
 grep -qi '^HTTP/.* 200' <<<"$headers"
 openssl s_client -connect 127.0.0.2:443 -servername api.codestra.co -alpn h2 </dev/null 2>/dev/null | grep -q 'ALPN protocol: h2'
 
+STAGE="public-readonly-canary-methods"
+for path in /healthz /readyz /version; do
+  get_status="$(curl -ksS -o /dev/null -w '%{http_code}' \
+    --resolve api.codestra.co:443:127.0.0.2 "https://api.codestra.co${path}")"
+  test "$get_status" = 200
+  head_status="$(curl -ksSI -o /dev/null -w '%{http_code}' \
+    --resolve api.codestra.co:443:127.0.0.2 "https://api.codestra.co${path}")"
+  test "$head_status" = 200
+  for method in POST PUT PATCH DELETE; do
+    status="$(curl -ksS -X "$method" -o /dev/null -w '%{http_code}' \
+      --resolve api.codestra.co:443:127.0.0.2 "https://api.codestra.co${path}")"
+    test "$status" = 405
+  done
+done
+
 STAGE="websocket-and-http3"
 python3 "$ROOT/scripts/websocket_probe.py" api.codestra.co 127.0.0.2 /ws/agent
 
@@ -165,6 +180,17 @@ unknown="$(curl -ksS -o /dev/null -w '%{http_code}' --resolve api.codestra.co:44
 test "$unknown" = 404
 legacy="$(curl -ksS --resolve api.codestra.agency:443:127.0.0.2 https://api.codestra.agency/api/v1/health)"
 grep -q '"port": 8000' <<<"$legacy"
+
+STAGE="staging-kong-isolation"
+for host in api.staging.internal.codestra.agency bridge-staging.codestra.agency; do
+  staging="$(curl -ksS --resolve "$host:443:127.0.0.2" "https://$host/api/v1/health")"
+  grep -q '"port": 18000' <<<"$staging"
+  grep -q '"host": "api.codestra.co"' <<<"$staging"
+done
+private_callback="$(curl -ksS -o /dev/null -w '%{http_code}' \
+  --resolve bridge-staging.codestra.agency:443:127.0.0.2 \
+  https://bridge-staging.codestra.agency/api/v1/events/vicidial)"
+test "$private_callback" = 404
 
 STAGE="keycloak-and-access-denials"
 redirect_headers="$(curl -ksSI --resolve automation.codestra.co:443:127.0.0.2 https://automation.codestra.co/)"
