@@ -69,19 +69,45 @@ class RollbackBaselineBindHarnessTests(unittest.TestCase):
             '"$ROOT/tests/runtime-bind-test.sh" "$baseline_image"', self.verify
         )
 
-    def test_pull_request_ci_rehearses_and_preserves_rollback_evidence(self) -> None:
-        for token in (
+    def test_pr_ci_is_package_free_and_protected_push_preserves_rollback_evidence(self) -> None:
+        pr_jobs, rollback_and_aggregate = self.workflow.split(
+            "  protected-rollback-gate:", 1
+        )
+        rollback_job, aggregate = rollback_and_aggregate.split("  validate:", 1)
+
+        for forbidden in (
             "packages: read",
-            "Install Cosign for rollback verification",
+            "docker/login-action@",
+            "verify-rollback-baseline.sh",
+        ):
+            self.assertNotIn(forbidden, pr_jobs)
+
+        for token in (
+            "name: immutable-release-gate",
+            "CADDY_IMMUTABLE_PR_GATE=PASS",
+            "PACKAGE_CREDENTIALS=NOT_GRANTED",
+        ):
+            self.assertIn(token, pr_jobs)
+
+        for token in (
+            "name: protected-rollback-gate",
+            "if: github.event_name == 'push'",
+            "packages: read",
+            "Install Cosign for protected rollback verification",
             "Authenticate to GHCR for the exact rollback baseline",
             "scripts/verify-rollback-baseline.sh | tee rollback-baseline-ci.txt",
-            "caddy-rollback-ci-${{ env.EXPECTED_SHA }}",
+            "caddy-protected-rollback-${{ env.EXPECTED_SHA }}",
         ):
-            self.assertIn(token, self.workflow)
+            self.assertIn(token, rollback_job)
+
         self.assertLess(
-            self.workflow.index("Scan exact image for HIGH and CRITICAL vulnerabilities"),
-            self.workflow.index("Rehearse the signed historical rollback baseline"),
+            rollback_job.index("Prove rollback credentials are bound to a protected branch push"),
+            rollback_job.index("Authenticate to GHCR for the exact rollback baseline"),
         )
+        self.assertIn('test "$ROLLBACK" = skipped', aggregate)
+        self.assertIn("CADDY_PR_PACKAGE_CREDENTIALS=NOT_GRANTED", aggregate)
+        self.assertIn('test "$ROLLBACK" = success', aggregate)
+        self.assertIn("CADDY_PROTECTED_ROLLBACK=PASS", aggregate)
 
 
 if __name__ == "__main__":
