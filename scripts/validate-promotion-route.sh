@@ -31,9 +31,14 @@ case "$BASE_BRANCH" in
       [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail invalid_base_sha
       command -v git >/dev/null 2>&1 || fail git_missing
       [[ "$(git rev-parse HEAD)" == "$HEAD_SHA" ]] || fail checkout_identity
-      git fetch --no-tags --prune origin \
-        +refs/heads/development:refs/remotes/origin/development \
-        +refs/heads/test:refs/remotes/origin/test >/dev/null
+      # promotion-guard uses actions/checkout with fetch-depth: 0, which already
+      # materializes protected remote refs before credentials are removed.
+      # Never re-authenticate or refetch here: absence of either expected ref
+      # fails closed instead of making governance depend on post-checkout creds.
+      git rev-parse --verify --quiet refs/remotes/origin/development >/dev/null \
+        || fail development_ref_missing
+      git rev-parse --verify --quiet refs/remotes/origin/test >/dev/null \
+        || fail test_ref_missing
       [[ "$(git rev-parse origin/test)" == "$BASE_SHA" ]] || fail stale_test_base
       read -r -a commit_line <<<"$(git rev-list --parents -n 1 "$HEAD_SHA")"
       [[ "${#commit_line[@]}" -eq 2 ]] || fail reconciliation_must_be_single_parent
