@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64,hashlib,json,os,signal,threading
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
-PORTS=(8000,18000,18003,18088,18102,18103,18104,18105,18106,18107,18108,18109,18110,18111,18112,18113,18114,18115,18180,18200)
+PORTS=(8000,18000,18003,18088,18102,18103,18104,18105,18106,18107,18108,18109,18110,18111,18112,18113,18114,18115,18116,18180,18200)
 LOG=Path(os.environ['MOCK_UPSTREAM_LOG']); LOCK=threading.Lock()
 class Handler(BaseHTTPRequestHandler):
     protocol_version='HTTP/1.1'

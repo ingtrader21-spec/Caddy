@@ -197,11 +197,18 @@ grafana_status="$($CURL --noproxy '*' -ksS --output /dev/null --write-out '%{htt
   --resolve "graf.codestra.media:443:${public_bind}" https://graf.codestra.media/api/health)"
 [[ "$grafana_status" == 200 ]] || fail "live_grafana_status:${grafana_status}"
 
+glitchtip_headers="$work/glitchtip.headers"
+glitchtip_status="$($CURL --noproxy '*' --silent --show-error --max-time 15 \
+  --dump-header "$glitchtip_headers" --output "$work/glitchtip.body" --write-out '%{http_code}' \
+  --resolve "errors.codestra.co:443:${public_bind}" https://errors.codestra.co/)"
+[[ "$glitchtip_status" =~ ^(2|3)[0-9][0-9]$ ]] || fail "live_glitchtip_status:${glitchtip_status}"
+grep -Eqi '^strict-transport-security: max-age=31536000' "$glitchtip_headers" || fail live_glitchtip_hsts
+
 run_validator post-canary-runtime.json
 post_sha256="$(sha256sum post-canary-runtime.json | awk '{print $1}')"
 cmp -s pre-canary-runtime.json post-canary-runtime.json || fail live_runtime_changed
 
-"$PYTHON" - "$MODE" "$SOURCE_SHA" "$IMAGE" "$CONFIG_SHA256" "$pre_sha256" "$post_sha256" "$api_status" "$version_status" "$keycloak_status" "$grafana_status" "$image_config_sha256" <<'PY'
+"$PYTHON" - "$MODE" "$SOURCE_SHA" "$IMAGE" "$CONFIG_SHA256" "$pre_sha256" "$post_sha256" "$api_status" "$version_status" "$keycloak_status" "$grafana_status" "$glitchtip_status" "$image_config_sha256" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -217,6 +224,7 @@ from pathlib import Path
     version_status,
     keycloak_status,
     grafana_status,
+    glitchtip_status,
     image_config_sha256,
 ) = sys.argv[1:]
 pre = json.loads(Path("pre-canary-runtime.json").read_text(encoding="utf-8"))
@@ -265,6 +273,7 @@ evidence = {
     "live_realtime_readonly_status": int(version_status),
     "live_keycloak_readonly_status": int(keycloak_status),
     "live_grafana_readonly_status": int(grafana_status),
+    "live_glitchtip_readonly_status": int(glitchtip_status),
     "live_redirect_hsts_certificate": "PASS",
     "live_http2_http3_websocket": "PASS",
     "live_editor_openbao_denial": "PASS",
