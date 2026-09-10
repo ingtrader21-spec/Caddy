@@ -40,6 +40,7 @@ services:
       - --provider=keycloak-oidc
       - --oidc-issuer-url=https://auth.codestra.co/realms/codestra
       - --client-id=n8n-editor-gateway
+      - --email-domain=*
       - --code-challenge-method=S256
       - --allowed-role=n8n_operator
       - --allowed-role=n8n_admin
@@ -50,9 +51,24 @@ services:
       - --pass-basic-auth=false
       - --pass-authorization-header=false
       - --set-authorization-header=false
-      - --skip-provider-button=true
+      - --skip-provider-button=false
+      - --custom-templates-dir=/etc/oauth2-proxy/templates
+      - --show-debug-on-error=false
+      - --cookie-secure=true
+      - --cookie-httponly=true
+      - --cookie-samesite=lax
       - --reverse-proxy=true
       - --http-address=0.0.0.0:4180
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - type: bind
+        source: ${N8N_LOGIN_TEMPLATE_DIR:?verified N8N login template directory required}
+        target: /etc/oauth2-proxy/templates
+        read_only: true
+        bind:
+          create_host_path: false
     environment:
       OAUTH2_PROXY_CLIENT_SECRET_FILE: /run/secrets/n8n_editor_gateway_oidc_credential
       OAUTH2_PROXY_COOKIE_SECRET_FILE: /run/secrets/n8n_editor_gateway_cookie_secret
