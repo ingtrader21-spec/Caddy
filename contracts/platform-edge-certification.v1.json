@@ -1,0 +1,131 @@
+{
+  "schema": "codestra.caddy-platform-edge-certification.v1",
+  "recordedDate": "2026-09-04",
+  "authorityIssue": "https://github.com/appolon1908-hue/Caddy/issues/105",
+  "configurationAuthority": {
+    "repository": "appolon1908-hue/Caddy",
+    "role": "principal-caddy-configuration-source",
+    "candidateBranch": "development",
+    "configurationRoot": "config",
+    "configurationTreeGitSha": "58f6914db88cbc24ab350e219ef09075af9a49c2",
+    "configurationDigestAlgorithm": "codestra.config-tree-sha256.v1",
+    "configurationSha256": "30c4ebfab8de34395062857093f6af590e8c7d449d5f33971a6790396c6fc3c9",
+    "configurationIdentityPolicy": "git-tree-and-content-digest-survive-squash",
+    "excludedTopLevelRuntimeMounts": [
+      "private"
+    ]
+  },
+  "integrationReleaseAuthority": {
+    "repository": "appolon1908-hue/codestra-production-platform",
+    "role": "integration-release-runtime-evidence-authority",
+    "principalConfigurationSource": false,
+    "mayReceiveNewCaddyFeatureDevelopment": false
+  },
+  "componentAuthorities": {
+    "edge": {
+      "repository": "appolon1908-hue/Caddy",
+      "role": "tls-wss-edge"
+    },
+    "gateway": {
+      "repository": "appolon1908-hue/Kong",
+      "role": "authentication-authorization-rate-route-policy"
+    },
+    "identity": {
+      "repository": "appolon1908-hue/Keycloak",
+      "role": "oidc-token-issuer"
+    },
+    "middleware": {
+      "repository": "appolon1908-hue/Middleware-",
+      "role": "business-api-command-and-write-boundary"
+    }
+  },
+  "sourceEvidence": {
+    "routeContract": "config/caddy-kong-contract.v2.json",
+    "crossRepositoryEvidence": "config/caddy-kong-middleware-route-evidence.v1.json",
+    "validators": [
+      "scripts/validate_cross_repository_route_contract.py",
+      "scripts/validate_platform_edge_certification.py"
+    ]
+  },
+  "requiredRuntimeEvidence": {
+    "stagingEnvironment": "staging-readonly",
+    "productionCanaryEnvironment": "production-readonly-canary",
+    "workflows": [
+      ".github/workflows/immutable-release.yml",
+      ".github/workflows/staging-certification.yml",
+      ".github/workflows/bounded-runtime-certification.yml"
+    ],
+    "scripts": [
+      "scripts/bounded-staging-runtime-v2.sh",
+      "scripts/certify_caddy_kong_middleware_runtime.py",
+      "scripts/verify-rollback-baseline.sh"
+    ],
+    "evidenceOutputs": [
+      "bounded-staging-runtime-evidence.json",
+      "caddy-kong-middleware-runtime-evidence.json",
+      "verified-staging-attestation.json",
+      "one-click-rollback-evidence.json"
+    ],
+    "requiredReadbacks": [
+      "health",
+      "readiness",
+      "version",
+      "certificate-expiry",
+      "source-sha",
+      "image-digest",
+      "configuration-sha256"
+    ]
+  },
+  "certificationChecks": {
+    "hostnamesAndTlsInventory": true,
+    "certificateRenewalMonitoring": true,
+    "privateUpstreamIdentity": true,
+    "strictForwardingWithoutBypass": true,
+    "healthReadinessVersionReadback": true,
+    "certificateExpiryReadback": true,
+    "deterministicFailClosedUpstreamBehavior": true,
+    "routeParity": true,
+    "isolatedStagingProof": true,
+    "backupAndRollback": true
+  },
+  "failClosedPolicy": {
+    "genericApiFallbackAllowed": false,
+    "uncontractedRoutesReturn404": true,
+    "privateUpstreamIdentityRequired": true,
+    "blockedUntilImplemented": [
+      "/api/v1/control/callbacks",
+      "/api/v1/callbacks",
+      "/api/v1/automation/policy-check",
+      "/api/v1/integrations/n8n/results"
+    ]
+  },
+  "safetyBoundary": {
+    "productionCanaryAllowedMethods": [
+      "GET",
+      "HEAD"
+    ],
+    "maximumProductionCanaryPercent": 1,
+    "applicationMutationsAllowed": false,
+    "providerEffectsAllowed": false,
+    "externalEffectsAllowed": false,
+    "publicTrafficMutationAuthorizedByThisContract": false,
+    "dnsTlsFirewallSshMutationAuthorizedByThisContract": false
+  },
+  "promotion": {
+    "chain": [
+      "development",
+      "test",
+      "staging",
+      "production",
+      "main"
+    ],
+    "rebuildOrRetagBetweenStagesAllowed": false,
+    "sameImageDigestRequired": true,
+    "sameConfigurationDigestRequired": true
+  },
+  "status": {
+    "sourceContract": "READY",
+    "runtimeCertification": "REQUIRED",
+    "productionCertified": false
+  }
+}

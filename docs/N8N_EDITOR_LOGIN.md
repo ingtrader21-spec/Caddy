@@ -1,6 +1,6 @@
 # n8n editor login templates
 
-`deploy/community-n8n/compose.security.yaml` loads the Codestra login and error templates from the N8N repository through oauth2-proxy's supported template interface. The page starts the existing Keycloak authorization-code flow with PKCE; native n8n authentication remains in place.
+`deploy/community-n8n/compose.security.yaml` loads the Codestra login and error templates from the N8N repository through oauth2-proxy's supported template interface. The optional gateway page starts a Keycloak authorization-code flow with PKCE; native n8n authentication remains in place. These prepared assets do not change the canonical `automation.codestra.co` edge contract: Caddy -> Kong -> n8n, with Kong owning gateway authentication.
 
 ## Runtime inputs
 
@@ -16,6 +16,6 @@ The provider button remains visible; login errors hide debug details. Cookies ar
 
 `bash scripts/validate-ci.sh` validates the source contract and Caddy configuration. The N8N repository's `scripts/test_editor_login.py` checks actual gateway rendering and the anonymous authentication boundary with synthetic credentials and no network.
 
-Apply through the existing reviewed deployment and certification path only after the Keycloak client, Codestra theme image, root-owned gateway secret files and gateway are ready. Route the editor through the gateway and verify the signed-in role path plus native n8n login before recording success. Retain the current staff-network route until those prerequisites pass. Restore that prior route if the new path fails; do not route the public editor directly to n8n.
+Apply through the existing reviewed deployment and certification path only after the Keycloak client, Codestra theme image, root-owned gateway secret files and gateway are ready. Any future use of the optional gateway must first reconcile its role with the reviewed Kong authentication contract. Preserve the canonical Kong route and staff-network restriction; do not point Caddy directly at oauth2-proxy or n8n. Verify the approved signed-in role path plus native n8n login before recording success.
 
 As of 2026-09-10 the live client, gateway and credentials were absent. This change is prepared source, not a Caddy reload or runtime certification. It does not change workflow activation or database state.

@@ -1,0 +1,151 @@
+api.staging.internal.codestra.agency {
+	tls internal
+	import security_headers
+	encode gzip
+
+	route {
+		@kong path /api/v1/control/messages* /api/v1/control/campaigns* /api/v1/control/agents* /api/v1/control/memberships* /api/v1/control/adapters* /api/v1/messages* /api/v1/events* /api/v1/results* /api/v1/reconciliation* /api/v1/health* /v1/integrations/n8n* /v1/admin/system* /v1/crm* /v1/email* /v1/sms* /v1/webhooks* /v1/intake*
+		handle @kong {
+			reverse_proxy {$CADDY_STAGING_KONG_UPSTREAM} {
+				import proxy_common
+				header_up Host api.codestra.co
+			}
+		}
+
+		handle {
+			respond "Not Found" 404
+		}
+	}
+
+	log {
+		output file /var/log/caddy/api-staging-internal-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		import sanitized_access_log
+	}
+}
+
+n8n.staging.internal.codestra.agency {
+	tls internal
+	import security_headers
+	encode gzip
+
+	@live path /health/live
+	handle @live {
+		rewrite * /healthz
+		reverse_proxy {$CADDY_N8N_STAGING_UPSTREAM} {
+			import proxy_common
+		}
+	}
+
+	@ready path /health/ready
+	handle @ready {
+		rewrite * /healthz/readiness
+		reverse_proxy {$CADDY_N8N_STAGING_UPSTREAM} {
+			import proxy_common
+		}
+	}
+
+	@metadata path /.well-known/codestra-service
+	handle @metadata {
+		header Content-Type application/json
+		respond `{"service":"codestra-n8n","environment":"staging","contract_version":"1.0","live_path":"/health/live","ready_path":"/health/ready"}` 200
+	}
+
+	handle {
+		reverse_proxy {$CADDY_STAGING_PORTAL_UPSTREAM} {
+			import proxy_common
+		}
+	}
+
+	log {
+		output file /var/log/caddy/n8n-staging-internal-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		import sanitized_access_log
+	}
+}
+
+auth.staging.internal.codestra.agency {
+	tls internal
+	import security_headers
+	encode gzip
+
+	reverse_proxy {$CADDY_STAGING_KEYCLOAK_UPSTREAM} {
+		import proxy_common
+	}
+
+	log {
+		output file /var/log/caddy/auth-staging-internal-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		import sanitized_access_log
+	}
+}
+
+auth-staging.codestra.co {
+	import security_headers
+
+	reverse_proxy {$CADDY_STAGING_KEYCLOAK_UPSTREAM} {
+		import proxy_common
+	}
+
+	log {
+		output file /var/log/caddy/auth-staging-codestra-co-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		import sanitized_access_log
+	}
+}
+
+odoo.staging.internal.codestra.agency {
+	tls internal
+	import security_headers
+	encode gzip
+
+	reverse_proxy {$CADDY_STAGING_ODOO_UPSTREAM} {
+		import proxy_common
+	}
+
+	log {
+		output file /var/log/caddy/odoo-staging-internal-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		import sanitized_access_log
+	}
+}
+
+bridge-staging.codestra.agency {
+	import security_headers
+	encode gzip
+
+	route {
+		@private_callback path /api/v1/events/vicidial
+		respond @private_callback 404
+
+		@kong path /api/v1/control/messages* /api/v1/control/campaigns* /api/v1/control/agents* /api/v1/control/memberships* /api/v1/control/adapters* /api/v1/messages* /api/v1/events* /api/v1/results* /api/v1/reconciliation* /api/v1/health* /v1/integrations/n8n* /v1/admin/system* /v1/crm* /v1/email* /v1/sms* /v1/webhooks* /v1/intake*
+		handle @kong {
+			reverse_proxy {$CADDY_STAGING_KONG_UPSTREAM} {
+				import proxy_common
+				header_up Host api.codestra.co
+			}
+		}
+
+		handle {
+			respond "Not Found" 404
+		}
+	}
+
+	log {
+		output file /var/log/caddy/bridge-staging-access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+		import sanitized_access_log
+	}
+}

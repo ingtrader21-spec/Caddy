@@ -1,0 +1,126 @@
+{
+  "schema": "codestra.caddy-kong-middleware-source-evidence.v1",
+  "recordedDate": "2026-09-04",
+  "caddy": {
+    "repository": "appolon1908-hue/Caddy",
+    "canonicalHost": "api.codestra.co",
+    "contractPath": "config/caddy-kong-contract.v2.json",
+    "canonicalSitePath": "config/sites/api.codestra.co.caddy",
+    "legacySitePath": "config/sites/legacy-api.codestra.agency.caddy"
+  },
+  "keycloak": {
+    "repository": "appolon1908-hue/Keycloak",
+    "protectedMainSha": "3b8422da498a47b8f1a91a6a2b2c62d2852ca50f",
+    "evidenceFiles": [
+      {
+        "path": "config/clients/n8n-automation.json",
+        "blobSha": "7784eb9cd5fc11e5e66d3fbe30418e0bfe16d5d7"
+      }
+    ],
+    "stagingHost": "auth-staging.codestra.co",
+    "stagingIssuer": "https://auth-staging.codestra.co/realms/codestra",
+    "clientId": "n8n-automation",
+    "audience": "middleware-api",
+    "requiredScopes": [
+      "middleware.request.forward",
+      "middleware.status.read",
+      "workflow.result.publish"
+    ],
+    "maximumAccessTokenLifetimeSeconds": 300,
+    "tenantClaim": {
+      "claim": "tenant_id",
+      "source": "service-account-user-attribute",
+      "wildcardAllowed": false
+    }
+  },
+  "kong": {
+    "repository": "appolon1908-hue/Kong",
+    "protectedMainSha": "f61c106ce736bf8fd6a013d4961eeca3bf125b56",
+    "evidenceFiles": [
+      {
+        "path": "config/kong-intake-routes.json",
+        "blobSha": "8d92e7a40dee5eefe279a3bd668fb7d3428972fc"
+      },
+      {
+        "path": "config/kong-n8n-control-plane-routes.json",
+        "blobSha": "6d1649f2a3d95dfbb6eb862e0dd462dc0bfd4ad1"
+      }
+    ]
+  },
+  "middleware": {
+    "repository": "appolon1908-hue/Middleware-",
+    "protectedMainSha": "4092b3b1e57819da75eb45631176b022f70a0c55",
+    "evidenceFiles": [
+      {
+        "path": "app/main.py",
+        "blobSha": "4cff19c6f30f67481b74f67bf15da83e62455c8e"
+      },
+      {
+        "path": "app/survey_routes.py",
+        "blobSha": "4d4faa2a1acab26d1e4b4417f8381c0a9b52a27a"
+      },
+      {
+        "path": "app/n8n_control_plane.py",
+        "blobSha": "87fc20c075a973e5a775d0d343c025054e0231be"
+      },
+      {
+        "path": "app/commands.py",
+        "blobSha": "751d2e51b335520c0509f3758058967a2c767fef",
+        "assertion": "CommandNotFound returns HTTP 404 with code command_not_found"
+      }
+    ]
+  },
+  "sourceVerifiedRoutes": [
+    {
+      "method": "POST",
+      "path": "/v1/intake/leads",
+      "caddyPrefix": "/v1/intake",
+      "kongEvidencePath": "config/kong-intake-routes.json",
+      "middlewareEvidencePath": "app/main.py",
+      "runtimeProbeAuthorized": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/intake/surveys/responses",
+      "caddyPrefix": "/v1/intake",
+      "kongEvidencePath": "config/kong-intake-routes.json",
+      "middlewareEvidencePath": "app/survey_routes.py",
+      "runtimeProbeAuthorized": false
+    },
+    {
+      "method": "POST",
+      "path": "/v1/integrations/n8n/commands",
+      "caddyPrefix": "/v1/integrations/n8n",
+      "kongEvidencePath": "config/kong-n8n-control-plane-routes.json",
+      "middlewareEvidencePath": "app/n8n_control_plane.py",
+      "runtimeProbeAuthorized": false
+    },
+    {
+      "method": "GET",
+      "path": "/v1/integrations/n8n/operations/{command_id}",
+      "caddyPrefix": "/v1/integrations/n8n",
+      "kongEvidencePath": "config/kong-n8n-control-plane-routes.json",
+      "middlewareEvidencePath": "app/n8n_control_plane.py",
+      "runtimeProbeAuthorized": true
+    }
+  ],
+  "blockedUntilImplemented": [
+    "/api/v1/control/callbacks",
+    "/api/v1/callbacks",
+    "/api/v1/automation/policy-check",
+    "/api/v1/integrations/n8n/results"
+  ],
+  "runtimeProofContract": {
+    "required": true,
+    "identityEnvironment": "staging",
+    "expectedIssuer": "https://auth-staging.codestra.co/realms/codestra",
+    "method": "GET",
+    "path": "/v1/integrations/n8n/operations/00000000-0000-0000-0000-000000000000",
+    "expectedAuthenticatedStatus": 404,
+    "expectedErrorCode": "command_not_found",
+    "expectedMiddlewareSourceSha": "4092b3b1e57819da75eb45631176b022f70a0c55",
+    "mutationAllowed": false,
+    "externalEffectsAllowed": false,
+    "productionTrafficActivationAuthorized": false
+  }
+}
