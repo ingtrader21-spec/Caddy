@@ -85,7 +85,7 @@ required = {
     "CADDY_GRAFANA_UPSTREAM", "CADDY_SUPERSET_UPSTREAM", "CADDY_OPENBAO_UPSTREAM",
     "CADDY_OPENBAO_ALLOWED_CIDRS",
 }
-optional = {"CADDY_STAGING_KONG_UPSTREAM"}
+optional = {"CADDY_STAGING_KONG_UPSTREAM", "CADDY_GLITCHTIP_UPSTREAM"}
 environment = {}
 for entry in config.get("Env") or []:
     if "=" not in entry:

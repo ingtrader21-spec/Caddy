@@ -175,6 +175,11 @@ done
 STAGE="websocket-and-http3"
 python3 "$ROOT/scripts/websocket_probe.py" api.codestra.co 127.0.0.2 /ws/agent
 
+STAGE="glitchtip-routing"
+glitchtip="$(curl -ksS --resolve errors.codestra.co:443:127.0.0.2 https://errors.codestra.co/)"
+grep -q '"port": 18116' <<<"$glitchtip"
+grep -q '"host": "errors.codestra.co"' <<<"$glitchtip"
+
 STAGE="kong-and-closed-fallback"
 unknown="$(curl -ksS -o /dev/null -w '%{http_code}' --resolve api.codestra.co:443:127.0.0.2 https://api.codestra.co/not-contracted)"
 test "$unknown" = 404

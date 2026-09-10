@@ -1,0 +1,18 @@
+# Glitchtip retains its own login, organization permissions, and ingestion auth.
+errors.codestra.co {
+	import security_headers
+	encode zstd gzip
+
+	reverse_proxy {$CADDY_GLITCHTIP_UPSTREAM} {
+		import proxy_common
+	}
+
+	log {
+		output file /var/log/caddy/errors-codestra-co-access.log {
+			roll_size 20MiB
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		import sanitized_access_log
+	}
+}

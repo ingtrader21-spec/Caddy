@@ -37,6 +37,8 @@ services:
       # activation/certification paths require it explicitly and never fall back to
       # CADDY_KONG_UPSTREAM, so an absent value remains fail-closed for new images.
       CADDY_STAGING_KONG_UPSTREAM: "${CADDY_STAGING_KONG_UPSTREAM:-}"
+      # Older rollback images omit this site; current configuration requires its binding.
+      CADDY_GLITCHTIP_UPSTREAM: "${CADDY_GLITCHTIP_UPSTREAM:-}"
       CADDY_KONG_UPSTREAM: "${CADDY_KONG_UPSTREAM:?set CADDY_KONG_UPSTREAM}"
       CADDY_REALTIME_UPSTREAM: "${CADDY_REALTIME_UPSTREAM:?set CADDY_REALTIME_UPSTREAM}"
       CADDY_KEYCLOAK_UPSTREAM: "${CADDY_KEYCLOAK_UPSTREAM:?set CADDY_KEYCLOAK_UPSTREAM}"
