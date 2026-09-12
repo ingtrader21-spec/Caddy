@@ -38,6 +38,14 @@ PRIVATE = {
 }
 PROHIBITED_PUBLIC_NAME = "pgex.codestra.media"
 APPROVED_DYNAMIC_SITE_ADDRESS = "{$CADDY_N8N_EDITOR_HOST}"
+KYYOW_PUBLIC = {
+    "app.kyyow.com",
+    "api.kyyow.com",
+    "search.kyyow.com",
+    "docs.kyyow.com",
+    "auth.kyyow.com",
+    "status.kyyow.com",
+}
 
 
 class ExposureError(ValueError):
@@ -257,6 +265,7 @@ def validate(contract: dict[str, Any], site: str, all_sites: str, runtime: str, 
         "automation.codestra.co",
         "{$CADDY_N8N_EDITOR_HOST}",
         *PUBLIC,
+        *KYYOW_PUBLIC,
     }
     if top_level_addresses != reviewed_addresses:
         unexpected = sorted(top_level_addresses - reviewed_addresses)

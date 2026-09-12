@@ -26,6 +26,12 @@ common_args=(
   -e CADDY_SUPERSET_UPSTREAM=127.0.0.1:18088
   -e CADDY_OPENBAO_UPSTREAM=127.0.0.1:18200
   -e 'CADDY_OPENBAO_ALLOWED_CIDRS=192.0.2.0/24 198.51.100.0/24'
+  -e CADDY_KYYOW_APP_UPSTREAM=127.0.0.1:18300
+  -e CADDY_KYYOW_API_UPSTREAM=127.0.0.1:18301
+  -e CADDY_KYYOW_SEARCH_UPSTREAM=127.0.0.1:18302
+  -e CADDY_KYYOW_DOCS_UPSTREAM=127.0.0.1:18303
+  -e CADDY_KYYOW_AUTH_UPSTREAM=127.0.0.1:18304
+  -e CADDY_KYYOW_STATUS_UPSTREAM=127.0.0.1:18305
   -v "$ROOT_DIR:/srv:ro"
 )
 
@@ -38,6 +44,8 @@ cmp -s sites/codestra.media.observability.caddy "$formatted_file" || {
   diff -u sites/codestra.media.observability.caddy "$formatted_file" >&2 || true
   exit 1
 }
+
+python3 scripts/validate_kyyow_ingress.py
 
 docker run "${common_args[@]}" "$CADDY_VALIDATOR_IMAGE" \
   caddy validate --config /srv/Caddyfile --adapter caddyfile
