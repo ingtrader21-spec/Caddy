@@ -23,3 +23,20 @@ class KyyowIngressTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class PerHostIdentityTests(unittest.TestCase):
+    def test_each_host_requires_each_identity_header_removal(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('ingress', ROOT / 'scripts/validate_kyyow_ingress.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        contract = json.loads((ROOT / 'config/kyyow-ingress.v1.json').read_text())
+        site = (ROOT / 'sites/kyyow.com.caddy').read_text()
+        runtime = (ROOT / 'config/runtime-values.example').read_text()
+        for host in module.PUBLIC_HOSTS:
+            for header in module.IDENTITY_HEADERS:
+                with self.subTest(host=host, header=header):
+                    before, block = site.split(host + ' {', 1)
+                    changed = before + host + ' {' + block.replace('\trequest_header -' + header + '\n', '', 1)
+                    with self.assertRaises(ValueError):
+                        module.validate(contract, changed, runtime)

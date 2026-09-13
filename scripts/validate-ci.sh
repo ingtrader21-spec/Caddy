@@ -46,6 +46,7 @@ cmp -s sites/codestra.media.observability.caddy "$formatted_file" || {
 }
 
 python3 scripts/validate_kyyow_ingress.py
+python3 -m unittest discover -s tests -p 'test_kyyow_ingress.py' -v
 
 docker run "${common_args[@]}" "$CADDY_VALIDATOR_IMAGE" \
   caddy validate --config /srv/Caddyfile --adapter caddyfile
