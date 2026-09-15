@@ -17,6 +17,16 @@
     "kongPerformsOidcJwtAndScopePolicy": true,
     "middlewareRevalidatesPrivilegedAuthorization": true
   },
+  "middlewareHandoff": {
+    "authorizationHeaderPreservedByKong": true,
+    "middlewareIdentityRevalidation": true,
+    "directCaddyToMiddleware": false,
+    "approvedServiceHosts": [
+      "codestra-middleware-integration-api-1",
+      "appolon-middleware-integration-api"
+    ],
+    "approvedServicePorts": [8095, 8080]
+  },
   "kongManagedPathPrefixes": [
     "/api/v1/control",
     "/api/v1/messages",

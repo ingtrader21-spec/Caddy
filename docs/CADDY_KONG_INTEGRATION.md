@@ -24,6 +24,14 @@ Caddy must not call Middleware directly for Kong-managed shared API routes. Cadd
 
 The incoming `Authorization` header is forwarded to Kong. It is redacted only from Caddy access logs.
 
+Kong's accepted route contracts then forward to the approved Middleware
+integration services (`codestra-middleware-integration-api-1:8095` and
+`appolon-middleware-integration-api:8080`). Kong preserves the bearer
+authorization header, and Middleware revalidates the gateway identity before
+handling commands or writes. This handoff is recorded in
+`config/caddy-kong-contract.v1.json` and is validated fail-closed; Caddy still
+has no direct route to either service.
+
 ## Canonical source files
 
 - `Caddyfile` — complete root source and private admin-listener policy.

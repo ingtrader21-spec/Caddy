@@ -80,6 +80,25 @@ for key, expected in expected_identity.items():
     if identity.get(key) is not expected:
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=identity_boundary:{key}")
 
+handoff = CONTRACT.get("middlewareHandoff") or {}
+expected_handoff = {
+    "authorizationHeaderPreservedByKong": True,
+    "middlewareIdentityRevalidation": True,
+    "directCaddyToMiddleware": False,
+}
+for key, expected in expected_handoff.items():
+    if handoff.get(key) is not expected:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=middleware_handoff:{key}")
+
+approved_service_hosts = handoff.get("approvedServiceHosts")
+if approved_service_hosts != [
+    "codestra-middleware-integration-api-1",
+    "appolon-middleware-integration-api",
+]:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=middleware_handoff_service_hosts")
+if handoff.get("approvedServicePorts") != [8095, 8080]:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=middleware_handoff_service_ports")
+
 migration = CONTRACT.get("migration") or {}
 if migration.get("productionCutoverAuthorizedBySource") is not False:
     raise SystemExit("CADDY_AUTHORITY_ERROR=source_must_not_authorize_cutover")
