@@ -18,23 +18,690 @@
     "middlewareRevalidatesPrivilegedAuthorization": true
   },
   "kongManagedPathPrefixes": [
-    "/api/v1/control",
-    "/api/v1/messages",
-    "/api/v1/events",
-    "/api/v1/results",
-    "/api/v1/reconciliation",
-    "/api/v1/health",
-    "/api/v1/callbacks",
     "/api/v1/automation/policy-check",
+    "/api/v1/callbacks",
+    "/api/v1/control",
+    "/api/v1/events",
+    "/api/v1/health",
     "/api/v1/integrations/n8n/results",
-    "/v1/integrations/n8n",
+    "/api/v1/integrations/odoo/campaigns",
+    "/api/v1/messages",
+    "/api/v1/odoo/events",
+    "/api/v1/reconciliation",
+    "/api/v1/results",
+    "/platform/v1",
     "/v1/admin/system",
     "/v1/crm",
     "/v1/email",
+    "/v1/intake",
+    "/v1/integrations/n8n",
     "/v1/sms",
     "/v1/webhooks",
-    "/v1/intake"
+    "/v2/automation"
   ],
+  "serviceJwtRouteContract": {
+    "sourceRepository": "appolon1908-hue/Middleware-",
+    "sourcePath": "deploy/public-api-route-contract.json",
+    "sourceSchema": "codestra.middleware.public-api-route-contract.v2",
+    "sha256": "7580123dead97ea342c704a57a3c8eed9f5dce69aab247d4b693db96bc7334d5",
+    "hashRule": "sha256 over json.dumps(contract, sort_keys=True, separators=(',', ':')).encode('utf-8') of the Middleware document; Middleware, Kong, Caddy and Keycloak must pin the identical value",
+    "routes": [
+      {
+        "method": "POST",
+        "path": "/api/v1/automation/policy-check",
+        "scope": "n8n.policy.check",
+        "audience": "middleware-api",
+        "callingClient": "n8n-automation",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/callbacks",
+        "scope": "callbacks.read",
+        "audience": "codestra-callback-api",
+        "callingClient": "callback-ui",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/control/callbacks",
+        "scope": "callbacks.write",
+        "audience": "codestra-callback-api",
+        "callingClient": "callback-ui",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/integrations/n8n/results",
+        "scope": "n8n.results.submit",
+        "audience": "middleware-api",
+        "callingClient": "n8n-automation",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/integrations/n8n/results/{event_id}",
+        "scope": "n8n.results.read",
+        "audience": "middleware-api",
+        "callingClient": "n8n-automation",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/integrations/odoo/campaigns/{campaign_id}",
+        "scope": "odoo.campaigns.read",
+        "audience": "middleware-api",
+        "callingClient": "odoo-integration",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/api/v1/integrations/odoo/campaigns/{campaign_id}/desired-state",
+        "scope": "odoo.campaigns.read",
+        "audience": "middleware-api",
+        "callingClient": "odoo-integration",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/api/v1/odoo/events",
+        "scope": "odoo.events.publish",
+        "audience": "middleware-api",
+        "callingClient": "odoo-integration",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/activity",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/activity/{activity_id}",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/agent-provisioning/requests",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/agent-provisioning/requests/{request_id}",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/agent-provisioning/requests/{request_id}/reactivate",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/agent-provisioning/requests/{request_id}/reconcile",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/agent-provisioning/requests/{request_id}/revoke",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/agent-provisioning/requests/{request_id}/suspend",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/agents/presence",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/agents/{user_id}/presence",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/calls",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/calls/{call_id}",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/campaigns",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/campaigns/{campaign_id}",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/campaigns/{campaign_id}/channels",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/campaigns/{campaign_id}/health",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/campaigns/{campaign_id}/members",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/email/identities",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/email/production/activate",
+        "scope": "email.production.write",
+        "audience": "middleware-api",
+        "callingClient": "production-operator",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/email/production/audit",
+        "scope": "email.production.read",
+        "audience": "middleware-api",
+        "callingClient": "production-operator",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/email/production/authorize",
+        "scope": "email.production.write",
+        "audience": "middleware-api",
+        "callingClient": "production-operator",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/email/production/kill-switch",
+        "scope": "email.production.write",
+        "audience": "middleware-api",
+        "callingClient": "production-operator",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/email/production/quotas",
+        "scope": "email.production.read",
+        "audience": "middleware-api",
+        "callingClient": "production-operator",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/email/production/readiness",
+        "scope": "email.production.read",
+        "audience": "middleware-api",
+        "callingClient": "production-operator",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/email/production/revoke",
+        "scope": "email.production.write",
+        "audience": "middleware-api",
+        "callingClient": "production-operator",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/email/production/status",
+        "scope": "email.production.read",
+        "audience": "middleware-api",
+        "callingClient": "production-operator",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/hosts",
+        "scope": "platform.services.read",
+        "audience": "middleware-api",
+        "callingClient": "platform-operator",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/hosts/{host_id}",
+        "scope": "platform.services.read",
+        "audience": "middleware-api",
+        "callingClient": "platform-operator",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/integrations/github/events",
+        "scope": "github.webhooks.publish",
+        "audience": "middleware-api",
+        "callingClient": "github-app",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/me/presence",
+        "scope": "identity.session",
+        "audience": "middleware-api",
+        "callingClient": "browser-session",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/queues",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/queues/{queue_id}",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/queues/{queue_id}/calls",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/queues/{queue_id}/members",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/queues/{queue_id}/metrics",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/repositories",
+        "scope": "platform.services.read",
+        "audience": "middleware-api",
+        "callingClient": "platform-operator",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/runtime/observations",
+        "scope": "platform.runtime.observe",
+        "audience": "middleware-api",
+        "callingClient": "observability-collector",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/services/{service_id}/contract-refresh",
+        "scope": "platform.services.write",
+        "audience": "middleware-api",
+        "callingClient": "platform-operator",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/services/{service_id}/coverage",
+        "scope": "observability.health.read",
+        "audience": "middleware-api",
+        "callingClient": "platform-operator",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/services/{service_id}/dependencies",
+        "scope": "platform.services.read",
+        "audience": "middleware-api",
+        "callingClient": "platform-operator",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/services/{service_id}/deployments",
+        "scope": "platform.services.read",
+        "audience": "middleware-api",
+        "callingClient": "platform-operator",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/services/{service_id}/endpoints",
+        "scope": "platform.services.read",
+        "audience": "middleware-api",
+        "callingClient": "platform-operator",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/services/{service_id}/telemetry-profile",
+        "scope": "platform.services.write",
+        "audience": "middleware-api",
+        "callingClient": "platform-operator",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/session/context",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/session/context/select",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/sms/identities",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/sync/reconciliations",
+        "scope": "platform.sync.reconcile",
+        "audience": "middleware-api",
+        "callingClient": "platform-operator",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/sync/reconciliations/{reconciliation_id}",
+        "scope": "platform.sync.read",
+        "audience": "middleware-api",
+        "callingClient": "platform-operator",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/sync/status",
+        "scope": "platform.sync.read",
+        "audience": "middleware-api",
+        "callingClient": "platform-operator",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/platform/v1/telemetry/heartbeats",
+        "scope": "telemetry.heartbeat.write",
+        "audience": "middleware-api",
+        "callingClient": "observability-collector",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/telephony/assignments",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/tenants",
+        "scope": "platform.tenants.read",
+        "audience": "middleware-api",
+        "callingClient": "platform-operator",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/tenants/authorized",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/tenants/{tenant_id}",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/tenants/{tenant_id}/campaigns",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/tenants/{tenant_id}/health",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/users/{employee_id}",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/users/{employee_id}/campaigns",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/platform/v1/users/{employee_id}/entitlements",
+        "scope": "identity.request",
+        "audience": "middleware-api",
+        "callingClient": "authorized-provisioning-client",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/v2/automation/approvals",
+        "scope": "automation.approval.request",
+        "audience": "middleware-api",
+        "callingClient": "job_family_client_only",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/v2/automation/approvals/{approval_id}",
+        "scope": "automation.approval.read",
+        "audience": "middleware-api",
+        "callingClient": "approval_job_family_client_only",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "GET",
+        "path": "/v2/automation/capabilities/{capability}",
+        "scope": "automation.capability.read",
+        "audience": "middleware-api",
+        "callingClient": "all_declared_clients",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/v2/automation/commands",
+        "scope": "resolved_from_command_prefix",
+        "audience": "middleware-api",
+        "callingClient": "command_prefix_client_only",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/v2/automation/commands/{command_id}",
+        "scope": "automation.command.read",
+        "audience": "middleware-api",
+        "callingClient": "command_family_client_only",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/v2/automation/dead-letters/{dead_letter_id}/replay",
+        "scope": "automation.operations.replay.request",
+        "audience": "middleware-api",
+        "callingClient": [
+          "n8n-operations-automation"
+        ],
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "POST",
+        "path": "/v2/automation/jobs/claim",
+        "scope": "automation.job.claim",
+        "audience": "middleware-api",
+        "callingClient": "all_declared_clients",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "POST",
+        "path": "/v2/automation/jobs/reconcile",
+        "scope": "automation.operations.reconcile",
+        "audience": "middleware-api",
+        "callingClient": [
+          "n8n-operations-automation"
+        ],
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "GET",
+        "path": "/v2/automation/jobs/{job_id}",
+        "scope": "automation.job.read",
+        "audience": "middleware-api",
+        "callingClient": "job_family_client_only",
+        "matcher": "canonical_get"
+      },
+      {
+        "method": "POST",
+        "path": "/v2/automation/jobs/{job_id}/complete",
+        "scope": "automation.job.complete",
+        "audience": "middleware-api",
+        "callingClient": "job_family_client_only",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "POST",
+        "path": "/v2/automation/jobs/{job_id}/fail",
+        "scope": "automation.job.fail",
+        "audience": "middleware-api",
+        "callingClient": "job_family_client_only",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "POST",
+        "path": "/v2/automation/jobs/{job_id}/heartbeat",
+        "scope": "automation.job.heartbeat",
+        "audience": "middleware-api",
+        "callingClient": "job_family_client_only",
+        "matcher": "canonical_post"
+      },
+      {
+        "method": "POST",
+        "path": "/v2/automation/jobs/{job_id}/steps",
+        "scope": "automation.job.step.write",
+        "audience": "middleware-api",
+        "callingClient": "job_family_client_only",
+        "matcher": "canonical_post"
+      }
+    ],
+    "unsupportedMethodHandling": "forwarded to Kong through the kongManagedPathPrefixes matcher; Kong has no matching route and answers 404; the legacy fallback never receives these paths",
+    "retiredPathPrefixes": [
+      "/api/v1/integration/campaign-actions",
+      "/api/v1/integrations/odoo/campaign-actions",
+      "/api/v1/integrations/odoo/campaign-commands",
+      "/api/v1/odoo/campaign-actions",
+      "/v1/integrations/n8n/commands",
+      "/v1/integrations/n8n/operations"
+    ],
+    "retiredPathHandling": "forwarded to Kong, which has no route for them; never the legacy fallback"
+  },
   "transitionalPaths": [
     "/ws/agent",
     "/api/v1/realtime/sessions",

@@ -38,6 +38,32 @@ The incoming `Authorization` header is forwarded to Kong. It is redacted only fr
 
 The Caddy reverse proxy explicitly preserves `Host: api.codestra.co` because Kong has host-bound routes for that canonical host. Caddy also forwards the real client address, while normal reverse-proxy forwarding preserves the original scheme and bearer token for Kong policy enforcement.
 
+## Service-JWT integration routes
+
+Four integration routes are exposed method-exactly rather than by prefix. They
+mirror `deploy/public-api-route-contract.json` in `appolon1908-hue/Middleware-`,
+whose canonical SHA-256 is pinned under `serviceJwtRouteContract.sha256` in
+`config/caddy-kong-contract.v1.json`. Middleware, Kong, Caddy and Keycloak must
+carry the identical digest; a change to the Middleware contract is a
+contract-version change here.
+
+| Method | Path | Ingress scope (enforced by Kong and Middleware) |
+| --- | --- | --- |
+| `POST` | `/api/v1/integrations/n8n/results` | `n8n.results.submit` |
+| `GET` | `/api/v1/integrations/n8n/results/{event_id}` | `n8n.results.read` |
+| `GET` | `/api/v1/integrations/odoo/campaigns/{campaign_id}` | `odoo.campaigns.read` |
+| `GET` | `/api/v1/integrations/odoo/campaigns/{campaign_id}/desired-state` | `odoo.campaigns.read` |
+
+`sites/api.codestra.co.caddy` states each pair with a method-declaring matcher
+(`@integration_submit`, `@integration_read`) ahead of the prefix matcher. Caddy
+still authenticates nothing: the method matcher only prevents a wrong method
+from matching a Kong-managed route by accident. Any other request under the
+same prefixes, and every retired campaign-control path
+(`campaign-actions`, `campaign-commands`), is still handed to Kong, which has
+no route for it and answers `404`. The legacy fallback never receives these
+paths. `scripts/caddy_kong_contract.py::validate_service_jwt_routes` fails CI
+if any of that stops being true.
+
 ## Transitional paths
 
 The historical production-platform Caddy reference routed a realtime/health group to `127.0.0.1:18102` and other API traffic to `127.0.0.1:18101`. The principal Caddy source now routes all currently known Kong-managed path families to Kong first, while retaining explicit environment-controlled fallbacks for paths that do not yet have proven Kong route parity.

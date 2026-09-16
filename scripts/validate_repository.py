@@ -5,7 +5,11 @@ import json
 import re
 from pathlib import Path
 
-from caddy_kong_contract import validate_exact_kong_routes
+from caddy_kong_contract import (
+    validate_contract_hash,
+    validate_exact_kong_routes,
+    validate_service_jwt_routes,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 README_PATH = ROOT / "README.md"
@@ -14,6 +18,7 @@ N8N_SITE_PATH = ROOT / "sites" / "n8n-editor.community.caddy"
 ROOT_CADDYFILE = ROOT / "Caddyfile"
 SECURITY_HEADERS = ROOT / "snippets" / "security_headers.caddy"
 CONTRACT_PATH = ROOT / "config" / "caddy-kong-contract.v1.json"
+MIDDLEWARE_CONTRACT_PATH = ROOT / "config" / "middleware-public-api-route-contract.v1.json"
 N8N_CONTRACT_PATH = ROOT / "config" / "n8n-editor-community.v1.json"
 RUNTIME_EXAMPLE = ROOT / "config" / "runtime-values.example"
 INTEGRATION_DOC = ROOT / "docs" / "CADDY_KONG_INTEGRATION.md"
@@ -28,6 +33,7 @@ for path in (
     ROOT_CADDYFILE,
     SECURITY_HEADERS,
     CONTRACT_PATH,
+    MIDDLEWARE_CONTRACT_PATH,
     N8N_CONTRACT_PATH,
     RUNTIME_EXAMPLE,
     INTEGRATION_DOC,
@@ -43,6 +49,7 @@ SITE = SITE_PATH.read_text(encoding="utf-8")
 N8N_SITE = N8N_SITE_PATH.read_text(encoding="utf-8")
 CADDYFILE = ROOT_CADDYFILE.read_text(encoding="utf-8")
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+MIDDLEWARE_CONTRACT = json.loads(MIDDLEWARE_CONTRACT_PATH.read_text(encoding="utf-8"))
 N8N_CONTRACT = json.loads(N8N_CONTRACT_PATH.read_text(encoding="utf-8"))
 RUNTIME = RUNTIME_EXAMPLE.read_text(encoding="utf-8")
 
@@ -129,6 +136,22 @@ for path_prefix in managed_paths:
         raise SystemExit("CADDY_AUTHORITY_ERROR=invalid_kong_path")
 try:
     validate_exact_kong_routes(SITE, managed_paths)
+except ValueError as exc:
+    raise SystemExit(f"CADDY_AUTHORITY_ERROR={exc}") from exc
+
+# Service-JWT integration routes are method-exact and pinned to the Middleware
+# public API route contract by SHA-256, so Caddy, Kong, Keycloak and Middleware
+# can be checked against one value. Caddy still authenticates nothing here.
+SERVICE_JWT = CONTRACT.get("serviceJwtRouteContract")
+if not isinstance(SERVICE_JWT, dict):
+    raise SystemExit("CADDY_AUTHORITY_ERROR=missing_service_jwt_route_contract")
+if SERVICE_JWT.get("sourceRepository") != "appolon1908-hue/Middleware-":
+    raise SystemExit("CADDY_AUTHORITY_ERROR=service_jwt_contract_wrong_source")
+if SERVICE_JWT.get("sourcePath") != "deploy/public-api-route-contract.json":
+    raise SystemExit("CADDY_AUTHORITY_ERROR=service_jwt_contract_wrong_source_path")
+try:
+    validate_contract_hash(SERVICE_JWT.get("sha256"), MIDDLEWARE_CONTRACT)
+    validate_service_jwt_routes(SITE, SERVICE_JWT)
 except ValueError as exc:
     raise SystemExit(f"CADDY_AUTHORITY_ERROR={exc}") from exc
 
@@ -285,6 +308,8 @@ print("CADDY_REPOSITORY_AUTHORITY=PASS")
 print("CADDY_PRINCIPAL=appolon1908-hue/Caddy")
 print("CADDY_TO_KONG_CONTRACT=PASS")
 print("KONG_ROUTE_CONTRACT_BIDIRECTIONAL=PASS")
+print("SERVICE_JWT_ROUTES_METHOD_EXACT=PASS")
+print(f"SERVICE_JWT_ROUTE_CONTRACT_SHA256={SERVICE_JWT['sha256']}")
 print("KONG_PRINCIPAL=appolon1908-hue/Kong")
 print("N8N_COMMUNITY_EDITOR_EDGE=PREPARED_NOT_APPLIED")
 print("N8N_DIRECT_PUBLIC_UPSTREAM=DENIED")
