@@ -1,0 +1,26 @@
+{
+  "schema": "kyyow.ingress.v1",
+  "principalRepository": "appolon1908-hue/Caddy",
+  "identityRepository": "appolon1908-hue/Keycloak",
+  "publicHosts": {
+    "app.kyyow.com": {"service": "portal", "upstream": "CADDY_KYYOW_APP_UPSTREAM", "authentication": "application-oidc"},
+    "api.kyyow.com": {"service": "public-api", "upstream": "CADDY_KYYOW_API_UPSTREAM", "authentication": "bearer-at-api-authority"},
+    "search.kyyow.com": {"service": "search-api", "upstream": "CADDY_KYYOW_SEARCH_UPSTREAM", "authentication": "bearer-at-api-authority"},
+    "docs.kyyow.com": {"service": "documentation", "upstream": "CADDY_KYYOW_DOCS_UPSTREAM", "authentication": "public-read"},
+    "auth.kyyow.com": {"service": "keycloak", "upstream": "CADDY_KYYOW_AUTH_UPSTREAM", "authentication": "keycloak-native"},
+    "status.kyyow.com": {"service": "status", "upstream": "CADDY_KYYOW_STATUS_UPSTREAM", "authentication": "public-read"}
+  },
+  "prohibitedPublicServices": ["prometheus", "alertmanager", "alloy", "loki", "tempo", "node-exporter", "cadvisor", "redis-exporter", "blackbox-exporter", "postgres-exporter", "crawler-worker", "browser-worker"],
+  "identityBoundary": {
+    "caddyIssuesIdentity": false,
+    "spoofableIdentityHeadersStripped": true,
+    "authorizationHeaderPreserved": true,
+    "keycloakIsTokenAuthority": true
+  },
+  "activation": {
+    "repositoryConfigurationOnly": true,
+    "dnsChangeAuthorized": false,
+    "liveReloadAuthorized": false,
+    "productionCutoverAuthorized": false
+  }
+}
