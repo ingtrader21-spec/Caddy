@@ -70,13 +70,14 @@
   },
   "middlewareEdgeContract": {
     "source": "ingtrader21-spec/Middleware-:deploy/public-api-route-contract.json",
-    "sourceSha": "0ed9d10b69f42da72828e9a8266b256b25df64c7",
+    "sourceSha": "22d023a9c65b0789a0f7ee6c28548753521a9eff",
     "kongVendoredCopy": "Kong:config/middleware-public-api-route-contract.v1.json",
     "sha256": "be25ea3a15687616fc1a17c451bb731c9e8bb85bbbd970e563d2baedc062b99e",
     "sharedEdgeOperations": 99,
     "deniedOperations": 10,
     "privateOnlyOperations": 2,
-    "rule": "every shared_edge and denied operation path is covered by kongManagedPathPrefixes; private_only operations never appear at the public edge"
+    "rule": "every shared_edge and denied operation path is covered by kongManagedPathPrefixes; private_only operations never appear at the public edge",
+    "sourceNote": "MAIN_AFTER_RUNTIME_MODERNIZATION (#287 merged); digest unchanged since 0ed9d10"
   },
   "identityHeaders": {
     "preservedToKong": [
