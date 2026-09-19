@@ -82,3 +82,54 @@ def validate_identity_header_boundary(site_source: str, deleted_before_kong: Ite
     missing = sorted(set(deleted_before_kong) - deleted)
     if missing:
         raise ValueError(f"identity_header_not_deleted:{','.join(missing)}")
+
+
+PRIVATE_ONLY_MATCHER_RE = re.compile(r"(?m)^[ \t]*@private_only[ \t]+path[ \t]+([^\r\n#]+?)\s*$")
+PRIVATE_ONLY_HANDLE_RE = re.compile(r"(?ms)^[ \t]*handle[ \t]+@private_only[ \t]*\{\s*respond[ \t]+404\s*\}")
+
+
+def private_only_paths(site_source: str) -> tuple[str, ...]:
+    """Return the paths of the sole ``@private_only path`` matcher."""
+    matches = PRIVATE_ONLY_MATCHER_RE.findall(site_source)
+    if len(matches) != 1:
+        raise ValueError(f"private_only_matcher_count:{len(matches)}")
+    tokens = matches[0].split()
+    if not tokens:
+        raise ValueError("empty_private_only_matcher")
+    for token in tokens:
+        if not token.startswith("/") or "*" in token[:-1] or token in ("/", "/*"):
+            raise ValueError(f"invalid_private_only_path:{token}")
+    if len(tokens) != len(set(tokens)):
+        raise ValueError("duplicate_private_only_path")
+    return tuple(tokens)
+
+
+def validate_private_only_paths(site_source: str, contracted_paths: Iterable[str]) -> None:
+    """Private Middleware surfaces are answered 404 at the edge, ahead of the Kong
+    handoff and the legacy fallback, and are never also routed to Kong."""
+    declared = tuple(contracted_paths)
+    if not declared:
+        raise ValueError("missing_private_only_paths")
+    if len(declared) != len(set(declared)):
+        raise ValueError("duplicate_private_only_contract_path")
+    routed = private_only_paths(site_source)
+    if set(routed) != set(declared):
+        raise ValueError(
+            f"private_only_paths_mismatch:site={','.join(sorted(routed))};contract={','.join(sorted(declared))}"
+        )
+    handles = PRIVATE_ONLY_HANDLE_RE.findall(site_source)
+    if len(handles) != 1:
+        raise ValueError(f"private_only_handle_count:{len(handles)}")
+    handle_at = site_source.index(handles[0])
+    kong_match = KONG_MATCHER_RE.search(site_source)
+    if kong_match is None or handle_at > kong_match.start():
+        raise ValueError("private_only_not_before_kong_handoff")
+    legacy_at = site_source.find("{$CADDY_LEGACY_API_UPSTREAM}")
+    if legacy_at != -1 and handle_at > legacy_at:
+        raise ValueError("private_only_not_before_legacy_fallback")
+    kong_prefixes = routed_kong_prefixes(site_source)
+    for path in routed:
+        bare = path[:-1] if path.endswith("*") else path
+        for prefix in kong_prefixes:
+            if bare == prefix or bare.startswith(prefix.rstrip("/") + "/") or prefix.startswith(bare.rstrip("/") + "/"):
+                raise ValueError(f"private_only_path_routed_to_kong:{path}")

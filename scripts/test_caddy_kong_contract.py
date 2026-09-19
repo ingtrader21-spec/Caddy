@@ -7,9 +7,11 @@ from pathlib import Path
 
 from caddy_kong_contract import (
     header_up_directives,
+    private_only_paths,
     routed_kong_prefixes,
     validate_exact_kong_routes,
     validate_identity_header_boundary,
+    validate_private_only_paths,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -95,6 +97,61 @@ class IdentityHeaderBoundaryTests(unittest.TestCase):
             "/v1/integrations/n8n/commands",
         ):
             self.assertTrue(any(path == p or path.startswith(p) for p in prefixes), path)
+
+
+class PrivateOnlyPathTests(unittest.TestCase):
+    """/metrics and /internal/* are answered 404 at the edge before any upstream."""
+
+    def setUp(self) -> None:
+        self.site = (ROOT / "sites" / "api.codestra.co.caddy").read_text(encoding="utf-8")
+        contract = json.loads(
+            (ROOT / "config" / "caddy-kong-contract.v1.json").read_text(encoding="utf-8")
+        )
+        self.private = contract["privateOnlyPaths"]
+        self.managed = contract["kongManagedPathPrefixes"]
+
+    def test_site_denies_the_contracted_private_paths_ahead_of_every_upstream(self) -> None:
+        validate_private_only_paths(self.site, self.private)
+        self.assertEqual(set(private_only_paths(self.site)), {"/metrics", "/internal/*"})
+        deny_at = self.site.index("handle @private_only")
+        self.assertLess(deny_at, self.site.index("@kong path"))
+        self.assertLess(deny_at, self.site.index("{$CADDY_KONG_UPSTREAM}"))
+        self.assertLess(deny_at, self.site.index("{$CADDY_REALTIME_UPSTREAM}"))
+        self.assertLess(deny_at, self.site.index("{$CADDY_LEGACY_API_UPSTREAM}"))
+
+    def test_private_paths_are_not_kong_managed(self) -> None:
+        for path in self.private:
+            bare = path[:-1] if path.endswith("*") else path
+            self.assertFalse(any(bare == p or bare.startswith(p + "/") for p in self.managed), path)
+
+    def test_missing_deny_is_rejected(self) -> None:
+        mutated = self.site.replace("@private_only path /metrics /internal/*", "@private_only path /internal/*")
+        with self.assertRaisesRegex(ValueError, "private_only_paths_mismatch"):
+            validate_private_only_paths(mutated, self.private)
+        removed = self.site.replace("\t\t@private_only path /metrics /internal/*\n\t\thandle @private_only {\n\t\t\trespond 404\n\t\t}\n", "")
+        self.assertNotIn("@private_only", removed)
+        with self.assertRaisesRegex(ValueError, "private_only_matcher_count:0"):
+            validate_private_only_paths(removed, self.private)
+
+    def test_deny_after_the_kong_handoff_is_rejected(self) -> None:
+        block = "\t\t@private_only path /metrics /internal/*\n\t\thandle @private_only {\n\t\t\trespond 404\n\t\t}\n"
+        self.assertIn(block, self.site)
+        moved = self.site.replace(block, "")
+        legacy = "\t\thandle {\n\t\t\treverse_proxy {$CADDY_LEGACY_API_UPSTREAM} {"
+        self.assertIn(legacy, moved)
+        moved = moved.replace(legacy, block + legacy)
+        with self.assertRaisesRegex(ValueError, "private_only_not_before_kong_handoff"):
+            validate_private_only_paths(moved, self.private)
+
+    def test_private_path_also_routed_to_kong_is_rejected(self) -> None:
+        mutated = self.site.replace("/v1/intake*", "/v1/intake* /metrics")
+        with self.assertRaisesRegex(ValueError, "private_only_path_routed_to_kong:/metrics"):
+            validate_private_only_paths(mutated, self.private)
+
+    def test_deny_that_proxies_instead_of_responding_is_rejected(self) -> None:
+        mutated = self.site.replace("\t\thandle @private_only {\n\t\t\trespond 404\n\t\t}", "\t\thandle @private_only {\n\t\t\treverse_proxy {$CADDY_KONG_UPSTREAM}\n\t\t}")
+        with self.assertRaisesRegex(ValueError, "private_only_handle_count:0"):
+            validate_private_only_paths(mutated, self.private)
 
 
 if __name__ == "__main__":

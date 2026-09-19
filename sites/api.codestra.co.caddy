@@ -15,6 +15,15 @@ api.codestra.co {
 	}
 
 	route {
+		# Private Middleware surfaces. /metrics is scraped by Prometheus on the private
+		# network with a monitoring-readonly token and /internal/* is service-to-service
+		# only; neither has a Kong route and neither may fall through to the legacy
+		# fallback. Answer 404 at the edge before any upstream is considered.
+		@private_only path /metrics /internal/*
+		handle @private_only {
+			respond 404
+		}
+
 		# Paths already represented by reviewed Kong source (the vendored Middleware
 		# edge contract's shared_edge and denied operations plus the earlier Kong
 		# route families). Preserve the public host because Kong uses host-based

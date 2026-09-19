@@ -5,7 +5,11 @@ import json
 import re
 from pathlib import Path
 
-from caddy_kong_contract import validate_exact_kong_routes, validate_identity_header_boundary
+from caddy_kong_contract import (
+    validate_exact_kong_routes,
+    validate_identity_header_boundary,
+    validate_private_only_paths,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 README_PATH = ROOT / "README.md"
@@ -128,6 +132,18 @@ for path_prefix in managed_paths:
         raise SystemExit("CADDY_AUTHORITY_ERROR=invalid_kong_path")
 try:
     validate_exact_kong_routes(SITE, managed_paths)
+except ValueError as exc:
+    raise SystemExit(f"CADDY_AUTHORITY_ERROR={exc}") from exc
+
+# Private Middleware surfaces (/metrics, /internal/*) are answered 404 at the edge
+# before the Kong handoff and before the legacy fallback; they have no Kong route.
+private_paths = CONTRACT.get("privateOnlyPaths")
+if not isinstance(private_paths, list) or not private_paths:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=missing_private_only_paths")
+if "/metrics" not in private_paths or "/internal/*" not in private_paths:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=private_only_paths_incomplete")
+try:
+    validate_private_only_paths(SITE, private_paths)
 except ValueError as exc:
     raise SystemExit(f"CADDY_AUTHORITY_ERROR={exc}") from exc
 

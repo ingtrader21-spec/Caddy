@@ -47,6 +47,11 @@
     "/readyz",
     "/version"
   ],
+  "privateOnlyPaths": [
+    "/metrics",
+    "/internal/*"
+  ],
+  "privateOnlyRule": "Private Middleware surfaces are answered 404 at the edge ahead of the Kong handoff and the legacy fallback: /metrics is scraped only on the private network (monitoring-readonly, metrics.read) and /internal/* is service-to-service only. They never appear in kongManagedPathPrefixes and never reach CADDY_LEGACY_API_UPSTREAM.",
   "migration": {
     "legacyFallbackTemporarilyAllowed": true,
     "fullKongRouteParityRequiredBeforeRemovingFallback": true,
@@ -65,10 +70,12 @@
   },
   "middlewareEdgeContract": {
     "source": "ingtrader21-spec/Middleware-:deploy/public-api-route-contract.json",
+    "sourceSha": "0ed9d10b69f42da72828e9a8266b256b25df64c7",
     "kongVendoredCopy": "Kong:config/middleware-public-api-route-contract.v1.json",
-    "sha256": "c13554ebededa3ba6c39d0408adcd93f33baa941cac905907f6d63d390d93fab",
-    "sharedEdgeOperations": 80,
+    "sha256": "be25ea3a15687616fc1a17c451bb731c9e8bb85bbbd970e563d2baedc062b99e",
+    "sharedEdgeOperations": 99,
     "deniedOperations": 10,
+    "privateOnlyOperations": 2,
     "rule": "every shared_edge and denied operation path is covered by kongManagedPathPrefixes; private_only operations never appear at the public edge"
   },
   "identityHeaders": {
