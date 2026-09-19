@@ -47,3 +47,38 @@ def validate_exact_kong_routes(site_source: str, managed_paths: Iterable[str]) -
         raise ValueError(f"kong_route_not_contracted:{','.join(uncontracted)}")
     if unrouted:
         raise ValueError(f"kong_contract_not_routed:{','.join(unrouted)}")
+
+
+TRUSTED_IDENTITY_HEADERS = (
+    "X-Authenticated-Client",
+    "X-Authenticated-Tenant",
+    "X-Authenticated-Role",
+    "X-Codestra-Gateway-Secret",
+)
+PRESERVED_EDGE_HEADERS = ("Authorization", "X-Correlation-ID", "Idempotency-Key", "traceparent", "tracestate")
+HEADER_UP_RE = re.compile(r"(?m)^[ \t]*header_up[ \t]+(-?)([A-Za-z][A-Za-z0-9-]*)(?:[ \t]+([^\r\n#]*?))?[ \t]*$")
+
+
+def header_up_directives(site_source: str) -> tuple[tuple[str, str], ...]:
+    """Every ``header_up`` directive as (action, header): action is ``set`` or ``delete``."""
+    return tuple(("delete" if minus else "set", name) for minus, name, _value in HEADER_UP_RE.findall(site_source))
+
+
+def validate_identity_header_boundary(site_source: str, deleted_before_kong: Iterable[str]) -> None:
+    """Caddy never sets a trusted identity header, deletes every contracted
+    client-asserted one on the Kong handoff, and never touches the headers
+    that must reach Kong and Middleware unchanged."""
+    directives = header_up_directives(site_source)
+    for action, name in directives:
+        if action == "set" and name in TRUSTED_IDENTITY_HEADERS:
+            raise ValueError(f"trusted_identity_header_set_by_caddy:{name}")
+        if action == "delete" and name in PRESERVED_EDGE_HEADERS:
+            raise ValueError(f"preserved_edge_header_deleted:{name}")
+    for name in TRUSTED_IDENTITY_HEADERS:
+        for line in site_source.splitlines():
+            if name in line and line.strip() != f"header_up -{name}":
+                raise ValueError(f"trusted_identity_header_in_caddy:{name}")
+    deleted = {name for action, name in directives if action == "delete"}
+    missing = sorted(set(deleted_before_kong) - deleted)
+    if missing:
+        raise ValueError(f"identity_header_not_deleted:{','.join(missing)}")

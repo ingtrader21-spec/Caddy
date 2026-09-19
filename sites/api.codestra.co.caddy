@@ -15,13 +15,42 @@ api.codestra.co {
 	}
 
 	route {
-		# Paths already represented by reviewed Kong source. Preserve the public
-		# host because Kong uses host-based routing for api.codestra.co.
-		@kong path /api/v1/control* /api/v1/messages* /api/v1/events* /api/v1/results* /api/v1/reconciliation* /api/v1/health* /api/v1/callbacks* /api/v1/automation/policy-check /api/v1/integrations/n8n/results /v1/integrations/n8n* /v1/admin/system* /v1/crm* /v1/email* /v1/sms* /v1/webhooks* /v1/intake*
+		# Paths already represented by reviewed Kong source (the vendored Middleware
+		# edge contract's shared_edge and denied operations plus the earlier Kong
+		# route families). Preserve the public host because Kong uses host-based
+		# routing for api.codestra.co. No legacy fallback exists for these paths:
+		# when Kong is unavailable they fail, they never reach Middleware directly.
+		@kong path /api/v1/control* /api/v1/messages* /api/v1/events* /api/v1/results* /api/v1/reconciliation* /api/v1/health* /api/v1/callbacks* /api/v1/automation/policy-check /api/v1/integration/campaign-actions /api/v1/integrations/n8n/results* /api/v1/integrations/odoo* /api/v1/odoo* /platform/v1* /v2/automation* /v1/integrations/n8n* /v1/admin/system* /v1/crm* /v1/email* /v1/sms* /v1/webhooks* /v1/intake*
 		handle @kong {
 			reverse_proxy {$CADDY_KONG_UPSTREAM} {
 				header_up Host {host}
 				header_up X-Real-IP {remote_host}
+				# Client-asserted identity is never trusted at the edge: delete it before
+				# Kong authenticates and mints its own. Authorization, X-Correlation-ID,
+				# Idempotency-Key, traceparent and tracestate pass through untouched.
+				header_up -X-User-ID
+				header_up -X-Username
+				header_up -X-Email
+				header_up -X-Roles
+				header_up -X-Scopes
+				header_up -X-Authenticated-UserID
+				header_up -X-Authenticated-User
+				header_up -X-Authenticated-Client
+				header_up -X-Authenticated-Subject
+				header_up -X-Authenticated-Tenant
+				header_up -X-Authenticated-Campaign
+				header_up -X-Authenticated-Role
+				header_up -X-Authenticated-Email
+				header_up -X-Codestra-Tenant
+				header_up -X-Codestra-Scopes
+				header_up -X-Codestra-Gateway-Secret
+				header_up -X-Internal-Service
+				header_up -X-Admin
+				header_up -X-Consumer-ID
+				header_up -X-Consumer-Username
+				header_up -X-Consumer-Custom-ID
+				header_up -X-Credential-Identifier
+				header_up -X-Anonymous-Consumer
 			}
 		}
 

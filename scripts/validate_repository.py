@@ -5,7 +5,7 @@ import json
 import re
 from pathlib import Path
 
-from caddy_kong_contract import validate_exact_kong_routes
+from caddy_kong_contract import validate_exact_kong_routes, validate_identity_header_boundary
 
 ROOT = Path(__file__).resolve().parents[1]
 README_PATH = ROOT / "README.md"
@@ -103,14 +103,13 @@ if "Authorization delete" not in SITE:
 if "header_up Authorization" in SITE or "header_up -Authorization" in SITE:
     raise SystemExit("CADDY_AUTHORITY_ERROR=authorization_forwarding_modified")
 
-for forbidden_header in (
-    "X-Authenticated-Client",
-    "X-Authenticated-Tenant",
-    "X-Authenticated-Role",
-    "X-Codestra-Gateway-Secret",
-):
-    if forbidden_header in SITE:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=trusted_identity_header_in_caddy:{forbidden_header}")
+# Caddy never creates a trusted identity header. The only permitted mention of
+# one is its deletion on the Kong handoff (``header_up -Name``), which keeps a
+# client-asserted value from ever reaching Kong or Middleware.
+try:
+    validate_identity_header_boundary(SITE, (CONTRACT.get("identityHeaders") or {}).get("deletedBeforeKong") or ())
+except ValueError as exc:
+    raise SystemExit(f"CADDY_AUTHORITY_ERROR={exc}") from exc
 
 for forbidden_target in (
     "codestra-middleware-integration-api-1",

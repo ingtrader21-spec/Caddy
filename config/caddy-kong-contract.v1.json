@@ -26,7 +26,12 @@
     "/api/v1/health",
     "/api/v1/callbacks",
     "/api/v1/automation/policy-check",
+    "/api/v1/integration/campaign-actions",
     "/api/v1/integrations/n8n/results",
+    "/api/v1/integrations/odoo",
+    "/api/v1/odoo",
+    "/platform/v1",
+    "/v2/automation",
     "/v1/integrations/n8n",
     "/v1/admin/system",
     "/v1/crm",
@@ -57,5 +62,54 @@
     "caddyAuthenticatesEditorSessions": false,
     "directUpstreamToN8nAllowed": false,
     "nativeN8nAuthRequiredBehindGateway": true
+  },
+  "middlewareEdgeContract": {
+    "source": "ingtrader21-spec/Middleware-:deploy/public-api-route-contract.json",
+    "kongVendoredCopy": "Kong:config/middleware-public-api-route-contract.v1.json",
+    "sha256": "c13554ebededa3ba6c39d0408adcd93f33baa941cac905907f6d63d390d93fab",
+    "sharedEdgeOperations": 80,
+    "deniedOperations": 10,
+    "rule": "every shared_edge and denied operation path is covered by kongManagedPathPrefixes; private_only operations never appear at the public edge"
+  },
+  "identityHeaders": {
+    "preservedToKong": [
+      "Authorization",
+      "X-Correlation-ID",
+      "Idempotency-Key",
+      "traceparent",
+      "tracestate"
+    ],
+    "deletedBeforeKong": [
+      "X-User-ID",
+      "X-Username",
+      "X-Email",
+      "X-Roles",
+      "X-Scopes",
+      "X-Authenticated-UserID",
+      "X-Authenticated-User",
+      "X-Authenticated-Client",
+      "X-Authenticated-Subject",
+      "X-Authenticated-Tenant",
+      "X-Authenticated-Campaign",
+      "X-Authenticated-Role",
+      "X-Authenticated-Email",
+      "X-Codestra-Tenant",
+      "X-Codestra-Scopes",
+      "X-Codestra-Gateway-Secret",
+      "X-Internal-Service",
+      "X-Admin",
+      "X-Consumer-ID",
+      "X-Consumer-Username",
+      "X-Consumer-Custom-ID",
+      "X-Credential-Identifier",
+      "X-Anonymous-Consumer"
+    ],
+    "rule": "Caddy deletes client-asserted identity headers on the Kong handoff and never sets one; Kong mints trusted identity after verification"
+  },
+  "publicApiDirect": {
+    "PUBLIC_API_DIRECT_TO_MIDDLEWARE": 0,
+    "PUBLIC_API_DIRECT_TO_ODOO": 0,
+    "PUBLIC_API_DIRECT_TO_N8N": 0,
+    "rule": "api.codestra.co reaches Middleware, Odoo and N8N only through Kong"
   }
 }
