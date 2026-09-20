@@ -47,6 +47,7 @@
 		}
 		format filter {
 			request>headers>Authorization delete
+			request>headers>Proxy-Authorization delete
 			request>headers>Cookie delete
 			request>headers>Apikey delete
 			request>headers>X-Api-Key delete
@@ -55,7 +56,16 @@
 				delete code
 				delete state
 				delete session_state
+				delete api_key
+				delete access_token
+				delete refresh_token
+				delete id_token
+				delete client_secret
+				delete password
+				delete secret
+				delete token
 			}
+			resp_headers>Set-Cookie delete
 		}
 	}
 }

@@ -1,4 +1,4 @@
-# Canonical n8n editor edge source owned by appolon1908-hue/Caddy.
+# Canonical n8n editor edge source owned by ingtrader21-spec/Caddy.
 # Historical reference: appolon1908-hue/codestra-production-platform
 # ref: release/production-activation
 # path: operations/caddy/api.codestra.co.caddy
@@ -56,11 +56,21 @@ automation.codestra.co {
 			request>headers>Apikey delete
 			request>headers>X-Api-Key delete
 			request>headers>Authorization delete
+			request>headers>Proxy-Authorization delete
 			request>uri query {
 				delete apikey
 				delete code
 				delete state
+				delete api_key
+				delete access_token
+				delete refresh_token
+				delete id_token
+				delete client_secret
+				delete password
+				delete secret
+				delete token
 			}
+			resp_headers>Set-Cookie delete
 		}
 	}
 }

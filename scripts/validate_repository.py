@@ -5,7 +5,11 @@ import json
 import re
 from pathlib import Path
 
-from caddy_kong_contract import validate_exact_kong_routes
+from caddy_kong_contract import (
+    validate_exact_kong_routes,
+    validate_identity_header_boundary,
+    validate_private_only_paths,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 README_PATH = ROOT / "README.md"
@@ -47,10 +51,10 @@ N8N_CONTRACT = json.loads(N8N_CONTRACT_PATH.read_text(encoding="utf-8"))
 RUNTIME = RUNTIME_EXAMPLE.read_text(encoding="utf-8")
 
 required_repositories = (
-    "appolon1908-hue/Caddy",
-    "appolon1908-hue/Kong",
-    "appolon1908-hue/Keycloak",
-    "appolon1908-hue/Middleware-",
+    "ingtrader21-spec/Caddy",
+    "ingtrader21-spec/Kong",
+    "ingtrader21-spec/Keycloak",
+    "ingtrader21-spec/Middleware-",
     "appolon1908-hue/codestra-production-platform",
 )
 for value in required_repositories:
@@ -59,9 +63,9 @@ for value in required_repositories:
 
 if CONTRACT.get("schema") != "codestra.caddy-kong-edge.v1":
     raise SystemExit("CADDY_AUTHORITY_ERROR=unsupported_contract_schema")
-if CONTRACT.get("principalRepository") != "appolon1908-hue/Caddy":
+if CONTRACT.get("principalRepository") != "ingtrader21-spec/Caddy":
     raise SystemExit("CADDY_AUTHORITY_ERROR=caddy_not_principal")
-if CONTRACT.get("gatewayRepository") != "appolon1908-hue/Kong":
+if CONTRACT.get("gatewayRepository") != "ingtrader21-spec/Kong":
     raise SystemExit("CADDY_AUTHORITY_ERROR=wrong_gateway_principal")
 if CONTRACT.get("referenceRepository") != "appolon1908-hue/codestra-production-platform":
     raise SystemExit("CADDY_AUTHORITY_ERROR=wrong_reference_repository")
@@ -79,6 +83,20 @@ expected_identity = {
 for key, expected in expected_identity.items():
     if identity.get(key) is not expected:
         raise SystemExit(f"CADDY_AUTHORITY_ERROR=identity_boundary:{key}")
+
+handoff = CONTRACT.get("middlewareHandoff") or {}
+expected_handoff = {
+    "authorizationHeaderPreservedByKong": True,
+    "middlewareIdentityRevalidation": True,
+    "directCaddyToMiddleware": False,
+}
+for key, expected in expected_handoff.items():
+    if handoff.get(key) is not expected:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=middleware_handoff:{key}")
+if handoff.get("approvedServiceHosts") != ["middleware-integration-api"]:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=middleware_handoff_service_hosts")
+if handoff.get("approvedServicePorts") != [8095]:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=middleware_handoff_service_ports")
 
 migration = CONTRACT.get("migration") or {}
 if migration.get("productionCutoverAuthorizedBySource") is not False:
@@ -103,14 +121,13 @@ if "Authorization delete" not in SITE:
 if "header_up Authorization" in SITE or "header_up -Authorization" in SITE:
     raise SystemExit("CADDY_AUTHORITY_ERROR=authorization_forwarding_modified")
 
-for forbidden_header in (
-    "X-Authenticated-Client",
-    "X-Authenticated-Tenant",
-    "X-Authenticated-Role",
-    "X-Codestra-Gateway-Secret",
-):
-    if forbidden_header in SITE:
-        raise SystemExit(f"CADDY_AUTHORITY_ERROR=trusted_identity_header_in_caddy:{forbidden_header}")
+# Caddy never creates a trusted identity header. The only permitted mention of
+# one is its deletion on the Kong handoff (``header_up -Name``), which keeps a
+# client-asserted value from ever reaching Kong or Middleware.
+try:
+    validate_identity_header_boundary(SITE, (CONTRACT.get("identityHeaders") or {}).get("deletedBeforeKong") or ())
+except ValueError as exc:
+    raise SystemExit(f"CADDY_AUTHORITY_ERROR={exc}") from exc
 
 for forbidden_target in (
     "codestra-middleware-integration-api-1",
@@ -132,6 +149,18 @@ try:
 except ValueError as exc:
     raise SystemExit(f"CADDY_AUTHORITY_ERROR={exc}") from exc
 
+# Private Middleware surfaces (/metrics, /internal/*) are answered 404 at the edge
+# before the Kong handoff and before the legacy fallback; they have no Kong route.
+private_paths = CONTRACT.get("privateOnlyPaths")
+if not isinstance(private_paths, list) or not private_paths:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=missing_private_only_paths")
+if "/metrics" not in private_paths or "/internal/*" not in private_paths:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=private_only_paths_incomplete")
+try:
+    validate_private_only_paths(SITE, private_paths)
+except ValueError as exc:
+    raise SystemExit(f"CADDY_AUTHORITY_ERROR={exc}") from exc
+
 # n8n Community editor boundary. Caddy terminates TLS but oauth2-proxy owns
 # Keycloak OIDC; the editor is never routed directly to n8n.
 if N8N_CONTRACT.get("schema_version") != "1.0":
@@ -140,9 +169,9 @@ if N8N_CONTRACT.get("contract_id") != "codestra.n8n-community-editor-edge":
     raise SystemExit("CADDY_AUTHORITY_ERROR=wrong_n8n_editor_contract")
 expected_n8n_contract = {
     "status": "PREPARED_NOT_APPLIED",
-    "principal_repository": "appolon1908-hue/Caddy",
-    "runtime_repository": "appolon1908-hue/N8N",
-    "identity_repository": "appolon1908-hue/Keycloak",
+    "principal_repository": "ingtrader21-spec/Caddy",
+    "runtime_repository": "ingtrader21-spec/N8N",
+    "identity_repository": "ingtrader21-spec/Keycloak",
     "identity_provider": "Keycloak",
     "authentication_gateway": "oauth2-proxy",
     "issuer": "https://auth.codestra.co/realms/codestra",
@@ -282,10 +311,10 @@ for path in ROOT.rglob("*"):
             raise SystemExit(f"CADDY_AUTHORITY_ERROR=possible_secret:{path.relative_to(ROOT)}")
 
 print("CADDY_REPOSITORY_AUTHORITY=PASS")
-print("CADDY_PRINCIPAL=appolon1908-hue/Caddy")
+print("CADDY_PRINCIPAL=ingtrader21-spec/Caddy")
 print("CADDY_TO_KONG_CONTRACT=PASS")
 print("KONG_ROUTE_CONTRACT_BIDIRECTIONAL=PASS")
-print("KONG_PRINCIPAL=appolon1908-hue/Kong")
+print("KONG_PRINCIPAL=ingtrader21-spec/Kong")
 print("N8N_COMMUNITY_EDITOR_EDGE=PREPARED_NOT_APPLIED")
 print("N8N_DIRECT_PUBLIC_UPSTREAM=DENIED")
 print("N8N_EDITOR_BODY_LIMIT=RUNTIME_ALIGNED")
