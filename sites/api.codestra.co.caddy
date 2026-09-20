@@ -19,8 +19,16 @@ api.codestra.co {
 		# network with a monitoring-readonly token and /internal/* is service-to-service
 		# only; neither has a Kong route and neither may fall through to the legacy
 		# fallback. Answer 404 at the edge before any upstream is considered.
-		@private_only path /metrics /internal/*
+		@private_only path /metrics /metrics/* /internal/*
 		handle @private_only {
+			respond 404
+		}
+
+		# Pending ingress/event paths are explicitly fail-closed until their canonical
+		# Middleware/Kong contracts are reviewed. They must never fall through to the
+		# transitional legacy API listener.
+		@pending_contract path /api/v1/events/telnexa /api/v1/n8n/acknowledgements /v1/observability/incidents /v1/observability/kpis /webhooks/sms/inbound/* /webhooks/vicidial/call-result/*
+		handle @pending_contract {
 			respond 404
 		}
 

@@ -49,9 +49,10 @@
   ],
   "privateOnlyPaths": [
     "/metrics",
+    "/metrics/*",
     "/internal/*"
   ],
-  "privateOnlyRule": "Private Middleware surfaces are answered 404 at the Caddy public edge before Kong or any legacy fallback: /metrics is private monitoring only and /internal/* is service-to-service only.",
+  "privateOnlyRule": "Private Middleware surfaces are answered 404 at the Caddy public edge before Kong or any legacy fallback: /metrics and /metrics/* are private monitoring only and /internal/* is service-to-service only.",
   "migration": {
     "legacyFallbackTemporarilyAllowed": true,
     "fullKongRouteParityRequiredBeforeRemovingFallback": true,

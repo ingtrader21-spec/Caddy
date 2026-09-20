@@ -1,0 +1,107 @@
+{
+  "authority": "ingtrader21-spec/Caddy",
+  "entries": [
+    {
+      "authentication_owner": "Kong/Middleware",
+      "classification": "CANONICAL",
+      "downstream_owner": "ingtrader21-spec/Middleware-",
+      "enabled_environments": [
+        "staging",
+        "production-gated"
+      ],
+      "gateway": "ingtrader21-spec/Kong",
+      "hmac_verification_owner": "Middleware where required",
+      "id": "webhook.odoo-events",
+      "log_redaction": "sensitive-body-and-credentials",
+      "maximum_body_size": "10MB",
+      "methods": [
+        "POST"
+      ],
+      "mtls_required": "contract-defined",
+      "path": "/api/v1/odoo/events",
+      "provider": "odoo",
+      "public_host": "api.codestra.co",
+      "rate_profile": "webhook-standard",
+      "replay_protection_owner": "Middleware",
+      "source_network_policy": "contract-defined",
+      "timeout_profile": "webhook-standard"
+    },
+    {
+      "authentication_owner": "Kong/Middleware",
+      "classification": "CANONICAL",
+      "downstream_owner": "ingtrader21-spec/Middleware-",
+      "enabled_environments": [
+        "staging",
+        "production-gated"
+      ],
+      "gateway": "ingtrader21-spec/Kong",
+      "hmac_verification_owner": "not-applicable/service-jwt",
+      "id": "webhook.n8n-results",
+      "log_redaction": "credentials-and-sensitive-body",
+      "maximum_body_size": "10MB",
+      "methods": [
+        "POST"
+      ],
+      "mtls_required": "contract-defined",
+      "path": "/api/v1/integrations/n8n/results",
+      "provider": "n8n",
+      "public_host": "api.codestra.co",
+      "rate_profile": "integration-standard",
+      "replay_protection_owner": "Middleware/idempotency",
+      "source_network_policy": "service-identity",
+      "timeout_profile": "webhook-standard"
+    },
+    {
+      "authentication_owner": "Kong/Middleware",
+      "blocker": "Middleware issue #264 / route not present in current public-edge contract",
+      "classification": "TRANSITIONAL_PENDING_CONTRACT",
+      "downstream_owner": "ingtrader21-spec/Middleware-",
+      "enabled_environments": [
+        "staging"
+      ],
+      "gateway": "ingtrader21-spec/Kong",
+      "hmac_verification_owner": "Middleware",
+      "id": "webhook.telnexa",
+      "log_redaction": "sms-body-and-credentials",
+      "maximum_body_size": "STANDARD_WEBHOOK",
+      "methods": [
+        "POST"
+      ],
+      "mtls_required": true,
+      "path": "/api/v1/events/telnexa",
+      "provider": "telnexa",
+      "public_host": "api.codestra.co",
+      "rate_profile": "sms-webhook",
+      "replay_protection_owner": "Middleware",
+      "source_network_policy": "pending-issue-264",
+      "timeout_profile": "webhook-standard"
+    },
+    {
+      "authentication_owner": "Kong/Middleware",
+      "blocker": "Kernel convergence / route not present in current public-edge contract",
+      "classification": "TRANSITIONAL_PENDING_CONTRACT",
+      "downstream_owner": "ingtrader21-spec/Middleware-",
+      "enabled_environments": [
+        "staging"
+      ],
+      "gateway": "ingtrader21-spec/Kong",
+      "hmac_verification_owner": "Middleware/contract-defined",
+      "id": "webhook.vicidial-call-result",
+      "log_redaction": "credentials-and-call-pii",
+      "maximum_body_size": "SMALL_WEBHOOK",
+      "methods": [
+        "POST"
+      ],
+      "mtls_required": "contract-defined",
+      "path": "/webhooks/vicidial/call-result/",
+      "provider": "vicidial",
+      "public_host": "api.codestra.co",
+      "rate_profile": "telephony-webhook",
+      "replay_protection_owner": "Middleware",
+      "source_network_policy": "restricted-provider-network",
+      "timeout_profile": "webhook-standard"
+    }
+  ],
+  "purpose": "Edge ingress declaration only. Signature/replay/business validation remains downstream.",
+  "schema_version": 1
+}
