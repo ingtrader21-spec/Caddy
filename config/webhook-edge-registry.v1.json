@@ -2,7 +2,6 @@
   "authority": "ingtrader21-spec/Caddy",
   "entries": [
     {
-      "authentication_owner": "Kong/Middleware",
       "classification": "CANONICAL",
       "downstream_owner": "ingtrader21-spec/Middleware-",
       "enabled_environments": [
@@ -12,6 +11,7 @@
       "gateway": "ingtrader21-spec/Kong",
       "hmac_verification_owner": "Middleware where required",
       "id": "webhook.odoo-events",
+      "identity_gate_owner": "Kong/Middleware",
       "log_redaction": "sensitive-body-and-credentials",
       "maximum_body_size": "10MB",
       "methods": [
@@ -27,7 +27,6 @@
       "timeout_profile": "webhook-standard"
     },
     {
-      "authentication_owner": "Kong/Middleware",
       "classification": "CANONICAL",
       "downstream_owner": "ingtrader21-spec/Middleware-",
       "enabled_environments": [
@@ -37,6 +36,7 @@
       "gateway": "ingtrader21-spec/Kong",
       "hmac_verification_owner": "not-applicable/service-jwt",
       "id": "webhook.n8n-results",
+      "identity_gate_owner": "Kong/Middleware",
       "log_redaction": "credentials-and-sensitive-body",
       "maximum_body_size": "10MB",
       "methods": [
@@ -52,7 +52,6 @@
       "timeout_profile": "webhook-standard"
     },
     {
-      "authentication_owner": "Kong/Middleware",
       "blocker": "Middleware issue #264 / route not present in current public-edge contract",
       "classification": "TRANSITIONAL_PENDING_CONTRACT",
       "downstream_owner": "ingtrader21-spec/Middleware-",
@@ -62,6 +61,7 @@
       "gateway": "ingtrader21-spec/Kong",
       "hmac_verification_owner": "Middleware",
       "id": "webhook.telnexa",
+      "identity_gate_owner": "Kong/Middleware",
       "log_redaction": "sms-body-and-credentials",
       "maximum_body_size": "STANDARD_WEBHOOK",
       "methods": [
@@ -77,7 +77,6 @@
       "timeout_profile": "webhook-standard"
     },
     {
-      "authentication_owner": "Kong/Middleware",
       "blocker": "Kernel convergence / route not present in current public-edge contract",
       "classification": "TRANSITIONAL_PENDING_CONTRACT",
       "downstream_owner": "ingtrader21-spec/Middleware-",
@@ -87,6 +86,7 @@
       "gateway": "ingtrader21-spec/Kong",
       "hmac_verification_owner": "Middleware/contract-defined",
       "id": "webhook.vicidial-call-result",
+      "identity_gate_owner": "Kong/Middleware",
       "log_redaction": "credentials-and-call-pii",
       "maximum_body_size": "SMALL_WEBHOOK",
       "methods": [

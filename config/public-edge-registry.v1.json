@@ -2,12 +2,12 @@
   "authority": "ingtrader21-spec/Caddy",
   "entries": [
     {
-      "authentication_owner": "Kong/Keycloak",
       "caddy_upstream": "CADDY_KONG_UPSTREAM",
       "classification": "CANONICAL",
       "gateway": "ingtrader21-spec/Kong",
       "host": "api.codestra.co",
       "id": "edge.platform-v1",
+      "identity_gate_owner": "Kong/Keycloak",
       "legacy_fallback": false,
       "maximum_body_size": "10MB",
       "method_class": "contract-defined",
@@ -21,12 +21,12 @@
       "websocket": false
     },
     {
-      "authentication_owner": "Kong/Keycloak",
       "caddy_upstream": "CADDY_KONG_UPSTREAM",
       "classification": "CANONICAL",
       "gateway": "ingtrader21-spec/Kong",
       "host": "api.codestra.co",
       "id": "edge.automation-v2",
+      "identity_gate_owner": "Kong/Keycloak",
       "legacy_fallback": false,
       "maximum_body_size": "10MB",
       "method_class": "contract-defined",
@@ -40,12 +40,12 @@
       "websocket": false
     },
     {
-      "authentication_owner": "Kong/Middleware",
       "caddy_upstream": "CADDY_KONG_UPSTREAM",
       "classification": "CANONICAL",
       "gateway": "ingtrader21-spec/Kong",
       "host": "api.codestra.co",
       "id": "edge.odoo-event",
+      "identity_gate_owner": "Kong/Middleware",
       "legacy_fallback": false,
       "maximum_body_size": "10MB",
       "method_class": "POST",
@@ -59,12 +59,12 @@
       "websocket": false
     },
     {
-      "authentication_owner": "Kong/Middleware",
       "caddy_upstream": "CADDY_KONG_UPSTREAM",
       "classification": "CANONICAL",
       "gateway": "ingtrader21-spec/Kong",
       "host": "api.codestra.co",
       "id": "edge.n8n-results",
+      "identity_gate_owner": "Kong/Middleware",
       "legacy_fallback": false,
       "maximum_body_size": "10MB",
       "method_class": "contract-defined",
@@ -78,13 +78,13 @@
       "websocket": false
     },
     {
-      "authentication_owner": "private-network/service-auth",
       "caddy_upstream": "NONE",
       "classification": "PRIVATE",
       "expected_public_status": 404,
       "gateway": "NONE",
       "host": "api.codestra.co",
       "id": "edge.private-internal",
+      "identity_gate_owner": "private-network/service-auth",
       "legacy_fallback": false,
       "method_class": "ANY",
       "owner": "ingtrader21-spec/Middleware-",
@@ -94,13 +94,13 @@
       "traffic_type": "private"
     },
     {
-      "authentication_owner": "private-monitoring",
       "caddy_upstream": "NONE",
       "classification": "PRIVATE",
       "expected_public_status": 404,
       "gateway": "NONE",
       "host": "api.codestra.co",
       "id": "edge.private-metrics",
+      "identity_gate_owner": "private-monitoring",
       "legacy_fallback": false,
       "method_class": "ANY",
       "owner": "ingtrader21-spec/Middleware-",
@@ -110,12 +110,12 @@
       "traffic_type": "private"
     },
     {
-      "authentication_owner": "legacy/realtime boundary",
       "caddy_upstream": "CADDY_REALTIME_UPSTREAM",
       "classification": "TRANSITIONAL",
       "gateway": "NONE",
       "host": "api.codestra.co",
       "id": "edge.realtime-transitional",
+      "identity_gate_owner": "legacy/realtime boundary",
       "legacy_fallback": false,
       "method_class": "mixed",
       "owner": "migration-review-required",
@@ -125,12 +125,12 @@
       "traffic_type": "compatibility"
     },
     {
-      "authentication_owner": "legacy",
       "caddy_upstream": "CADDY_LEGACY_API_UPSTREAM",
       "classification": "TRANSITIONAL",
       "gateway": "NONE",
       "host": "api.codestra.co",
       "id": "edge.unknown-fallback",
+      "identity_gate_owner": "legacy",
       "legacy_fallback": true,
       "method_class": "ANY",
       "owner": "migration-review-required",
@@ -141,13 +141,13 @@
       "traffic_type": "legacy-fallback"
     },
     {
-      "authentication_owner": "pending Middleware/Kong contract",
       "caddy_upstream": "NONE",
       "classification": "DENIED_PENDING_CONTRACT",
       "expected_public_status": 404,
       "gateway": "NONE",
       "host": "api.codestra.co",
       "id": "edge.telnexa-pending",
+      "identity_gate_owner": "pending Middleware/Kong contract",
       "legacy_fallback": false,
       "method_class": "POST",
       "owner": "ingtrader21-spec/Middleware-",
@@ -157,13 +157,13 @@
       "traffic_type": "event-ingress"
     },
     {
-      "authentication_owner": "pending Middleware/Kong contract",
       "caddy_upstream": "NONE",
       "classification": "DENIED_PENDING_CONTRACT",
       "expected_public_status": 404,
       "gateway": "NONE",
       "host": "api.codestra.co",
       "id": "edge.vicidial-pending",
+      "identity_gate_owner": "pending Middleware/Kong contract",
       "legacy_fallback": false,
       "method_class": "POST",
       "owner": "ingtrader21-spec/Middleware-",
@@ -173,13 +173,13 @@
       "traffic_type": "event-ingress"
     },
     {
-      "authentication_owner": "pending Middleware/Kong contract",
       "caddy_upstream": "NONE",
       "classification": "DENIED_PENDING_CONTRACT",
       "expected_public_status": 404,
       "gateway": "NONE",
       "host": "api.codestra.co",
       "id": "edge.n8n-ack-pending",
+      "identity_gate_owner": "pending Middleware/Kong contract",
       "legacy_fallback": false,
       "method_class": "POST",
       "owner": "ingtrader21-spec/Middleware-",
@@ -189,13 +189,13 @@
       "traffic_type": "event-ingress"
     },
     {
-      "authentication_owner": "pending Middleware/Kong contract",
       "caddy_upstream": "NONE",
       "classification": "DENIED_PENDING_CONTRACT",
       "expected_public_status": 404,
       "gateway": "NONE",
       "host": "api.codestra.co",
       "id": "edge.observability-pending",
+      "identity_gate_owner": "pending Middleware/Kong contract",
       "legacy_fallback": false,
       "method_class": "POST",
       "owner": "ingtrader21-spec/Middleware-",
@@ -205,13 +205,13 @@
       "traffic_type": "event-ingress"
     },
     {
-      "authentication_owner": "pending Middleware/Kong contract",
       "caddy_upstream": "NONE",
       "classification": "DENIED_PENDING_CONTRACT",
       "expected_public_status": 404,
       "gateway": "NONE",
       "host": "api.codestra.co",
       "id": "edge.sms-inbound-pending",
+      "identity_gate_owner": "pending Middleware/Kong contract",
       "legacy_fallback": false,
       "method_class": "POST",
       "owner": "ingtrader21-spec/Middleware-",
@@ -243,7 +243,7 @@
       "name": "openbao-internal"
     }
   ],
-  "middleware_public_api_sha256": "9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b",
+  "middleware_public_contract_sha256": "9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b",
   "middleware_source_sha": "2862af0aa97367b18cb360af69212abe4243a1ac",
   "purpose": "Public edge exposure and transport registry. Payload/business semantics remain downstream.",
   "schema_version": 1

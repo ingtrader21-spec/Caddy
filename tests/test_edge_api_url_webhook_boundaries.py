@@ -48,7 +48,7 @@ def test_webhooks_have_exact_methods_and_explicit_owners():
         assert entry["methods"] == ["POST"]
         assert entry["gateway"] == "ingtrader21-spec/Kong"
         assert entry["downstream_owner"] == "ingtrader21-spec/Middleware-"
-        assert entry["authentication_owner"]
+        assert entry["identity_gate_owner"]
         assert entry["replay_protection_owner"]
         assert entry["log_redaction"]
 
@@ -62,7 +62,7 @@ def test_pending_webhooks_are_not_misrepresented_as_canonical():
 def test_digest_chain_pins_current_middleware_and_flags_stale_kong():
     assert CHAIN["middleware"]["source_sha"] == "2862af0aa97367b18cb360af69212abe4243a1ac"
     expected = "9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b"
-    assert CHAIN["middleware"]["public_api_sha256"] == expected
+    assert CHAIN["middleware"]["public_contract_sha256"] == expected
     assert CHAIN["kong"]["required_sha256"] == expected
     assert CHAIN["kong"]["status"] == "STALE_REPIN_REQUIRED"
 
