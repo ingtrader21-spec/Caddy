@@ -54,6 +54,28 @@ Authorization, cookies, HMAC/API secrets, provider tokens, and sensitive
 message bodies are not edge-log fields. Safe evidence includes provider,
 path, status, duration, request/correlation ID, and body size.
 
+## Digest chain
+
+`config/edge-contract-chain.v1.json` records the accepted upstream authorities
+that the edge is certified against:
+
+| Link | Pin |
+|---|---|
+| Middleware source | `2862af0aa97367b18cb360af69212abe4243a1ac` |
+| Middleware public contract | `9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b` |
+| Kong protected main | `3e68cb2a4955bd71ddb3e839f4d9e3770465fc08` |
+| Kong Middleware contract | `9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b` (`status: PASS`) |
+| Postman collection | sha256 of the committed collection bytes (LF line endings) |
+
+`MIDDLEWARE_KONG_CADDY_DIGEST_CHAIN=PASS` means the Middleware digest, the
+digest Kong pins, and the digest Caddy requires are the same value, and the
+Kong side records the protected head that carries it. The Caddy source, edge
+contract and configuration digests are filled in at certification time from
+the exact head; they are never self-referenced from source.
+
+A passing digest chain does not retire the transitional legacy fallback and
+does not claim `UNKNOWN_ROUTE_FALLBACK=0`.
+
 ## Production exit counters
 
 The edge is not production-complete until all unclassified public routes,

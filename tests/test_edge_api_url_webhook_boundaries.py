@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -59,12 +60,24 @@ def test_pending_webhooks_are_not_misrepresented_as_canonical():
     assert by_id["webhook.vicidial-call-result"]["classification"] == "TRANSITIONAL_PENDING_CONTRACT"
 
 
-def test_digest_chain_pins_current_middleware_and_flags_stale_kong():
-    assert CHAIN["middleware"]["source_sha"] == "2862af0aa97367b18cb360af69212abe4243a1ac"
+def test_digest_chain_pins_current_middleware_and_repinned_kong():
     expected = "9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b"
+    assert CHAIN["middleware"]["source_sha"] == "2862af0aa97367b18cb360af69212abe4243a1ac"
     assert CHAIN["middleware"]["public_contract_sha256"] == expected
+    # Kong protected main repinned the final Middleware contract; the chain must
+    # record that head and carry the same digest on both sides of the handoff.
+    assert CHAIN["kong"]["source_sha"] == "3e68cb2a4955bd71ddb3e839f4d9e3770465fc08"
     assert CHAIN["kong"]["required_sha256"] == expected
-    assert CHAIN["kong"]["status"] == "STALE_REPIN_REQUIRED"
+    assert CHAIN["kong"]["middleware_contract_sha256"] == expected
+    assert CHAIN["kong"]["status"] == "PASS"
+
+
+def test_digest_chain_postman_digest_matches_committed_collection():
+    collection = ROOT / CHAIN["postman"]["collection"]
+    # The collection is committed with LF endings; normalise so an autocrlf
+    # checkout still hashes the committed bytes.
+    material = collection.read_bytes().replace(b"\r\n", b"\n")
+    assert CHAIN["postman"]["sha256"] == hashlib.sha256(material).hexdigest()
 
 
 def test_pending_contract_paths_fail_closed_before_legacy_fallback():
