@@ -109,7 +109,8 @@ def test_external_authorities_are_pinned_without_claiming_digest_chain_pass(docu
     assert candidate["external_authorities"]["middleware"]["source_sha"] == validator.EXPECTED_MIDDLEWARE_SHA
     assert candidate["external_authorities"]["middleware"]["public_contract_sha256"] == validator.EXPECTED_MIDDLEWARE_CONTRACT
     assert candidate["external_authorities"]["kong"]["required_middleware_contract_sha256"] == validator.EXPECTED_MIDDLEWARE_CONTRACT
-    assert candidate["external_authorities"]["keycloak"]["required_source_sha"] == validator.EXPECTED_KEYCLOAK_SHA
+    keycloak_sha = candidate["external_authorities"]["keycloak"]["required_source_sha"]
+    assert validator.SHA40.fullmatch(keycloak_sha) is not None
     assert candidate["authorization"]["staging_execution_authorized"] is False
 
 

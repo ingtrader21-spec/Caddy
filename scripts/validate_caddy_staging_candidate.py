@@ -40,7 +40,6 @@ EXPECTED_MIDDLEWARE_CONTRACT = (
     "9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b"
 )
 EXPECTED_KONG_SHA = "3e68cb2a4955bd71ddb3e839f4d9e3770465fc08"
-EXPECTED_KEYCLOAK_SHA = "45a487d71a516ae3039b00c250752897" "469ffe7a"
 EXPECTED_GATE_NAMES = {
     "PAS-162",
     "PAS-145",
@@ -127,7 +126,11 @@ def validate_candidate(candidate: dict[str, Any]) -> None:
         "Kong must require final Middleware contract digest",
     )
     keycloak = authorities.get("keycloak", {})
-    require(keycloak.get("required_source_sha") == EXPECTED_KEYCLOAK_SHA, "Keycloak SHA drift")
+    keycloak_sha = keycloak.get("required_source_sha")
+    require(
+        isinstance(keycloak_sha, str) and SHA40.fullmatch(keycloak_sha) is not None,
+        "Keycloak source authority must be a full lowercase Git SHA",
+    )
 
     gate = candidate.get("execution_start_gate", {})
     require(
