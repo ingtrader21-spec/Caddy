@@ -80,13 +80,13 @@
       {
         "gate": "INFRA126_REUSABLE_DEPLOY_READINESS_ACCEPTED",
         "required": "PASS",
-        "observed": "OPEN_HEAD_60EFF4C_HOSTED_RED",
-        "satisfied": false
+        "observed": "MERGED_5B8CDBB_INDEPENDENT_APPROVAL",
+        "satisfied": true
       },
       {
         "gate": "CADDY_MAIN_DEPLOY_READINESS_GREEN",
         "required": "GREEN",
-        "observed": "RUN_35560793977_IMMUTABLE_CANDIDATE_FAILED_COSIGN_IDENTITY",
+        "observed": "PR183_REPIN_SOURCE_AUTHORITY_GREEN_DEPLOY_READINESS_STARTUP_FAILURE",
         "satisfied": false
       },
       {
@@ -98,8 +98,8 @@
       {
         "gate": "PAS-178_PROTECTED_MAIN_ENFORCEMENT",
         "required": "PASS",
-        "observed": "BLOCKED_PRIVATE_REPO_PLAN_GATE",
-        "satisfied": false
+        "observed": "PASS_PUBLIC_MAIN_PROTECTED_ACTIVE_RULESETS_NO_BYPASS",
+        "satisfied": true
       }
     ]
   },

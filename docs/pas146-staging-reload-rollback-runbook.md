@@ -35,11 +35,12 @@ Current preparation state:
 - PAS-145: **Done / Complete Verified**.
 - PR #179: merged to `main`; exact-head source-authority/deploy-readiness PASS; independent approval from `kazan555`.
 - Current protected main: `22c6d51ed2f5340139177131fb810e787f0f7550`.
-- Shared deploy-readiness root: **BLOCKED** on `Infustruction-repo#126`. Caddy run `35560793977` failed only in the immutable-candidate signing verification because the reusable workflow still trusted the pre-transfer `appolon1908-hue/Infustruction-repo` certificate identity while GitHub issued `ingtrader21-spec/Infustruction-repo`.
-- A fresh Caddy protected-main deploy-readiness PASS is therefore still required after the shared repair is accepted and repinned.
-- PR #181: local exact-head source, native Caddy, Postman, route, digest-chain, full pytest and Gitleaks gates PASS; hosted Actions currently fail as zero-step jobs on the private-repository/account execution gate, so it remains unmerged.
-- PAS-178: **Needs Decision**. Caddy/Kong/Keycloak remain private and GitHub reports branch protection/rulesets unavailable without upgrading the owner plan or making the repositories public.
-- Start gates satisfied: **6/10**.
+- Shared deploy-readiness root: **PASS**. `Infustruction-repo#126` merged as `5b8cdbb8819863c9230d9bc3a39f2aa9b57e2636` with independent approval.
+- Caddy repin PR #183 is open. Its source-authority workflow is green (`validate-source`, `validate-merge-result`, aggregate `validate`), but deploy-readiness still fails before jobs instantiate; the wrapper is being localized because Caddy is public while the shared reusable-workflow repository remains private.
+- A fresh Caddy protected-main deploy-readiness PASS is still required after the accepted workflow is callable from Caddy and merged.
+- PR #181: local exact-head source, native Caddy, Postman, route, digest-chain, full pytest and Gitleaks gates PASS; it remains unmerged pending reviewed exact-head CI on the current base.
+- PAS-178: **Done / Complete Verified**. Caddy is public, `main.protected=true`, and active rulesets require PR review, one approval, stale-review dismissal, last-push approval, thread resolution, strict status checks and no bypass actors.
+- Start gates satisfied: **8/10**.
 - Runtime action authorized: **NO**.
 - Provider effects / business writes / production GO remain **0 / 0 / NO**.
 
@@ -69,7 +70,7 @@ External authorities carried by the preparation contract:
 - required Kong source: `3e68cb2a4955bd71ddb3e839f4d9e3770465fc08`
 - required Keycloak source: `45a487d7…469ffe7a` (full exact SHA is retained in the machine-readable candidate record)
 
-These are current preparation inputs. PAS-162 and PAS-145 are already accepted; runtime remains blocked by the shared deploy-readiness repair (#126), a fresh Caddy main deploy-readiness PASS after repin, the unmerged PR #181 hygiene fix, and PAS-178 protected-main enforcement.
+These are current preparation inputs. PAS-162, PAS-145, the shared deploy-readiness repair (#126), and PAS-178 are accepted. Runtime remains blocked only by a fresh Caddy protected-main deploy-readiness PASS after the Caddy workflow repin/localization and the reviewed merge of PR #181.
 
 ## Machine-readable artifacts
 
