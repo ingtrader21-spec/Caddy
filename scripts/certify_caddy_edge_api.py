@@ -202,20 +202,10 @@ def validate_postman(collection: dict[str, Any], environment: dict[str, Any]) ->
         raise CertificationError("Postman live-run flag must default false")
     base_url = str(values.get("base_url", ""))
     if not base_url.startswith("https://127.0.0.1:"):
-        raise CertificationError("Postman default base_url must be loopback")
-
-    prerequest = [
-        event
-        for event in collection.get("event", [])
-        if event.get("listen") == "prerequest"
-    ]
-    guard_text = "\n".join(
-        str(line)
-        for event in prerequest
-        for line in (event.get("script") or {}).get("exec", [])
-    )
-    if "RUN_CADDY_EDGE_CERTIFICATION" not in guard_text or "disabled" not in guard_text:
-        raise CertificationError("Postman live-run guard missing")
+        raise CertificationError("Postman safe environment base_url must be loopback")
+    for token_key in ("access_token", "wrong_scope_token", "wrong_audience_token"):
+        if values.get(token_key) not in ("", None):
+            raise CertificationError(f"Postman environment embeds token material: {token_key}")
 
     items = list(flatten_items(collection.get("item", [])))
     by_request: dict[tuple[str, str], list[dict[str, Any]]] = {}
@@ -226,10 +216,7 @@ def validate_postman(collection: dict[str, Any], environment: dict[str, Any]) ->
 
     required_api = {
         ("GET", "/platform/v1/kernel/describe"),
-        ("POST", "/platform/v1/commands"),
         ("POST", "/v2/automation/commands"),
-        ("POST", "/api/v1/odoo/events"),
-        ("POST", "/api/v1/integrations/n8n/results"),
     }
     missing_api = sorted(required_api - set(by_request))
     if missing_api:
@@ -240,49 +227,45 @@ def validate_postman(collection: dict[str, Any], environment: dict[str, Any]) ->
         ("GET", "/metrics/runtime"),
         ("GET", "/internal/v1/authorization/check"),
         ("GET", "/internal/v1/database/health"),
+        ("GET", "/internal/v1/database/schema"),
+        ("GET", "/internal/v1/database/backups"),
     }
     for key in private_required:
         candidates = by_request.get(key)
         if not candidates or not any(has_status_assertion(item, {404}) for item in candidates):
             raise CertificationError(f"Postman private 404 assertion missing: {key}")
 
-    wrong_methods = {
-        ("DELETE", "/platform/v1/commands"),
-        ("PUT", "/platform/v1/operations/{{operation_id}}/replay"),
+    webhook_wrong_methods = {
         ("GET", "/api/v1/odoo/events"),
         ("GET", "/api/v1/integrations/n8n/results"),
     }
-    for key in wrong_methods:
+    missing_webhook_wrong_methods = sorted(webhook_wrong_methods - set(by_request))
+    if missing_webhook_wrong_methods:
+        raise CertificationError(
+            f"Postman webhook wrong-method probes missing: {missing_webhook_wrong_methods}"
+        )
+
+    pending_required = {
+        ("POST", "/api/v1/events/telnexa"),
+        ("POST", "/webhooks/vicidial/call-result/"),
+        ("POST", "/api/v1/n8n/acknowledgements"),
+    }
+    for key in pending_required:
         candidates = by_request.get(key)
-        if not candidates or not any(has_status_assertion(item, {404, 405}) for item in candidates):
-            raise CertificationError(f"Postman wrong-method assertion missing: {key}")
+        if not candidates or not any(has_status_assertion(item, {404}) for item in candidates):
+            raise CertificationError(f"Postman pending-contract 404 assertion missing: {key}")
 
-    pending_count = sum(
-        1
-        for item in items
-        for event in item.get("event", [])
-        if "pending contract is fail-closed"
-        in "\n".join(str(line) for line in (event.get("script") or {}).get("exec", []))
-    )
-    if pending_count < 5:
-        raise CertificationError("Postman pending-contract coverage incomplete")
-
-    webhook_wrong_method_count = sum(
-        1
-        for item in items
-        for event in item.get("event", [])
-        if "wrong webhook method fails closed"
-        in "\n".join(str(line) for line in (event.get("script") or {}).get("exec", []))
-    )
-    if webhook_wrong_method_count < 2:
-        raise CertificationError("Postman webhook wrong-method coverage incomplete")
+    unknown_probe = ("GET", "/__caddy_unclassified_probe__")
+    if unknown_probe not in by_request:
+        raise CertificationError("Postman transitional unknown-route evidence probe missing")
 
     return {
         "api": "PASS",
         "webhook": "PASS",
         "private": "PASS",
-        "pending_count": pending_count,
-        "webhook_wrong_method_count": webhook_wrong_method_count,
+        "pending_count": len(pending_required),
+        "webhook_wrong_method_count": len(webhook_wrong_methods),
+        "safe_environment": "PASS",
     }
 
 

@@ -32,15 +32,16 @@ ENVIRONMENT = certifier.load_json(certifier.ENV_PATH)
 
 
 def test_generated_postman_artifacts_are_deterministic() -> None:
-    assert COLLECTION == generator.render_collection(PUBLIC, WEBHOOKS)
+    assert COLLECTION == generator.render_collection()
     assert ENVIRONMENT == generator.render_environment()
+    assert generator.SOURCE_PATH.read_bytes() == generator.COLLECTION_PATH.read_bytes()
 
 
 def test_postman_safe_environment_defaults_to_loopback_and_disabled() -> None:
     values = {row["key"]: row["value"] for row in ENVIRONMENT["values"]}
     assert values["base_url"].startswith("https://127.0.0.1:")
     assert values["RUN_CADDY_EDGE_CERTIFICATION"] == "false"
-    for key in ("access_token", "automation_token", "odoo_token", "n8n_token"):
+    for key in ("access_token", "wrong_scope_token", "wrong_audience_token"):
         assert values[key] == ""
 
 
@@ -57,16 +58,22 @@ def test_postman_covers_api_webhook_private_and_pending_negative_paths() -> None
     assert report["api"] == "PASS"
     assert report["webhook"] == "PASS"
     assert report["private"] == "PASS"
-    assert report["pending_count"] >= 5
-    assert report["webhook_wrong_method_count"] >= 2
+    assert report["safe_environment"] == "PASS"
+    assert report["pending_count"] == 3
+    assert report["webhook_wrong_method_count"] == 2
 
 
-def test_pas162_chain_is_explicitly_pending_not_false_pass() -> None:
+def test_pas162_chain_is_exact_and_fully_bound() -> None:
     state = certifier.chain_state(CHAIN, certifier.sha256_file(certifier.COLLECTION_PATH))
-    assert state["required_digest"] == "9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b"
-    assert state["middleware_digest"] == state["required_digest"]
-    assert state["digest_match"] is False
-    assert state["postman_match"] is False
+    expected_contract = "9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b"
+    expected_postman = "6d287acd5dc917f0e7db6bea79f941a894acac87885d5bd1f4081c55529622bc"
+    assert state["required_digest"] == expected_contract
+    assert state["middleware_digest"] == expected_contract
+    assert state["kong_digest"] == expected_contract
+    assert state["digest_match"] is True
+    assert state["recorded_postman_sha256"] == expected_postman
+    assert state["actual_postman_sha256"] == expected_postman
+    assert state["postman_match"] is True
 
 
 def test_collection_has_no_embedded_secret_values() -> None:
@@ -75,4 +82,5 @@ def test_collection_has_no_embedded_secret_values() -> None:
     assert "Bearer eyJ" not in text
     assert "sk-" not in text
     assert environment["access_token"] == ""
-    assert environment["automation_token"] == ""
+    assert environment["wrong_scope_token"] == ""
+    assert environment["wrong_audience_token"] == ""
