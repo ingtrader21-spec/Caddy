@@ -1,7 +1,6 @@
 # Vendored from ingtrader21-spec/Infustruction-repo@5b8cdbb8819863c9230d9bc3a39f2aa9b57e2636.
 # Local copy required because this public repository cannot call the private reusable-workflow repository directly.
 # Keep semantic changes synchronized with the shared authority and review them before promotion.
-
 name: Reusable Codestra deploy readiness
 
 on:
