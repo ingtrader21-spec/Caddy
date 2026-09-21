@@ -34,7 +34,7 @@ jobs:
           assert r["repository_inventory_count"] == 63
           assert r["activation_enabled"] is False
           assert r["runtime_coverage"] == "unverified"
-          assert re.fullmatch(r"https://raw\.githubusercontent\.com/appolon1908-hue/Middleware-/[a-f0-9]{40}/contracts/observability/integrated-monitoring\.openapi\.json", r["api_contract_url"])
+          assert re.fullmatch(r"https://raw\.githubusercontent\.com/ingtrader21-spec/Middleware-/[a-f0-9]{40}/contracts/observability/integrated-monitoring\.openapi\.json", r["api_contract_url"])
           assert len(r["service_ids"]) == len(set(r["service_ids"]))
           if r["monitoring_profile"] == "release-and-dependency":
               assert not r["service_ids"]

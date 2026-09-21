@@ -48,9 +48,19 @@ cmp -s sites/codestra.media.observability.caddy "$formatted_file" || {
 python3 scripts/validate_kyyow_ingress.py
 python3 -m unittest discover -s tests -p 'test_kyyow_ingress.py' -v
 
+adapted_file="$(mktemp)"
+trap 'rm -f -- "$formatted_file" "$adapted_file"' EXIT
+docker run "${common_args[@]}" "$CADDY_VALIDATOR_IMAGE" \
+  caddy adapt --config /srv/Caddyfile --adapter caddyfile --validate --pretty >"$adapted_file"
 docker run "${common_args[@]}" "$CADDY_VALIDATOR_IMAGE" \
   caddy validate --config /srv/Caddyfile --adapter caddyfile
-docker run "${common_args[@]}" "$CADDY_VALIDATOR_IMAGE" \
-  caddy adapt --config /srv/Caddyfile --adapter caddyfile --validate >/dev/null
+
+# Resolve the canonical Middleware edge matrix through the adapted config that
+# Caddy itself produced: exact method+path rules reach Kong, wrong methods and
+# retired aliases never reach the legacy upstream, and the fallback stays last.
+python3 scripts/caddy_adapted_routes.py "$adapted_file" \
+  --kong-upstream 127.0.0.1:8000 \
+  --legacy-upstream 127.0.0.1:18101
+python3 -m pytest -q
 
 git diff --check

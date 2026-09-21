@@ -1,0 +1,310 @@
+{
+  "info": {
+    "name": "Caddy V3 Edge Certification",
+    "description": "Public-edge certification. Payload semantics remain owned by Kong/Middleware.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://api.codestra.co"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "wrong_scope_token",
+      "value": ""
+    },
+    {
+      "key": "wrong_audience_token",
+      "value": ""
+    },
+    {
+      "key": "tenant_id",
+      "value": ""
+    },
+    {
+      "key": "correlation_id",
+      "value": ""
+    },
+    {
+      "key": "idempotency_key",
+      "value": ""
+    },
+    {
+      "key": "operation_id",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Edge",
+      "item": [
+        {
+          "name": "Kernel describe through public edge",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}"
+              }
+            ],
+            "url": "{{base_url}}/platform/v1/kernel/describe"
+          }
+        },
+        {
+          "name": "Unknown route transitional evidence",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/__caddy_unclassified_probe__"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Private Route Denial",
+      "item": [
+        {
+          "name": "/internal denied",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/internal/v1/authorization/check"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('internal is private',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "/metrics denied",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/metrics"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('metrics is private',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "/metrics subpath denied",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/metrics/runtime"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('metrics subpath is private',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Database Route Denial",
+      "item": [
+        {
+          "name": "DB health denied",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/internal/v1/database/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('db health private',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "DB schema denied",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/internal/v1/database/schema"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('db schema private',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "DB backups denied",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/internal/v1/database/backups"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('db backups private',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Automation",
+      "item": [
+        {
+          "name": "Automation namespace auth negative",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{wrong_audience_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": "{{base_url}}/v2/automation/commands"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "N8N result wrong method",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/integrations/n8n/results"
+          }
+        },
+        {
+          "name": "Odoo event wrong method",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/odoo/events"
+          }
+        },
+        {
+          "name": "Telnexa pending contract denied",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": "{{base_url}}/api/v1/events/telnexa"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('pending route fail-closed',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "VICIdial pending contract denied",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": "{{base_url}}/webhooks/vicidial/call-result/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('pending route fail-closed',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "N8N acknowledgement pending contract denied",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": "{{base_url}}/api/v1/n8n/acknowledgements"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('pending route fail-closed',()=>pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

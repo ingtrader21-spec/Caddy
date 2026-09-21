@@ -37,6 +37,7 @@ graf.codestra.media {
 		}
 		format filter {
 			request>headers>Authorization delete
+			request>headers>Proxy-Authorization delete
 			request>headers>Cookie delete
 			request>uri query {
 				delete access_token
@@ -45,6 +46,12 @@ graf.codestra.media {
 				delete session_state
 				delete state
 				delete token
+				delete apikey
+				delete api_key
+				delete refresh_token
+				delete client_secret
+				delete password
+				delete secret
 			}
 			resp_headers>Set-Cookie delete
 		}
@@ -87,6 +94,7 @@ supe.codestra.media {
 		}
 		format filter {
 			request>headers>Authorization delete
+			request>headers>Proxy-Authorization delete
 			request>headers>Cookie delete
 			request>uri query {
 				delete access_token
@@ -95,6 +103,12 @@ supe.codestra.media {
 				delete session_state
 				delete state
 				delete token
+				delete apikey
+				delete api_key
+				delete refresh_token
+				delete client_secret
+				delete password
+				delete secret
 			}
 			resp_headers>Set-Cookie delete
 		}
@@ -145,6 +159,7 @@ bao.codestra.media {
 		}
 		format filter {
 			request>headers>Authorization delete
+			request>headers>Proxy-Authorization delete
 			request>headers>Cookie delete
 			request>headers>X-Vault-Token delete
 			request>headers>X-Bao-Token delete
@@ -155,6 +170,12 @@ bao.codestra.media {
 				delete session_state
 				delete state
 				delete token
+				delete apikey
+				delete api_key
+				delete refresh_token
+				delete client_secret
+				delete password
+				delete secret
 			}
 			resp_headers>Set-Cookie delete
 		}

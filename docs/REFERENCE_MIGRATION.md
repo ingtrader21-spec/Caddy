@@ -2,7 +2,7 @@
 
 ## Decision
 
-`appolon1908-hue/Caddy` is the principal Git source for shared Codestra Caddy edge configuration.
+`ingtrader21-spec/Caddy` is the principal Git source for shared Codestra Caddy edge configuration.
 
 `appolon1908-hue/codestra-production-platform` is retained as historical runtime, deployment, reconciliation and rollback evidence. Historical Caddy files there must not receive new feature development after this authority change.
 
