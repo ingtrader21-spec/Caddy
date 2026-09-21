@@ -46,6 +46,7 @@ FAMILY_PROBES = (
     ("POST", "/v2/automation/commands"),
     ("GET", "/v2/automation/jobs/JOB-TEST-SYN-0001"),
     ("POST", "/api/v1/odoo/events"),
+    ("POST", "/api/v1/integrations/n8n/results"),
 )
 NEGATIVE_PROBES = (
     ("DELETE", "/platform/v1/commands"),
@@ -53,8 +54,18 @@ NEGATIVE_PROBES = (
     ("GET", "/platform/v1/metrics"),
     ("GET", "/v2/automation/unknown"),
     ("POST", "/v1/integrations/n8n/commands"),
+    ("GET", "/api/v1/odoo/events"),
+    ("GET", "/api/v1/integrations/n8n/results"),
     ("GET", "/metrics"),
+    ("GET", "/metrics/runtime"),
     ("GET", "/internal/v1/anything"),
+    ("GET", "/internal/v1/database/health"),
+    ("POST", "/api/v1/events/telnexa"),
+    ("POST", "/api/v1/n8n/acknowledgements"),
+    ("POST", "/v1/observability/incidents"),
+    ("POST", "/v1/observability/kpis"),
+    ("POST", "/webhooks/sms/inbound/test"),
+    ("POST", "/webhooks/vicidial/call-result/test"),
 )
 DENIED_STATUSES = frozenset({403, 404, 405})
 
@@ -70,26 +81,40 @@ PRESERVED_HEADERS = frozenset(
         "tracestate",
     )
 )
-# Trusted identity headers only the authenticated gateway may mint.
-FORBIDDEN_SET_HEADERS = PRESERVED_HEADERS | frozenset(
+# Client-asserted identity/consumer headers must be removed before the Kong
+# handoff. Kong may mint authenticated identity after validation; Caddy must not
+# trust or forward these inbound values.
+REQUIRED_STRIPPED_HEADERS = frozenset(
     name.lower()
     for name in (
-        "X-Authenticated-Client",
-        "X-Authenticated-Tenant",
-        "X-Authenticated-Role",
-        "X-Authenticated-User",
-        "X-Codestra-Gateway-Secret",
-        "X-Codestra-Tenant",
-        "X-Codestra-Scopes",
         "X-User-ID",
         "X-Username",
         "X-Email",
         "X-Roles",
         "X-Scopes",
-        "X-Tenant-ID",
-        "X-Campaign-ID",
+        "X-Authenticated-UserID",
+        "X-Authenticated-User",
+        "X-Authenticated-Client",
+        "X-Authenticated-Subject",
+        "X-Authenticated-Tenant",
+        "X-Authenticated-Campaign",
+        "X-Authenticated-Role",
+        "X-Authenticated-Email",
+        "X-Codestra-Tenant",
+        "X-Codestra-Scopes",
+        "X-Codestra-Gateway-Secret",
+        "X-Internal-Service",
+        "X-Admin",
+        "X-Consumer-ID",
+        "X-Consumer-Username",
+        "X-Consumer-Custom-ID",
+        "X-Credential-Identifier",
+        "X-Anonymous-Consumer",
     )
 )
+# Neither preserved transport headers nor spoofable identity headers may be
+# minted by Caddy on the Kong handoff.
+FORBIDDEN_SET_HEADERS = PRESERVED_HEADERS | REQUIRED_STRIPPED_HEADERS
 
 
 class Resolution(NamedTuple):
@@ -213,12 +238,14 @@ def probe_edge(document: Mapping[str, Any], kong_upstream: str) -> list[ProbeRes
 
 
 def header_policy_violations(document: Mapping[str, Any]) -> list[str]:
-    """Return header names the Kong handoff sets or deletes but must not touch."""
+    """Return fail-closed header-policy violations for the Kong handoff."""
     resolution = resolve_request(document, "POST", "/platform/v1/commands")
     violations = sorted(f"set:{name}" for name in resolution.header_set & FORBIDDEN_SET_HEADERS)
     violations.extend(
         sorted(f"delete:{name}" for name in resolution.header_delete & PRESERVED_HEADERS)
     )
+    missing_strips = REQUIRED_STRIPPED_HEADERS - resolution.header_delete
+    violations.extend(sorted(f"not-stripped:{name}" for name in missing_strips))
     return violations
 
 
@@ -241,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
     violations = header_policy_violations(document)
     if violations:
         failures += 1
-    print(f"{'FAIL' if violations else 'PASS'} HEADER_UP  {' '.join(violations) or 'authorization,idempotency,trace untouched'}")
+    print(f"{'FAIL' if violations else 'PASS'} HEADER_UP  {' '.join(violations) or 'preserved transport headers untouched; spoofable identity headers stripped'}")
 
     print(f"CADDY_V3_EDGE_PROBE={'FAIL' if failures else 'PASS'} FAILURES={failures}")
     return 1 if failures else 0

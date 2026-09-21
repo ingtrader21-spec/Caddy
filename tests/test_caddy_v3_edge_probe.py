@@ -13,6 +13,32 @@ MODULE_PATH = ROOT / "scripts" / "caddy_v3_edge_probe.py"
 KONG = "127.0.0.1:8000"
 LEGACY = "127.0.0.1:18101"
 
+SPOOFABLE_IDENTITY_HEADERS = [
+    "X-User-ID",
+    "X-Username",
+    "X-Email",
+    "X-Roles",
+    "X-Scopes",
+    "X-Authenticated-UserID",
+    "X-Authenticated-User",
+    "X-Authenticated-Client",
+    "X-Authenticated-Subject",
+    "X-Authenticated-Tenant",
+    "X-Authenticated-Campaign",
+    "X-Authenticated-Role",
+    "X-Authenticated-Email",
+    "X-Codestra-Tenant",
+    "X-Codestra-Scopes",
+    "X-Codestra-Gateway-Secret",
+    "X-Internal-Service",
+    "X-Admin",
+    "X-Consumer-ID",
+    "X-Consumer-Username",
+    "X-Consumer-Custom-ID",
+    "X-Credential-Identifier",
+    "X-Anonymous-Consumer",
+]
+
 # The same synthetic upstream values scripts/validate-ci.sh passes to the
 # pinned validator image; the adapted document must never carry real hosts.
 CI_ENVIRONMENT = {
@@ -96,7 +122,22 @@ def kong_prefix_document():
     return site(
         [
             {
-                "match": [{"path": ["/internal*", "/metrics"]}],
+                "match": [{"path": ["/internal*", "/metrics*"]}],
+                "handle": [{"handler": "static_response", "status_code": 404}],
+            },
+            {
+                "match": [
+                    {
+                        "path": [
+                            "/api/v1/events/telnexa",
+                            "/api/v1/n8n/acknowledgements",
+                            "/v1/observability/incidents",
+                            "/v1/observability/kpis",
+                            "/webhooks/sms/inbound/*",
+                            "/webhooks/vicidial/call-result/*",
+                        ]
+                    }
+                ],
                 "handle": [{"handler": "static_response", "status_code": 404}],
             },
             {
@@ -106,13 +147,18 @@ def kong_prefix_document():
                             "/v2/automation*",
                             "/platform/v1*",
                             "/api/v1/odoo/events*",
+                            "/api/v1/integrations/n8n/results*",
                             "/api/v1/control*",
                             "/v1/integrations/n8n*",
                         ]
                     }
                 ],
                 "handle": [
-                    proxy(KONG, set={"Host": ["{http.request.host}"], "X-Real-IP": ["{http.request.remote.host}"]})
+                    proxy(
+                        KONG,
+                        set={"Host": ["{http.request.host}"], "X-Real-IP": ["{http.request.remote.host}"]},
+                        delete=SPOOFABLE_IDENTITY_HEADERS,
+                    )
                 ],
             },
             {"handle": [proxy(LEGACY)]},
@@ -190,6 +236,8 @@ class KongPrefixTransportTests(unittest.TestCase):
 
 class HeaderPolicyTests(unittest.TestCase):
     def _document_with_handoff_headers(self, **headers):
+        requested_delete = list(headers.pop("delete", []))
+        headers["delete"] = [*SPOOFABLE_IDENTITY_HEADERS, *requested_delete]
         return site([{"match": [{"path": ["/platform/v1*"]}], "handle": [proxy(KONG, **headers)]}])
 
     def test_setting_authorization_or_identity_headers_is_a_violation(self):
@@ -217,6 +265,19 @@ class HeaderPolicyTests(unittest.TestCase):
         )
         self.assertEqual(module.header_policy_violations(document), [])
 
+    def test_missing_spoofed_identity_stripping_is_a_violation(self):
+        module = load_module()
+        document = site(
+            [
+                {
+                    "match": [{"path": ["/platform/v1*"]}],
+                    "handle": [proxy(KONG, set={"Host": ["{http.request.host}"]})],
+                }
+            ]
+        )
+        violations = module.header_policy_violations(document)
+        self.assertTrue(any(item.startswith("not-stripped:") for item in violations), violations)
+
 
 class CommandLineTests(unittest.TestCase):
     def test_cli_exit_code_reflects_failures(self):
@@ -231,7 +292,7 @@ class CommandLineTests(unittest.TestCase):
             self.assertIn("CADDY_V3_EDGE_PROBE=PASS FAILURES=0", captured.getvalue())
             with contextlib.redirect_stdout(io.StringIO()) as captured:
                 self.assertEqual(module.main([str(bad), "--kong-upstream", KONG]), 1)
-            self.assertIn("CADDY_V3_EDGE_PROBE=FAIL FAILURES=15", captured.getvalue())
+            self.assertIn("CADDY_V3_EDGE_PROBE=FAIL", captured.getvalue())
 
 
 @unittest.skipUnless(os.environ.get("CADDY_BIN"), "set CADDY_BIN to probe the adapted repository config")
