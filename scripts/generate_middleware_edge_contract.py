@@ -4,7 +4,7 @@
 This generator keeps Caddy as TLS/public-edge authority only:
 - exact shared_edge method/path routes go to Kong;
 - denied/unsupported canonical families stay on the Kong prefix fallback;
-- /metrics and /internal/* remain public-edge 404s;
+- /metrics, /metrics/* and /internal/* remain public-edge 404s;
 - spoofable identity headers are deleted before Kong;
 - Authorization/correlation/idempotency/trace headers are untouched.
 """
@@ -141,10 +141,10 @@ def render() -> tuple[str, str]:
     prefixes = set(edge.get("kongManagedPathPrefixes", []))
     prefixes.update({"/platform/v1", "/v2/automation", "/api/v1/odoo"})
     edge["kongManagedPathPrefixes"] = sorted(prefixes)
-    edge["privateOnlyPaths"] = ["/metrics", "/internal/*"]
+    edge["privateOnlyPaths"] = ["/metrics", "/metrics/*", "/internal/*"]
     edge["privateOnlyRule"] = (
         "Private Middleware surfaces are answered 404 at the Caddy public edge before "
-        "Kong or any legacy fallback: /metrics is private monitoring only and "
+        "Kong or any legacy fallback: /metrics and /metrics/* are private monitoring only and "
         "/internal/* is service-to-service only."
     )
 
