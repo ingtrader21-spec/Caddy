@@ -41,7 +41,7 @@ def test_postman_safe_environment_defaults_to_loopback_and_disabled() -> None:
     values = {row["key"]: row["value"] for row in ENVIRONMENT["values"]}
     assert values["base_url"].startswith("https://127.0.0.1:")
     assert values["RUN_CADDY_EDGE_CERTIFICATION"] == "false"
-    for key in ("access_token", "wrong_scope_token", "wrong_audience_token"):
+    for key in ("access_token", "wrong_scope_token", "wrong_audience_token", "idempotency_key"):
         assert values[key] == ""
 
 

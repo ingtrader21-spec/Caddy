@@ -124,7 +124,7 @@ def render_environment() -> dict[str, Any]:
         ("wrong_audience_token", ""),
         ("tenant_id", "TEST_SYN"),
         ("correlation_id", "TEST_SYN-caddy-edge"),
-        ("idempotency_key", "TEST_SYN-caddy-idem-0001"),
+        ("idempotency_key", ""),
         ("operation_id", "OP-TEST-SYN-0001"),
     ]
     return {
