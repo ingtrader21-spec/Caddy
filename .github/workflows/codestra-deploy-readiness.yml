@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   deploy-readiness:
-    uses: ingtrader21-spec/Infustruction-repo/.github/workflows/reusable-codestra-deploy-readiness.yml@5b8cdbb8819863c9230d9bc3a39f2aa9b57e2636
+    uses: ./.github/workflows/reusable-codestra-deploy-readiness.yml
     with:
       repository_class: edge-proxy
       run_stack_tests: false
