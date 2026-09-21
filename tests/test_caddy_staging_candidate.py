@@ -60,7 +60,7 @@ def test_immutable_caddy_image_must_be_digest_pinned(documents):
 
 def test_configuration_digest_matches_exact_desired_state(documents):
     candidate, _ = documents
-    assert candidate["configuration"]["configuration_sha256"] == "f5226881a0df078b347fe75135a18ee5a371a22ca2c7ac355fc054a533195671"
+    assert candidate["configuration"]["configuration_sha256"] == "f77be0593ce3c728749ee8930ebe21c6f7191bb6c6d47d661a2cee056f50463b"
 
     tampered = copy.deepcopy(candidate)
     tampered["configuration"]["configuration_sha256"] = "0" * 64

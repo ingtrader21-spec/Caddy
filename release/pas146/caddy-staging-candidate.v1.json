@@ -5,7 +5,7 @@
   "prepared_from": {
     "repository": "ingtrader21-spec/Caddy",
     "pull_request": 175,
-    "pr_head_sha": "56fd73d1647f7023cb07bdb14b1f72522c7b48d8",
+    "pr_head_sha": "e29247990a05c6ed1d8c88bfd48a2816dfa90770",
     "merged_main_sha": null
   },
   "immutable_runtime": {
@@ -16,7 +16,7 @@
   },
   "configuration": {
     "digest_algorithm": "sha256",
-    "configuration_sha256": "f5226881a0df078b347fe75135a18ee5a371a22ca2c7ac355fc054a533195671",
+    "configuration_sha256": "f77be0593ce3c728749ee8930ebe21c6f7191bb6c6d47d661a2cee056f50463b",
     "digest_command": "python scripts/config_digest.py",
     "caddyfile": "Caddyfile",
     "format_required": true,
@@ -44,19 +44,19 @@
       {
         "gate": "PAS-162",
         "required": "PASS",
-        "observed": "IN_PROGRESS",
+        "observed": "IN_PROGRESS_DIGEST_CHAIN_REPIN_ON_PR175",
         "satisfied": false
       },
       {
         "gate": "PAS-145",
         "required": "PASS",
-        "observed": "TODO_BLOCKED",
+        "observed": "IN_PROGRESS_BLOCKED_BY_PAS162",
         "satisfied": false
       },
       {
         "gate": "PR175_EXACT_HEAD_CI",
         "required": "GREEN",
-        "observed": "GREEN_AT_56FD73D",
+        "observed": "GREEN_AT_E2924799",
         "satisfied": true
       },
       {

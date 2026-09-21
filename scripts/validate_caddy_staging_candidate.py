@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CANDIDATE_PATH = ROOT / "release" / "pas146" / "caddy-staging-candidate.v1.json"
 EVIDENCE_PATH = ROOT / "release" / "pas146" / "caddy-staging-evidence.template.v1.json"
 
-EXPECTED_PR_HEAD = "56fd73d1647f7023cb07bdb14b1f72522c7b48d8"
+EXPECTED_PR_HEAD = "e29247990a05c6ed1d8c88bfd48a2816dfa90770"
 EXPECTED_CADDY_IMAGE = (
     "docker.io/library/caddy@sha256:"
     "ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c"

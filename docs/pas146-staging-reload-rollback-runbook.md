@@ -28,7 +28,7 @@ The gate must be re-read immediately before any staging action. A historical PAS
 Current preparation state:
 
 - PAS-162: In Progress.
-- PAS-145: Todo / blocked.
+- PAS-145: In Progress / blocked by PAS-162.
 - PR #175: open and unmerged.
 - Independent review: not recorded.
 - Merged Caddy SHA: unavailable.
@@ -38,7 +38,7 @@ Current preparation state:
 
 Prepared-from PR head:
 
-`56fd73d1647f7023cb07bdb14b1f72522c7b48d8`
+`e29247990a05c6ed1d8c88bfd48a2816dfa90770`
 
 Pinned Caddy runtime:
 
@@ -50,7 +50,7 @@ Caddy version:
 
 Prepared configuration SHA-256:
 
-`f5226881a0df078b347fe75135a18ee5a371a22ca2c7ac355fc054a533195671`
+`f77be0593ce3c728749ee8930ebe21c6f7191bb6c6d47d661a2cee056f50463b`
 
 External authorities carried by the preparation contract:
 
