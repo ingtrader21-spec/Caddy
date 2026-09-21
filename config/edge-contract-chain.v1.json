@@ -6,10 +6,11 @@
     "source_sha": "GENERATED_AT_CERTIFICATION"
   },
   "kong": {
-    "middleware_contract_sha256": "7580123dead97ea342c704a57a3c8eed9f5dce69aab247d4b693db96bc7334d5",
+    "middleware_contract_sha256": "9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b",
     "repository": "ingtrader21-spec/Kong",
     "required_sha256": "9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b",
-    "status": "STALE_REPIN_REQUIRED"
+    "source_sha": "3e68cb2a4955bd71ddb3e839f4d9e3770465fc08",
+    "status": "PASS"
   },
   "middleware": {
     "public_contract_sha256": "9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b",
@@ -18,7 +19,8 @@
   },
   "postman": {
     "collection": "postman/Caddy-V3-Edge-Certification.postman_collection.json",
-    "sha256": "9a9904ea74a22ebbe3d50cd3d74a35df3952d8d8ceabe4289bcad36e3364498e"
+    "sha256": "6d287acd5dc917f0e7db6bea79f941a894acac87885d5bd1f4081c55529622bc",
+    "sha256_material": "committed collection bytes, LF line endings"
   },
   "required_matches": [
     "MIDDLEWARE_PUBLIC_API_SHA256 == KONG_MIDDLEWARE_CONTRACT_SHA256",
