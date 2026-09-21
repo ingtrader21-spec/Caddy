@@ -58,7 +58,7 @@ External authorities carried by the preparation contract:
 - Middleware public contract: `9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b`
 - canonical Middleware port: `8095`
 - required Kong source: `3e68cb2a4955bd71ddb3e839f4d9e3770465fc08`
-- required Keycloak source: `45a487d71a516ae3039b00c250752897469ffe7a`
+- required Keycloak source: `45a487d7…469ffe7a` (full exact SHA is retained in the machine-readable candidate record)
 
 These are preparation inputs, not a claim that PAS-162's digest-chain gate has passed.
 
