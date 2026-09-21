@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "kind": "caddy-staging-candidate-preparation",
+  "status": "PREPARED_BLOCKED",
+  "prepared_from": {
+    "repository": "ingtrader21-spec/Caddy",
+    "pull_request": 175,
+    "pr_head_sha": "56fd73d1647f7023cb07bdb14b1f72522c7b48d8",
+    "merged_main_sha": null
+  },
+  "immutable_runtime": {
+    "caddy_version": "v2.10.0",
+    "image_reference": "docker.io/library/caddy@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c",
+    "image_digest": "sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c",
+    "mutable_tags_allowed": false
+  },
+  "configuration": {
+    "digest_algorithm": "sha256",
+    "configuration_sha256": "f5226881a0df078b347fe75135a18ee5a371a22ca2c7ac355fc054a533195671",
+    "digest_command": "python scripts/config_digest.py",
+    "caddyfile": "Caddyfile",
+    "format_required": true,
+    "adapt_required": true,
+    "validate_required": true
+  },
+  "external_authorities": {
+    "middleware": {
+      "source_sha": "2862af0aa97367b18cb360af69212abe4243a1ac",
+      "public_contract_sha256": "9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b",
+      "port": 8095
+    },
+    "kong": {
+      "required_source_sha": "3e68cb2a4955bd71ddb3e839f4d9e3770465fc08",
+      "required_middleware_contract_sha256": "9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b"
+    },
+    "keycloak": {
+      "required_source_sha": "45a487d71a516ae3039b00c250752897469ffe7a"
+    }
+  },
+  "execution_start_gate": {
+    "must_be_recomputed_immediately_before_runtime_action": true,
+    "all_required": true,
+    "observed_at_preparation": [
+      {
+        "gate": "PAS-162",
+        "required": "PASS",
+        "observed": "IN_PROGRESS",
+        "satisfied": false
+      },
+      {
+        "gate": "PAS-145",
+        "required": "PASS",
+        "observed": "TODO_BLOCKED",
+        "satisfied": false
+      },
+      {
+        "gate": "PR175_EXACT_HEAD_CI",
+        "required": "GREEN",
+        "observed": "GREEN_AT_56FD73D",
+        "satisfied": true
+      },
+      {
+        "gate": "PR175_INDEPENDENT_APPROVAL",
+        "required": "RECORDED",
+        "observed": "NONE",
+        "satisfied": false
+      },
+      {
+        "gate": "PR175_MERGED",
+        "required": "YES",
+        "observed": "NO",
+        "satisfied": false
+      },
+      {
+        "gate": "MERGED_CADDY_MAIN_SHA",
+        "required": "RECORDED",
+        "observed": null,
+        "satisfied": false
+      }
+    ]
+  },
+  "staging_chain": [
+    "Caddy staging",
+    "Kong",
+    "Middleware :8095",
+    "TEST_SYN"
+  ],
+  "required_runtime_evidence": {
+    "tls_acme": [
+      "certificate chain",
+      "hostname verification",
+      "expiry/not-before",
+      "HTTPS redirect where required",
+      "ACME storage health without secret disclosure",
+      "renewal/rotation readiness"
+    ],
+    "transport": [
+      "canonical route transport",
+      "Authorization preservation",
+      "X-Correlation-ID preservation",
+      "Idempotency-Key preservation",
+      "traceparent preservation",
+      "tracestate preservation"
+    ],
+    "negative_paths": [
+      "wrong issuer",
+      "wrong audience",
+      "wrong AZP",
+      "wrong scope",
+      "private route denial",
+      "pending route denial",
+      "wrong method",
+      "Kong unavailable",
+      "Middleware unavailable"
+    ],
+    "operations": [
+      "pre-reload health",
+      "controlled reload",
+      "post-reload health",
+      "restart/reconnect",
+      "rollback rehearsal to last-known-good",
+      "post-rollback health"
+    ]
+  },
+  "reload_policy": {
+    "pre_validation_required": true,
+    "last_known_good_snapshot_required": true,
+    "configuration_hash_match_required": true,
+    "health_before_required": true,
+    "health_after_required": true,
+    "automatic_fallback_to_unknown_route_forbidden": true
+  },
+  "rollback_policy": {
+    "rehearsal_required": true,
+    "restore_last_known_good_required": true,
+    "post_restore_validate_required": true,
+    "post_restore_health_required": true,
+    "rollback_evidence_required": true
+  },
+  "canary_policy": {
+    "mode": "READ_ONLY_NO_EFFECT",
+    "provider_effects_allowed": false,
+    "business_writes_allowed": false,
+    "pstn_allowed": false,
+    "payments_allowed": false,
+    "production_write_activation_allowed": false
+  },
+  "production_gate": {
+    "unknown_route_fallback_required": 0,
+    "observed_unknown_route_fallback": "TRANSITIONAL_NONZERO",
+    "unclassified_public_routes_required": 0,
+    "unclassified_webhooks_required": 0,
+    "unclassified_upstreams_required": 0,
+    "production_go": false
+  },
+  "authorization": {
+    "staging_execution_authorized": false,
+    "production_canary_authorized": false,
+    "production_go": false
+  }
+}
