@@ -14,32 +14,36 @@ Caddy remains the public transport/TLS boundary only. Kong owns API authorizatio
 
 ## Current execution gate
 
-Runtime execution is blocked until **all six** gates are true at the same time:
+Runtime execution is blocked until **all eight** current gates are true at the same time:
 
-1. PAS-162 is accepted PASS.
-2. PAS-145 is accepted PASS.
-3. PR #175 exact-head CI is green.
-4. Independent approval is recorded.
-5. PR #175 is merged to protected Caddy `main`.
+1. PAS-162 digest-chain authority is accepted PASS.
+2. PAS-145 edge/API/Postman/V3 certification is accepted PASS.
+3. PR #179 exact-head source-authority and deploy-readiness CI are green.
+4. PR #179 has an independent approval recorded.
+5. PR #179 is merged to Caddy `main`.
 6. The exact merged Caddy main SHA is recorded.
+7. PR #181 source-hygiene drift repair is merged from a reviewed/green exact head.
+8. PAS-178 proves protected-main/review enforcement is active before runtime mutation.
 
 The gate must be re-read immediately before any staging action. A historical PASS is not sufficient if the source head moved.
 
 Current preparation state:
 
-- PAS-162: In Progress after its digest-chain implementation merged through PR #175; Linear acceptance is still pending.
-- PAS-145: In Review / blocked by PAS-162 acceptance.
-- PR #175: merged to protected `main`.
-- PR #175 independent review: no submitted review is visible through the GitHub review record.
-- Merged Caddy main SHA: `cd912a1e1a3caeb370d70b16d195428f97c8c56c`.
-- Start gates satisfied: **3/6**.
+- PAS-162: **Done / Complete Verified**.
+- PAS-145: **Done / Complete Verified**.
+- PR #179: merged to `main`; exact-head source-authority/deploy-readiness PASS; independent approval from `kazan555`.
+- Current protected main: `22c6d51ed2f5340139177131fb810e787f0f7550`.
+- PR #181: local exact-head source, native Caddy, Postman, route, digest-chain, full pytest and Gitleaks gates PASS; hosted Actions still fail as zero-step jobs on the current private-repository/account execution gate, so it remains unmerged.
+- PAS-178: **Needs Decision**. Caddy/Kong/Keycloak remain private and GitHub reports branch protection/rulesets unavailable without upgrading the owner plan or making the repositories public.
+- Start gates satisfied: **6/8**.
 - Runtime action authorized: **NO**.
+- Provider effects / business writes / production GO remain **0 / 0 / NO**.
 
 ## Prepared immutable identities
 
 Prepared-from PR head:
 
-`e29247990a05c6ed1d8c88bfd48a2816dfa90770`
+`8a0ff7f45e5b50750a603a9e653ff2687e25361a`
 
 Pinned Caddy runtime:
 
@@ -55,13 +59,13 @@ Prepared configuration SHA-256:
 
 External authorities carried by the preparation contract:
 
-- Middleware source: `2862af0aa97367b18cb360af69212abe4243a1ac`
+- Middleware source: `bd406a6508c8095a3f23b35149a2eebcb94c94c6`
 - Middleware public contract: `9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b`
 - canonical Middleware port: `8095`
 - required Kong source: `3e68cb2a4955bd71ddb3e839f4d9e3770465fc08`
 - required Keycloak source: `45a487d7…469ffe7a` (full exact SHA is retained in the machine-readable candidate record)
 
-These are preparation inputs, not a claim that PAS-162's digest-chain gate has passed.
+These are current preparation inputs. PAS-162 and PAS-145 are already accepted; runtime remains blocked only by the unmerged PR #181 hygiene fix and PAS-178 protected-main enforcement.
 
 ## Machine-readable artifacts
 
@@ -77,11 +81,11 @@ python scripts/validate_caddy_staging_candidate.py
 python -m pytest -q tests/test_caddy_staging_candidate.py
 ```
 
-## Runtime procedure — execute only after the six start gates pass
+## Runtime procedure — execute only after all eight current start gates pass
 
 ### 1. Freeze exact merged source
 
-Record the exact protected-main SHA created by merging PR #175. Rebase/regenerate this preparation package against that SHA. Recompute the desired-state digest:
+Record the exact current protected-main SHA immediately before staging. Rebase/regenerate this preparation package if `main` has moved (including after PR #181). Recompute the desired-state digest:
 
 ```text
 python scripts/config_digest.py
@@ -258,4 +262,4 @@ PRODUCTION_CANARY_AUTHORIZED=NO
 PRODUCTION_GO=NO
 ```
 
-PAS-146 may move from preparation to live staging execution only after the six start gates are reverified against current Linear/GitHub state.
+PAS-146 may move from preparation to live staging execution only after all eight current start gates are reverified against current Linear/GitHub state.
