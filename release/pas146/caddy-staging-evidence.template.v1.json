@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "kind": "caddy-staging-certification-evidence",
+  "status": "TEMPLATE_PENDING_EXECUTION",
+  "candidate": {
+    "merged_caddy_source_sha": "REQUIRED_AT_EXECUTION",
+    "configuration_sha256": "REQUIRED_AT_EXECUTION",
+    "caddy_image_reference": "docker.io/library/caddy@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c",
+    "caddy_version": "v2.10.0",
+    "middleware_source_sha": "REQUIRED_AT_EXECUTION",
+    "middleware_contract_sha256": "REQUIRED_AT_EXECUTION",
+    "kong_source_sha": "REQUIRED_AT_EXECUTION",
+    "keycloak_source_sha": "REQUIRED_AT_EXECUTION"
+  },
+  "environment": {
+    "name": "staging",
+    "target": "REQUIRED_AT_EXECUTION",
+    "captured_at_utc": "REQUIRED_AT_EXECUTION"
+  },
+  "before": {
+    "last_known_good_configuration_sha256": "REQUIRED_AT_EXECUTION",
+    "health": "PENDING_EXECUTION",
+    "tls": "PENDING_EXECUTION",
+    "effective_config_readback": "PENDING_EXECUTION"
+  },
+  "validation": {
+    "repository": "PENDING_EXECUTION",
+    "format": "PENDING_EXECUTION",
+    "adapt": "PENDING_EXECUTION",
+    "caddy_validate": "PENDING_EXECUTION",
+    "digest_chain": "PENDING_EXECUTION",
+    "private_route_denial": "PENDING_EXECUTION",
+    "header_propagation": "PENDING_EXECUTION",
+    "negative_auth_paths": "PENDING_EXECUTION"
+  },
+  "reload": {
+    "attempted": false,
+    "result": "PENDING_EXECUTION",
+    "post_reload_health": "PENDING_EXECUTION",
+    "effective_configuration_sha256": "PENDING_EXECUTION"
+  },
+  "restart": {
+    "attempted": false,
+    "result": "PENDING_EXECUTION",
+    "post_restart_health": "PENDING_EXECUTION",
+    "reconnect": "PENDING_EXECUTION"
+  },
+  "rollback": {
+    "rehearsed": false,
+    "result": "PENDING_EXECUTION",
+    "restored_configuration_sha256": "PENDING_EXECUTION",
+    "post_rollback_health": "PENDING_EXECUTION"
+  },
+  "effects": {
+    "provider_effects": 0,
+    "business_writes": 0,
+    "pstn_calls": 0,
+    "payments": 0,
+    "production_writes": 0
+  },
+  "production_gate": {
+    "unknown_route_fallback_zero": false,
+    "unclassified_public_routes_zero": false,
+    "unclassified_webhooks_zero": false,
+    "unclassified_upstreams_zero": false,
+    "production_go": false
+  },
+  "verdict": "NO_GO"
+}
