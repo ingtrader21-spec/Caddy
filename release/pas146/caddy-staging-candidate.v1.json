@@ -78,6 +78,18 @@
         "satisfied": true
       },
       {
+        "gate": "INFRA126_REUSABLE_DEPLOY_READINESS_ACCEPTED",
+        "required": "PASS",
+        "observed": "OPEN_HEAD_60EFF4C_HOSTED_RED",
+        "satisfied": false
+      },
+      {
+        "gate": "CADDY_MAIN_DEPLOY_READINESS_GREEN",
+        "required": "GREEN",
+        "observed": "RUN_35560793977_IMMUTABLE_CANDIDATE_FAILED_COSIGN_IDENTITY",
+        "satisfied": false
+      },
+      {
         "gate": "PR181_SOURCE_HYGIENE_MERGED",
         "required": "YES",
         "observed": "OPEN_LOCAL_PASS_HOSTED_ZERO_STEP_FAILURE",

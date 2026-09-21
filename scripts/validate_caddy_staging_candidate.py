@@ -49,6 +49,8 @@ EXPECTED_GATE_NAMES = {
     "PR179_INDEPENDENT_APPROVAL",
     "PR179_MERGED",
     "MERGED_CADDY_MAIN_SHA",
+    "INFRA126_REUSABLE_DEPLOY_READINESS_ACCEPTED",
+    "CADDY_MAIN_DEPLOY_READINESS_GREEN",
     "PR181_SOURCE_HYGIENE_MERGED",
     "PAS-178_PROTECTED_MAIN_ENFORCEMENT",
 }
@@ -141,9 +143,9 @@ def validate_candidate(candidate: dict[str, Any]) -> None:
         gate.get("must_be_recomputed_immediately_before_runtime_action") is True,
         "start gate must be recomputed before runtime action",
     )
-    require(gate.get("all_required") is True, "all eight start gates must be required")
+    require(gate.get("all_required") is True, "all ten start gates must be required")
     rows = gate.get("observed_at_preparation", [])
-    require(isinstance(rows, list) and len(rows) == 8, "exactly eight start gates required")
+    require(isinstance(rows, list) and len(rows) == 10, "exactly ten start gates required")
     require({row.get("gate") for row in rows} == EXPECTED_GATE_NAMES, "start-gate set drift")
     all_satisfied = all(row.get("satisfied") is True for row in rows)
     require(not all_satisfied, "preparation snapshot must not claim all execution gates passed")
@@ -277,7 +279,7 @@ def main() -> int:
     print(f"CONFIGURATION_SHA256={candidate['configuration']['configuration_sha256']}")
     print(f"PREPARATION_RECORD_SHA256={file_sha256(CANDIDATE_PATH)}")
     print(f"EVIDENCE_TEMPLATE_SHA256={file_sha256(EVIDENCE_PATH)}")
-    print(f"START_GATES_SATISFIED={sum(row['satisfied'] is True for row in gates)}/8")
+    print(f"START_GATES_SATISFIED={sum(row['satisfied'] is True for row in gates)}/10")
     print("STAGING_EXECUTION_AUTHORIZED=NO")
     print("PRODUCTION_CANARY_AUTHORIZED=NO")
     print("UNKNOWN_ROUTE_FALLBACK_ZERO=NO")

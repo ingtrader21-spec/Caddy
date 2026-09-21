@@ -14,7 +14,7 @@ Caddy remains the public transport/TLS boundary only. Kong owns API authorizatio
 
 ## Current execution gate
 
-Runtime execution is blocked until **all eight** current gates are true at the same time:
+Runtime execution is blocked until **all ten** current gates are true at the same time:
 
 1. PAS-162 digest-chain authority is accepted PASS.
 2. PAS-145 edge/API/Postman/V3 certification is accepted PASS.
@@ -22,8 +22,10 @@ Runtime execution is blocked until **all eight** current gates are true at the s
 4. PR #179 has an independent approval recorded.
 5. PR #179 is merged to Caddy `main`.
 6. The exact merged Caddy main SHA is recorded.
-7. PR #181 source-hygiene drift repair is merged from a reviewed/green exact head.
-8. PAS-178 proves protected-main/review enforcement is active before runtime mutation.
+7. Shared deploy-readiness repair `ingtrader21-spec/Infustruction-repo#126` is accepted and merged.
+8. Caddy protected-main deploy-readiness is rerun green using the accepted reusable workflow.
+9. PR #181 source-hygiene drift repair is merged from a reviewed/green exact head.
+10. PAS-178 proves protected-main/review enforcement is active before runtime mutation.
 
 The gate must be re-read immediately before any staging action. A historical PASS is not sufficient if the source head moved.
 
@@ -33,9 +35,11 @@ Current preparation state:
 - PAS-145: **Done / Complete Verified**.
 - PR #179: merged to `main`; exact-head source-authority/deploy-readiness PASS; independent approval from `kazan555`.
 - Current protected main: `22c6d51ed2f5340139177131fb810e787f0f7550`.
-- PR #181: local exact-head source, native Caddy, Postman, route, digest-chain, full pytest and Gitleaks gates PASS; hosted Actions still fail as zero-step jobs on the current private-repository/account execution gate, so it remains unmerged.
+- Shared deploy-readiness root: **BLOCKED** on `Infustruction-repo#126`. Caddy run `35560793977` failed only in the immutable-candidate signing verification because the reusable workflow still trusted the pre-transfer `appolon1908-hue/Infustruction-repo` certificate identity while GitHub issued `ingtrader21-spec/Infustruction-repo`.
+- A fresh Caddy protected-main deploy-readiness PASS is therefore still required after the shared repair is accepted and repinned.
+- PR #181: local exact-head source, native Caddy, Postman, route, digest-chain, full pytest and Gitleaks gates PASS; hosted Actions currently fail as zero-step jobs on the private-repository/account execution gate, so it remains unmerged.
 - PAS-178: **Needs Decision**. Caddy/Kong/Keycloak remain private and GitHub reports branch protection/rulesets unavailable without upgrading the owner plan or making the repositories public.
-- Start gates satisfied: **6/8**.
+- Start gates satisfied: **6/10**.
 - Runtime action authorized: **NO**.
 - Provider effects / business writes / production GO remain **0 / 0 / NO**.
 
@@ -65,7 +69,7 @@ External authorities carried by the preparation contract:
 - required Kong source: `3e68cb2a4955bd71ddb3e839f4d9e3770465fc08`
 - required Keycloak source: `45a487d7…469ffe7a` (full exact SHA is retained in the machine-readable candidate record)
 
-These are current preparation inputs. PAS-162 and PAS-145 are already accepted; runtime remains blocked only by the unmerged PR #181 hygiene fix and PAS-178 protected-main enforcement.
+These are current preparation inputs. PAS-162 and PAS-145 are already accepted; runtime remains blocked by the shared deploy-readiness repair (#126), a fresh Caddy main deploy-readiness PASS after repin, the unmerged PR #181 hygiene fix, and PAS-178 protected-main enforcement.
 
 ## Machine-readable artifacts
 
@@ -81,7 +85,7 @@ python scripts/validate_caddy_staging_candidate.py
 python -m pytest -q tests/test_caddy_staging_candidate.py
 ```
 
-## Runtime procedure — execute only after all eight current start gates pass
+## Runtime procedure — execute only after all ten current start gates pass
 
 ### 1. Freeze exact merged source
 
@@ -262,4 +266,4 @@ PRODUCTION_CANARY_AUTHORIZED=NO
 PRODUCTION_GO=NO
 ```
 
-PAS-146 may move from preparation to live staging execution only after all eight current start gates are reverified against current Linear/GitHub state.
+PAS-146 may move from preparation to live staging execution only after all ten current start gates are reverified against current Linear/GitHub state.

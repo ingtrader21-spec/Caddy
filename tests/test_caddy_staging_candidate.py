@@ -67,16 +67,16 @@ def test_configuration_digest_matches_exact_desired_state(documents):
     expect_candidate_failure(tampered, "does not match repository desired state")
 
 
-def test_all_eight_runtime_start_gates_are_required_and_live_execution_is_not_preapproved(documents):
+def test_all_ten_runtime_start_gates_are_required_and_live_execution_is_not_preapproved(documents):
     candidate, _ = documents
     rows = candidate["execution_start_gate"]["observed_at_preparation"]
     assert {row["gate"] for row in rows} == validator.EXPECTED_GATE_NAMES
-    assert len(rows) == 8
+    assert len(rows) == 10
     assert sum(row["satisfied"] is True for row in rows) == 6
 
     missing = copy.deepcopy(candidate)
     missing["execution_start_gate"]["observed_at_preparation"].pop()
-    expect_candidate_failure(missing, "exactly eight start gates")
+    expect_candidate_failure(missing, "exactly ten start gates")
 
     prematurely_green = copy.deepcopy(candidate)
     for row in prematurely_green["execution_start_gate"]["observed_at_preparation"]:
@@ -84,7 +84,7 @@ def test_all_eight_runtime_start_gates_are_required_and_live_execution_is_not_pr
     expect_candidate_failure(prematurely_green, "must not claim all execution gates passed")
 
 
-def test_current_pre_staging_blockers_are_only_pr181_and_pas178(documents):
+def test_current_pre_staging_blockers_are_exactly_the_four_live_gates(documents):
     candidate, _ = documents
     prepared = candidate["prepared_from"]
     assert prepared["pull_request"] == validator.EXPECTED_PREPARATION_PR
@@ -101,9 +101,17 @@ def test_current_pre_staging_blockers_are_only_pr181_and_pas178(documents):
         if row["satisfied"] is not True
     }
     assert unsatisfied == {
+        "INFRA126_REUSABLE_DEPLOY_READINESS_ACCEPTED",
+        "CADDY_MAIN_DEPLOY_READINESS_GREEN",
         "PR181_SOURCE_HYGIENE_MERGED",
         "PAS-178_PROTECTED_MAIN_ENFORCEMENT",
     }
+    assert rows["INFRA126_REUSABLE_DEPLOY_READINESS_ACCEPTED"]["observed"] == (
+        "OPEN_HEAD_60EFF4C_HOSTED_RED"
+    )
+    assert rows["CADDY_MAIN_DEPLOY_READINESS_GREEN"]["observed"] == (
+        "RUN_35560793977_IMMUTABLE_CANDIDATE_FAILED_COSIGN_IDENTITY"
+    )
     assert rows["PR181_SOURCE_HYGIENE_MERGED"]["observed"] == (
         "OPEN_LOCAL_PASS_HOSTED_ZERO_STEP_FAILURE"
     )
