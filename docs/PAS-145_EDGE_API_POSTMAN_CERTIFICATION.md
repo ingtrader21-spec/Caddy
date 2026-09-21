@@ -116,7 +116,7 @@ Digests:
 - collection SHA-256:
   `6d287acd5dc917f0e7db6bea79f941a894acac87885d5bd1f4081c55529622bc`
 - safe-local environment SHA-256:
-  `e7153642162172968b93b9795e89943f6f109f077ed279efa027bf52b58f8486`
+  `842bf78b5c4cae41ca95d03f15a71bd7ddc2bf3ed6f5976563cb9cbb58cb837e`
 
 Safety defaults:
 
