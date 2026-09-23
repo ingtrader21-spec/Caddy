@@ -4,9 +4,9 @@
   "status": "PREPARED_BLOCKED",
   "prepared_from": {
     "repository": "ingtrader21-spec/Caddy",
-    "pull_request": 175,
-    "pr_head_sha": "e29247990a05c6ed1d8c88bfd48a2816dfa90770",
-    "merged_main_sha": "cd912a1e1a3caeb370d70b16d195428f97c8c56c"
+    "pull_request": 179,
+    "pr_head_sha": "8a0ff7f45e5b50750a603a9e653ff2687e25361a",
+    "merged_main_sha": "22c6d51ed2f5340139177131fb810e787f0f7550"
   },
   "immutable_runtime": {
     "caddy_version": "v2.10.0",
@@ -25,7 +25,7 @@
   },
   "external_authorities": {
     "middleware": {
-      "source_sha": "2862af0aa97367b18cb360af69212abe4243a1ac",
+      "source_sha": "bd406a6508c8095a3f23b35149a2eebcb94c94c6",
       "public_contract_sha256": "9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b",
       "port": 8095
     },
@@ -44,29 +44,29 @@
       {
         "gate": "PAS-162",
         "required": "PASS",
-        "observed": "IN_PROGRESS_AFTER_PR175_MERGE",
-        "satisfied": false
+        "observed": "DONE_COMPLETE_VERIFIED",
+        "satisfied": true
       },
       {
         "gate": "PAS-145",
         "required": "PASS",
-        "observed": "IN_REVIEW_BLOCKED_BY_PAS162",
-        "satisfied": false
-      },
-      {
-        "gate": "PR175_EXACT_HEAD_CI",
-        "required": "GREEN",
-        "observed": "GREEN_AT_E2924799",
+        "observed": "DONE_COMPLETE_VERIFIED",
         "satisfied": true
       },
       {
-        "gate": "PR175_INDEPENDENT_APPROVAL",
-        "required": "RECORDED",
-        "observed": "NONE_RECORDED",
-        "satisfied": false
+        "gate": "PR179_EXACT_HEAD_CI",
+        "required": "GREEN",
+        "observed": "GREEN_AT_8A0FF7F4",
+        "satisfied": true
       },
       {
-        "gate": "PR175_MERGED",
+        "gate": "PR179_INDEPENDENT_APPROVAL",
+        "required": "RECORDED",
+        "observed": "KAZAN555_APPROVED",
+        "satisfied": true
+      },
+      {
+        "gate": "PR179_MERGED",
         "required": "YES",
         "observed": "YES",
         "satisfied": true
@@ -74,7 +74,31 @@
       {
         "gate": "MERGED_CADDY_MAIN_SHA",
         "required": "RECORDED",
-        "observed": "cd912a1e1a3caeb370d70b16d195428f97c8c56c",
+        "observed": "22c6d51ed2f5340139177131fb810e787f0f7550",
+        "satisfied": true
+      },
+      {
+        "gate": "INFRA126_REUSABLE_DEPLOY_READINESS_ACCEPTED",
+        "required": "PASS",
+        "observed": "MERGED_5B8CDBB_INDEPENDENT_APPROVAL",
+        "satisfied": true
+      },
+      {
+        "gate": "CADDY_MAIN_DEPLOY_READINESS_GREEN",
+        "required": "GREEN",
+        "observed": "PR183_REPIN_SOURCE_AUTHORITY_GREEN_DEPLOY_READINESS_STARTUP_FAILURE",
+        "satisfied": false
+      },
+      {
+        "gate": "PR181_SOURCE_HYGIENE_MERGED",
+        "required": "YES",
+        "observed": "OPEN_LOCAL_PASS_HOSTED_ZERO_STEP_FAILURE",
+        "satisfied": false
+      },
+      {
+        "gate": "PAS-178_PROTECTED_MAIN_ENFORCEMENT",
+        "required": "PASS",
+        "observed": "PASS_PUBLIC_MAIN_PROTECTED_ACTIVE_RULESETS_NO_BYPASS",
         "satisfied": true
       }
     ]
