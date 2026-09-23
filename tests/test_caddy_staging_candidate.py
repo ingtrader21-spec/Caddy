@@ -67,21 +67,55 @@ def test_configuration_digest_matches_exact_desired_state(documents):
     expect_candidate_failure(tampered, "does not match repository desired state")
 
 
-def test_all_six_runtime_start_gates_are_required_and_live_execution_is_not_preapproved(documents):
+def test_all_ten_runtime_start_gates_are_required_and_live_execution_is_not_preapproved(documents):
     candidate, _ = documents
     rows = candidate["execution_start_gate"]["observed_at_preparation"]
     assert {row["gate"] for row in rows} == validator.EXPECTED_GATE_NAMES
-    assert len(rows) == 6
-    assert sum(row["satisfied"] is True for row in rows) == 3
+    assert len(rows) == 10
+    assert sum(row["satisfied"] is True for row in rows) == 8
 
     missing = copy.deepcopy(candidate)
     missing["execution_start_gate"]["observed_at_preparation"].pop()
-    expect_candidate_failure(missing, "exactly six start gates")
+    expect_candidate_failure(missing, "exactly ten start gates")
 
     prematurely_green = copy.deepcopy(candidate)
     for row in prematurely_green["execution_start_gate"]["observed_at_preparation"]:
         row["satisfied"] = True
     expect_candidate_failure(prematurely_green, "must not claim all execution gates passed")
+
+
+def test_current_pre_staging_blockers_are_exactly_the_two_live_gates(documents):
+    candidate, _ = documents
+    prepared = candidate["prepared_from"]
+    assert prepared["pull_request"] == validator.EXPECTED_PREPARATION_PR
+    assert prepared["pr_head_sha"] == validator.EXPECTED_PR_HEAD
+    assert prepared["merged_main_sha"] == validator.EXPECTED_MERGED_MAIN_SHA
+
+    rows = {
+        row["gate"]: row
+        for row in candidate["execution_start_gate"]["observed_at_preparation"]
+    }
+    unsatisfied = {
+        gate
+        for gate, row in rows.items()
+        if row["satisfied"] is not True
+    }
+    assert unsatisfied == {
+        "CADDY_MAIN_DEPLOY_READINESS_GREEN",
+        "PR181_SOURCE_HYGIENE_MERGED",
+    }
+    assert rows["INFRA126_REUSABLE_DEPLOY_READINESS_ACCEPTED"]["observed"] == (
+        "MERGED_5B8CDBB_INDEPENDENT_APPROVAL"
+    )
+    assert rows["CADDY_MAIN_DEPLOY_READINESS_GREEN"]["observed"] == (
+        "PR183_REPIN_SOURCE_AUTHORITY_GREEN_DEPLOY_READINESS_STARTUP_FAILURE"
+    )
+    assert rows["PR181_SOURCE_HYGIENE_MERGED"]["observed"] == (
+        "OPEN_LOCAL_PASS_HOSTED_ZERO_STEP_FAILURE"
+    )
+    assert rows["PAS-178_PROTECTED_MAIN_ENFORCEMENT"]["observed"] == (
+        "PASS_PUBLIC_MAIN_PROTECTED_ACTIVE_RULESETS_NO_BYPASS"
+    )
 
 
 def test_staging_execution_cannot_be_enabled_with_unsatisfied_gates(documents):
