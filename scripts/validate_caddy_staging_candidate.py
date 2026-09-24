@@ -26,8 +26,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CANDIDATE_PATH = ROOT / "release" / "pas146" / "caddy-staging-candidate.v1.json"
 EVIDENCE_PATH = ROOT / "release" / "pas146" / "caddy-staging-evidence.template.v1.json"
 
-EXPECTED_PR_HEAD = "e29247990a05c6ed1d8c88bfd48a2816dfa90770"
-EXPECTED_MERGED_MAIN_SHA = "cd912a1e1a3caeb370d70b16d195428f97c8c56c"
+EXPECTED_PREPARATION_PR = 179
+EXPECTED_PR_HEAD = "8a0ff7f45e5b50750a603a9e653ff2687e25361a"
+EXPECTED_MERGED_MAIN_SHA = "22c6d51ed2f5340139177131fb810e787f0f7550"
 EXPECTED_CADDY_IMAGE = (
     "docker.io/library/caddy@sha256:"
     "ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c"
@@ -36,7 +37,7 @@ EXPECTED_CADDY_DIGEST = (
     "sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c"
 )
 EXPECTED_CADDY_VERSION = "v2.10.0"
-EXPECTED_MIDDLEWARE_SHA = "2862af0aa97367b18cb360af69212abe4243a1ac"
+EXPECTED_MIDDLEWARE_SHA = "bd406a6508c8095a3f23b35149a2eebcb94c94c6"
 EXPECTED_MIDDLEWARE_CONTRACT = (
     "9c32daecd4a15104c6f9ff60ce19c8f7e78707fb31d9fd9fcb55b1b8dfa3512b"
 )
@@ -44,10 +45,14 @@ EXPECTED_KONG_SHA = "3e68cb2a4955bd71ddb3e839f4d9e3770465fc08"
 EXPECTED_GATE_NAMES = {
     "PAS-162",
     "PAS-145",
-    "PR175_EXACT_HEAD_CI",
-    "PR175_INDEPENDENT_APPROVAL",
-    "PR175_MERGED",
+    "PR179_EXACT_HEAD_CI",
+    "PR179_INDEPENDENT_APPROVAL",
+    "PR179_MERGED",
     "MERGED_CADDY_MAIN_SHA",
+    "INFRA126_REUSABLE_DEPLOY_READINESS_ACCEPTED",
+    "CADDY_MAIN_DEPLOY_READINESS_GREEN",
+    "PR181_SOURCE_HYGIENE_MERGED",
+    "PAS-178_PROTECTED_MAIN_ENFORCEMENT",
 }
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -83,7 +88,7 @@ def validate_candidate(candidate: dict[str, Any]) -> None:
 
     prepared = candidate.get("prepared_from", {})
     require(prepared.get("repository") == "ingtrader21-spec/Caddy", "repository drift")
-    require(prepared.get("pull_request") == 175, "PR source drift")
+    require(prepared.get("pull_request") == EXPECTED_PREPARATION_PR, "PR source drift")
     require(prepared.get("pr_head_sha") == EXPECTED_PR_HEAD, "prepared PR head drift")
     require(SHA40.fullmatch(prepared["pr_head_sha"]) is not None, "PR head must be full SHA")
     require(
@@ -138,9 +143,9 @@ def validate_candidate(candidate: dict[str, Any]) -> None:
         gate.get("must_be_recomputed_immediately_before_runtime_action") is True,
         "start gate must be recomputed before runtime action",
     )
-    require(gate.get("all_required") is True, "all six start gates must be required")
+    require(gate.get("all_required") is True, "all ten start gates must be required")
     rows = gate.get("observed_at_preparation", [])
-    require(isinstance(rows, list) and len(rows) == 6, "exactly six start gates required")
+    require(isinstance(rows, list) and len(rows) == 10, "exactly ten start gates required")
     require({row.get("gate") for row in rows} == EXPECTED_GATE_NAMES, "start-gate set drift")
     all_satisfied = all(row.get("satisfied") is True for row in rows)
     require(not all_satisfied, "preparation snapshot must not claim all execution gates passed")
@@ -274,7 +279,7 @@ def main() -> int:
     print(f"CONFIGURATION_SHA256={candidate['configuration']['configuration_sha256']}")
     print(f"PREPARATION_RECORD_SHA256={file_sha256(CANDIDATE_PATH)}")
     print(f"EVIDENCE_TEMPLATE_SHA256={file_sha256(EVIDENCE_PATH)}")
-    print(f"START_GATES_SATISFIED={sum(row['satisfied'] is True for row in gates)}/6")
+    print(f"START_GATES_SATISFIED={sum(row['satisfied'] is True for row in gates)}/10")
     print("STAGING_EXECUTION_AUTHORIZED=NO")
     print("PRODUCTION_CANARY_AUTHORIZED=NO")
     print("UNKNOWN_ROUTE_FALLBACK_ZERO=NO")
