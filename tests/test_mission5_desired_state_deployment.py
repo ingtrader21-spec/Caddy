@@ -183,3 +183,9 @@ def test_m1_to_m4_contracts_remain_in_desired_state() -> None:
     assert "Authorization delete" in api
     assert (ROOT / "docs" / "mission4-observability-operational-control.md").exists()
     assert (ROOT / "docs" / "desired-state-contract-v1.md").exists()
+
+
+def test_deploy_readiness_probes_kong_owned_health_path() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "codestra-deploy-readiness.yml").read_text(encoding="utf-8")
+    assert 'health_paths: "/api/v1/health"' in workflow
+    assert 'health_paths: "/health"' not in workflow
