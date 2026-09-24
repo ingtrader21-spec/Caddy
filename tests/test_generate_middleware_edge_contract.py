@@ -24,8 +24,9 @@ def test_generator_render_matches_checked_in_edge_contract_and_site():
 
 def test_generator_renders_every_private_only_path_the_site_denies():
     edge = json.loads(generator.render()[0])
-    assert edge["privateOnlyPaths"] == ["/metrics", "/metrics/*", "/internal/*"]
+    assert edge["privateOnlyPaths"] == ["/metrics", "/metrics/*", "/internal", "/internal/*"]
     assert "/metrics/*" in edge["privateOnlyRule"]
+    assert "/internal plus /internal/*" in edge["privateOnlyRule"]
 
 
 def test_vendored_contract_is_the_pinned_final_middleware_digest():
