@@ -68,6 +68,7 @@ def test_health_and_readiness_contract_is_present() -> None:
     assert "/api/v1/health" in routes
     assert "/healthz" in routes
     assert "/readyz" in api
+    assert "@private_only path /metrics /metrics/* /internal /internal/*" in api
     assert "health/readiness" in read("docs/mission4-observability-operational-control.md")
 
 
