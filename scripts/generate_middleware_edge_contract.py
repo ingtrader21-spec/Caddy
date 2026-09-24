@@ -141,11 +141,11 @@ def render() -> tuple[str, str]:
     prefixes = set(edge.get("kongManagedPathPrefixes", []))
     prefixes.update({"/platform/v1", "/v2/automation", "/api/v1/odoo"})
     edge["kongManagedPathPrefixes"] = sorted(prefixes)
-    edge["privateOnlyPaths"] = ["/metrics", "/internal/*"]
+    edge["privateOnlyPaths"] = ["/metrics", "/internal", "/internal/*"]
     edge["privateOnlyRule"] = (
         "Private Middleware surfaces are answered 404 at the Caddy public edge before "
         "Kong or any legacy fallback: /metrics is private monitoring only and "
-        "/internal/* is service-to-service only."
+        "/internal plus /internal/* are service-to-service only."
     )
 
     edge["middlewareEdgeContract"] = {

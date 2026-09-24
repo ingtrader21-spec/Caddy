@@ -16,10 +16,10 @@ api.codestra.co {
 
 	route {
 		# Private Middleware surfaces. /metrics is scraped by Prometheus on the private
-		# network with a monitoring-readonly token and /internal/* is service-to-service
+		# network with a monitoring-readonly token and /internal plus /internal/* are service-to-service
 		# only; neither has a Kong route and neither may fall through to the legacy
 		# fallback. Answer 404 at the edge before any upstream is considered.
-		@private_only path /metrics /metrics/* /internal/*
+		@private_only path /metrics /metrics/* /internal /internal/*
 		handle @private_only {
 			respond 404
 		}
