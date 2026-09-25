@@ -155,10 +155,10 @@ def validate_registries(public: dict[str, Any], webhooks: dict[str, Any]) -> dic
                 raise CertificationError(f"webhook {row.get('id')} missing {field}")
 
     unknown = by_id.get("edge.unknown-fallback")
-    if not unknown or unknown.get("classification") != "TRANSITIONAL":
-        raise CertificationError("legacy unknown fallback must remain explicitly transitional")
-    if unknown.get("legacy_fallback") is not True:
-        raise CertificationError("unknown fallback state changed unexpectedly")
+    if not unknown or unknown.get("classification") != "DENIED_UNKNOWN_ROUTE":
+        raise CertificationError("unknown routes must be classified fail-closed")
+    if unknown.get("legacy_fallback") is not False or unknown.get("expected_public_status") != 404:
+        raise CertificationError("unknown-route fallback must be retired with edge 404")
 
     return {
         "canonical": len(required_canonical),
@@ -257,7 +257,7 @@ def validate_postman(collection: dict[str, Any], environment: dict[str, Any]) ->
 
     unknown_probe = ("GET", "/__caddy_unclassified_probe__")
     if unknown_probe not in by_request:
-        raise CertificationError("Postman transitional unknown-route evidence probe missing")
+        raise CertificationError("Postman fail-closed unknown-route 404 probe missing")
 
     return {
         "api": "PASS",
@@ -378,7 +378,7 @@ def main(argv: list[str] | None = None) -> int:
             "POSTMAN_DIGEST_CHAIN="
             + ("PASS" if report["chain"]["postman_match"] else "PENDING_PAS_162")
         )
-        print("UNKNOWN_ROUTE_FALLBACK=TRANSITIONAL")
+        print("UNKNOWN_ROUTE_FALLBACK=0")
         print("CADDY_LIVE_RELOAD_AUTHORIZED=NO")
     return 0
 

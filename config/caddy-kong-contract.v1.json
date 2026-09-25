@@ -8,7 +8,6 @@
   "canonicalHost": "api.codestra.co",
   "kongUpstreamEnvironmentVariable": "CADDY_KONG_UPSTREAM",
   "kongReferenceListener": "127.0.0.1:8000",
-  "legacyApiUpstreamEnvironmentVariable": "CADDY_LEGACY_API_UPSTREAM",
   "realtimeUpstreamEnvironmentVariable": "CADDY_REALTIME_UPSTREAM",
   "identityBoundary": {
     "caddyAuthenticatesUsersOrServices": false,
