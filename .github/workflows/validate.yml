@@ -19,6 +19,7 @@ defaults:
 jobs:
   validate-source:
     name: validate-source
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64, codestra-ci]
     timeout-minutes: 20
     env:
@@ -46,7 +47,7 @@ jobs:
 
   validate-merge-result:
     name: validate-merge-result
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64, codestra-ci]
     timeout-minutes: 20
     env:
