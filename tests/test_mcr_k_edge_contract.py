@@ -88,6 +88,10 @@ class McrKEdgeTests(unittest.TestCase):
             evidence['gates'][gate] = {'status': 'PASS', 'artifact_sha256': 'c' * 64}
         evidence['candidate_sha256'] = evidence['readback_sha256'] = 'a' * 64
         evidence['previous_sha256'] = evidence['rollback_readback_sha256'] = 'b' * 64
+        offline = copy.deepcopy(evidence)
+        offline['environment'] = 'offline'
+        with self.assertRaisesRegex(ValueError, 'PASS requires runtime environment'):
+            mcr.validate_evidence(offline)
         mcr.validate_evidence(evidence)
         self.assertTrue(mcr.ready(evidence))
         for field in ['readback_sha256', 'rollback_readback_sha256']:

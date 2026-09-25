@@ -113,6 +113,7 @@ def validate_evidence(e):
     require(len(e['blockers']) == len(set(e['blockers'])), 'duplicate blockers')
     statuses = {g['status'] for g in e['gates'].values()}
     if e['status'] == 'PASS':
+        require(e['environment'] != 'offline', 'PASS requires runtime environment')
         require(statuses == {'PASS'} and not e['blockers'], 'PASS cannot hide unproven gates')
         require(all(digest(e[f]) for f in ('candidate_sha256', 'previous_sha256', 'readback_sha256', 'rollback_readback_sha256')), 'PASS needs configuration identities')
         require(e['candidate_sha256'] == e['readback_sha256'], 'candidate readback mismatch')
@@ -138,7 +139,8 @@ def main():
         validate_contract(json.loads(args.contract.read_text()))
         evidence = json.loads(args.evidence.read_text())
         validate_evidence(evidence)
-        print('MCR_K_CONTRACT=PASS MCR_K_EVIDENCE_SCHEMA=PASS RUNTIME=' + evidence['status'])
+        runtime_state = 'PASS' if ready(evidence) else evidence['status']
+        print('MCR_K_CONTRACT=PASS MCR_K_EVIDENCE_SCHEMA=PASS RUNTIME=' + runtime_state)
         return 2 if args.require_ready and not ready(evidence) else 0
     except (ValueError, OSError) as exc:
         print('MCR_K_INVALID: ' + str(exc))
