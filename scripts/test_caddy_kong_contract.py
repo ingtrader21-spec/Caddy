@@ -100,7 +100,7 @@ class IdentityHeaderBoundaryTests(unittest.TestCase):
 
 
 class PrivateOnlyPathTests(unittest.TestCase):
-    """/metrics and /internal/* are answered 404 at the edge before any upstream."""
+    """/metrics and both /internal forms are answered 404 before any upstream."""
 
     def setUp(self) -> None:
         self.site = (ROOT / "sites" / "api.codestra.co.caddy").read_text(encoding="utf-8")
@@ -112,7 +112,7 @@ class PrivateOnlyPathTests(unittest.TestCase):
 
     def test_site_denies_the_contracted_private_paths_ahead_of_every_upstream(self) -> None:
         validate_private_only_paths(self.site, self.private)
-        self.assertEqual(set(private_only_paths(self.site)), {"/metrics", "/metrics/*", "/internal/*"})
+        self.assertEqual(set(private_only_paths(self.site)), {"/metrics", "/metrics/*", "/internal", "/internal/*"})
         deny_at = self.site.index("handle @private_only")
         self.assertLess(deny_at, self.site.index("@kong path"))
         self.assertLess(deny_at, self.site.index("{$CADDY_KONG_UPSTREAM}"))
@@ -125,16 +125,16 @@ class PrivateOnlyPathTests(unittest.TestCase):
             self.assertFalse(any(bare == p or bare.startswith(p + "/") for p in self.managed), path)
 
     def test_missing_deny_is_rejected(self) -> None:
-        mutated = self.site.replace("@private_only path /metrics /metrics/* /internal/*", "@private_only path /internal/*")
+        mutated = self.site.replace("@private_only path /metrics /metrics/* /internal /internal/*", "@private_only path /internal/*")
         with self.assertRaisesRegex(ValueError, "private_only_paths_mismatch"):
             validate_private_only_paths(mutated, self.private)
-        removed = self.site.replace("\t\t@private_only path /metrics /metrics/* /internal/*\n\t\thandle @private_only {\n\t\t\trespond 404\n\t\t}\n", "")
+        removed = self.site.replace("\t\t@private_only path /metrics /metrics/* /internal /internal/*\n\t\thandle @private_only {\n\t\t\trespond 404\n\t\t}\n", "")
         self.assertNotIn("@private_only", removed)
         with self.assertRaisesRegex(ValueError, "private_only_matcher_count:0"):
             validate_private_only_paths(removed, self.private)
 
     def test_deny_after_the_kong_handoff_is_rejected(self) -> None:
-        block = "\t\t@private_only path /metrics /metrics/* /internal/*\n\t\thandle @private_only {\n\t\t\trespond 404\n\t\t}\n"
+        block = "\t\t@private_only path /metrics /metrics/* /internal /internal/*\n\t\thandle @private_only {\n\t\t\trespond 404\n\t\t}\n"
         self.assertIn(block, self.site)
         moved = self.site.replace(block, "")
         legacy = "\t\thandle {\n\t\t\treverse_proxy {$CADDY_LEGACY_API_UPSTREAM} {"

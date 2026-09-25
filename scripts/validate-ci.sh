@@ -11,6 +11,11 @@ python3 scripts/validate_community_n8n.py
 python3 scripts/test_observability_exposure.py
 python3 scripts/validate_observability_exposure.py --check
 
+docker_root_parent="${HOME}/.cache"
+mkdir -p "$docker_root_parent"
+docker_root="$(mktemp -d "$docker_root_parent/caddy-validator.XXXXXX")"
+tar --exclude=.git -cf - . | tar -C "$docker_root" -xf -
+
 common_args=(
   --rm
   --network none
@@ -32,11 +37,11 @@ common_args=(
   -e CADDY_KYYOW_DOCS_UPSTREAM=127.0.0.1:18303
   -e CADDY_KYYOW_AUTH_UPSTREAM=127.0.0.1:18304
   -e CADDY_KYYOW_STATUS_UPSTREAM=127.0.0.1:18305
-  -v "$ROOT_DIR:/srv:ro"
+  -v "$docker_root:/srv:ro"
 )
 
 formatted_file="$(mktemp)"
-trap 'rm -f -- "$formatted_file"' EXIT
+trap 'rm -f -- "$formatted_file"; rm -rf -- "$docker_root"' EXIT
 docker run "${common_args[@]}" "$CADDY_VALIDATOR_IMAGE" \
   caddy fmt /srv/sites/codestra.media.observability.caddy >"$formatted_file"
 cmp -s sites/codestra.media.observability.caddy "$formatted_file" || {
@@ -49,7 +54,7 @@ python3 scripts/validate_kyyow_ingress.py
 python3 -m unittest discover -s tests -p 'test_kyyow_ingress.py' -v
 
 adapted_file="$(mktemp)"
-trap 'rm -f -- "$formatted_file" "$adapted_file"' EXIT
+trap 'rm -f -- "$formatted_file" "$adapted_file"; rm -rf -- "$docker_root"' EXIT
 docker run "${common_args[@]}" "$CADDY_VALIDATOR_IMAGE" \
   caddy adapt --config /srv/Caddyfile --adapter caddyfile --validate --pretty >"$adapted_file"
 docker run "${common_args[@]}" "$CADDY_VALIDATOR_IMAGE" \
