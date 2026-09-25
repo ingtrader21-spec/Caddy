@@ -44,7 +44,10 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    # Git stores these certification artifacts with LF line endings. Normalize
+    # CRLF checkouts so Windows/Appolon and Linux CI hash the same committed text.
+    material = path.read_bytes().replace(b"\r\n", b"\n")
+    return hashlib.sha256(material).hexdigest()
 
 
 def flatten_items(items: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
