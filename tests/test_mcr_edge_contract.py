@@ -1,10 +1,13 @@
-﻿from __future__ import annotations
+from __future__ import annotations
+import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
-SITE = (ROOT / "sites/api.codestra.co.caddy").read_text(encoding="utf-8-sig")
-CONTRACT = json.loads((ROOT / "config/caddy-kong-contract.v1.json").read_text(encoding="utf-8-sig"))
+SITE = (ROOT / "sites/api.codestra.co.caddy").read_text(encoding="utf-8")
+CONTRACT = json.loads((ROOT / "config/caddy-kong-contract.v1.json").read_text(encoding="utf-8"))
 MCR = [
     "/platform/v1/campaign-engine",
     "/platform/v1/leads",
@@ -58,3 +61,44 @@ def test_private_internal_and_metrics_stay_edge_denied():
     assert "@private_only path /metrics /metrics/* /internal /internal/*" in SITE
     assert "handle @private_only" in SITE
     assert "respond 404" in SITE
+
+
+def _adapted_routes():
+    spec = importlib.util.spec_from_file_location(
+        "mcr_adapted_routes", ROOT / "tests" / "test_caddy_adapted_routes.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_adapted_config_hands_mcr_and_kernel_to_kong_and_denies_private_paths():
+    adapted = _adapted_routes()
+    document = adapted.real_adapted_document()
+    if document is None:
+        pytest.skip("no caddy binary: set CADDY_BIN or run scripts/validate-ci.sh")
+    resolver = adapted.load_module()
+    kong = adapted.CI_ENVIRONMENT["CADDY_KONG_UPSTREAM"]
+    # Kong owns the MCR routes (Kong:config/kong-mcr-routes.v1.json) and hands them
+    # to Middleware V3 on :8095; Caddy only ever selects Kong for them.
+    for method, path in (
+        ("GET", "/platform/v1/kernel/describe"),
+        ("POST", "/platform/v1/campaign-engine/plan"),
+        ("POST", "/platform/v1/campaign-engine/execute"),
+        ("GET", "/platform/v1/campaign-engine/status"),
+        ("GET", "/platform/v1/leads/LEAD-TEST-SYN-0001/journey"),
+        ("GET", "/platform/v1/leads/LEAD-TEST-SYN-0001/next-action"),
+        ("GET", "/platform/v1/campaigns/CMP-TEST-SYN-0001/eligible-leads"),
+        ("POST", "/platform/v1/delivery-events"),
+        ("POST", "/platform/v1/suppressions"),
+        ("DELETE", "/platform/v1/suppressions"),
+        ("GET", "/platform/v1/unknown"),
+    ):
+        resolution = resolver.resolve_request(document, method, path)
+        assert resolution.upstream == kong, (method, path, resolution)
+    for method in ("GET", "POST", "DELETE"):
+        for path in ("/internal", "/internal/v1/database/health", "/metrics", "/metrics/runtime"):
+            resolution = resolver.resolve_request(document, method, path)
+            assert resolution.upstream is None, (method, path, resolution)
+            assert resolution.response_status == 404, (method, path, resolution)

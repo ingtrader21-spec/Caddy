@@ -112,9 +112,9 @@ Artifacts:
 Digests:
 
 - source SHA-256:
-  `6d287acd5dc917f0e7db6bea79f941a894acac87885d5bd1f4081c55529622bc`
+  `a6dc8a062e0a59b57f7b84a5c795438dcce2d3556cdc15548e4bdbc3526cd7f0`
 - collection SHA-256:
-  `6d287acd5dc917f0e7db6bea79f941a894acac87885d5bd1f4081c55529622bc`
+  `a6dc8a062e0a59b57f7b84a5c795438dcce2d3556cdc15548e4bdbc3526cd7f0`
 - safe-local environment SHA-256:
   `842bf78b5c4cae41ca95d03f15a71bd7ddc2bf3ed6f5976563cb9cbb58cb837e`
 
