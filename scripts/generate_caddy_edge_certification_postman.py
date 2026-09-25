@@ -92,7 +92,7 @@ def validate_source(
 
     public_entries = public.get("entries") or []
     private_paths = {str(row.get("path")) for row in public_entries if row.get("classification") == "PRIVATE"}
-    if not {"/metrics*", "/internal/*"} <= private_paths:
+    if not {"/metrics*", "/internal", "/internal/*"} <= private_paths:
         raise GenerationError("private-route registry does not support Postman source")
 
     pending_paths = {

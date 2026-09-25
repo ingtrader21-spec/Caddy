@@ -21,9 +21,10 @@ def test_canonical_namespaces_go_to_kong_without_legacy_fallback():
 
 def test_private_routes_are_explicit_public_404s():
     by_id = {entry["id"]: entry for entry in PUBLIC["entries"]}
+    assert by_id["edge.private-internal-root"]["expected_public_status"] == 404
     assert by_id["edge.private-internal"]["expected_public_status"] == 404
     assert by_id["edge.private-metrics"]["expected_public_status"] == 404
-    assert "@private_only path /metrics /metrics/* /internal/*" in API_SITE
+    assert "@private_only path /metrics /metrics/* /internal /internal/*" in API_SITE
     assert "respond 404" in API_SITE
 
 

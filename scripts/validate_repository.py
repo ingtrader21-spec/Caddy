@@ -154,7 +154,7 @@ except ValueError as exc:
 private_paths = CONTRACT.get("privateOnlyPaths")
 if not isinstance(private_paths, list) or not private_paths:
     raise SystemExit("CADDY_AUTHORITY_ERROR=missing_private_only_paths")
-if "/metrics" not in private_paths or "/internal/*" not in private_paths:
+if not {"/metrics", "/metrics/*", "/internal", "/internal/*"} <= set(private_paths):
     raise SystemExit("CADDY_AUTHORITY_ERROR=private_only_paths_incomplete")
 try:
     validate_private_only_paths(SITE, private_paths)
