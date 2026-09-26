@@ -130,6 +130,13 @@ class CaddyRuntime:
             "server_count": len(servers),
         }
 
+    def validate_json(self, config: dict[str, Any]) -> None:
+        body = canonical_json(config)
+        status, raw = self.transport("POST", f"{self.base_url}/adapt", body, "application/json")
+        if status not in {200, 204}:
+            message = raw.decode("utf-8", "replace")[:512]
+            raise RuntimeReadbackError("ADMIN_API_VALIDATE_FAILED", f"Caddy validation failed HTTP {status}: {message}", status)
+
     def load_json(self, config: dict[str, Any]) -> None:
         body = canonical_json(config)
         status, raw = self.transport("POST", f"{self.base_url}/load", body, "application/json")
