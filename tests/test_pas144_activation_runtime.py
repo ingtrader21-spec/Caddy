@@ -25,6 +25,8 @@ class FakeTransport:
         self.calls.append((method, url, content_type))
         if method == "GET" and url.endswith("/config/"):
             return 200, json.dumps(self.config).encode()
+        if method == "POST" and url.endswith("/adapt"):
+            return 200, b"{}"
         if method == "POST" and url.endswith("/load"):
             incoming = json.loads((body or b"{}").decode())
             self.config = {"mismatch": True} if self.mismatch_after_load else incoming
@@ -32,9 +34,15 @@ class FakeTransport:
         return 404, b"{}"
 
 
-def candidate(tmp_path: Path, value: dict) -> Path:
+def candidate(tmp_path: Path, value: dict, source_sha: str = "source-a") -> Path:
     path = tmp_path / "candidate.json"
     path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
+    meta = {
+        "schema": "codestra.caddy.runtime-candidate-metadata.v1",
+        "candidate_sha256": sha256_json(value),
+        "source_sha": source_sha,
+    }
+    path.with_suffix(path.suffix + ".meta.json").write_text(json.dumps(meta), encoding="utf-8")
     return path
 
 
@@ -65,6 +73,7 @@ def test_dry_run_detects_change_without_mutation(tmp_path: Path):
     manager = ActivationManager(
         runtime=CaddyRuntime(transport=transport),
         store=ExecutionStore(tmp_path / "evidence"),
+        source_sha_provider=lambda: "source-a",
         candidate_path=candidate(tmp_path, {"new": True}),
         mutation_enabled=False,
     )
@@ -78,6 +87,7 @@ def test_apply_disabled_by_default(tmp_path: Path):
     manager = ActivationManager(
         runtime=CaddyRuntime(transport=FakeTransport({})),
         store=ExecutionStore(tmp_path / "evidence"),
+        source_sha_provider=lambda: "source-a",
         candidate_path=candidate(tmp_path, {}),
         mutation_enabled=False,
     )
@@ -90,6 +100,7 @@ def test_apply_readback_and_idempotency(tmp_path: Path):
     manager = ActivationManager(
         runtime=CaddyRuntime(transport=transport),
         store=ExecutionStore(tmp_path / "evidence"),
+        source_sha_provider=lambda: "source-a",
         candidate_path=candidate(tmp_path, {"new": True}),
         mutation_enabled=True,
     )
@@ -97,7 +108,7 @@ def test_apply_readback_and_idempotency(tmp_path: Path):
     second = manager.apply(idempotency_key="same")
     assert first["status"] == "COMPLETED"
     assert second["execution_id"] == first["execution_id"]
-    assert sum(1 for call in transport.calls if call[0] == "POST") == 1
+    assert sum(1 for call in transport.calls if call[0] == "POST" and call[1].endswith("/load")) == 1
 
 
 def test_idempotency_conflict_fails_closed(tmp_path: Path):
@@ -121,6 +132,7 @@ def test_readback_mismatch_triggers_rollback(tmp_path: Path):
     manager = ActivationManager(
         runtime=CaddyRuntime(transport=transport),
         store=ExecutionStore(tmp_path / "evidence"),
+        source_sha_provider=lambda: "source-a",
         candidate_path=candidate(tmp_path, {"new": True}),
         mutation_enabled=True,
     )
@@ -135,6 +147,7 @@ def test_manual_rollback_restores_pre_state(tmp_path: Path):
     manager = ActivationManager(
         runtime=CaddyRuntime(transport=transport),
         store=ExecutionStore(tmp_path / "evidence"),
+        source_sha_provider=lambda: "source-a",
         candidate_path=candidate(tmp_path, {"new": True}),
         mutation_enabled=True,
     )
@@ -179,3 +192,44 @@ def test_reconcile_apply_requires_idempotency_key(tmp_path):
     service, transport = _control_service(tmp_path)
     with pytest.raises(ActivationError, match="idempotency"):
         service.reconcile(mode="apply", idempotency_key="")
+
+
+def test_apply_rejects_stale_source_sha_before_load(tmp_path: Path):
+    transport = FakeTransport({"old": True})
+    manager = ActivationManager(
+        runtime=CaddyRuntime(transport=transport),
+        store=ExecutionStore(tmp_path / "evidence"),
+        source_sha_provider=lambda: "source-b",
+        candidate_path=candidate(tmp_path, {"new": True}, source_sha="source-a"),
+        mutation_enabled=True,
+    )
+    with pytest.raises(ActivationError, match="different source SHA"):
+        manager.apply(idempotency_key="stale-source")
+    assert not any(method == "POST" and url.endswith("/load") for method, url, _ in transport.calls)
+
+def test_apply_validates_candidate_before_load(tmp_path: Path):
+    transport = FakeTransport({"old": True})
+    manager = ActivationManager(
+        runtime=CaddyRuntime(transport=transport),
+        store=ExecutionStore(tmp_path / "evidence"),
+        source_sha_provider=lambda: "source-a",
+        candidate_path=candidate(tmp_path, {"new": True}),
+        mutation_enabled=True,
+    )
+    manager.apply(idempotency_key="validated")
+    posts = [url for method, url, _ in transport.calls if method == "POST"]
+    assert posts.index("http://127.0.0.1:2019/adapt") < posts.index("http://127.0.0.1:2019/load")
+
+def test_apply_rejects_candidate_digest_tamper(tmp_path: Path):
+    transport = FakeTransport({"old": True})
+    path = candidate(tmp_path, {"new": True})
+    path.write_text(json.dumps({"tampered": True}), encoding="utf-8")
+    manager = ActivationManager(
+        runtime=CaddyRuntime(transport=transport),
+        store=ExecutionStore(tmp_path / "evidence"),
+        source_sha_provider=lambda: "source-a",
+        candidate_path=path,
+        mutation_enabled=True,
+    )
+    with pytest.raises(ActivationError, match="digest"):
+        manager.apply(idempotency_key="tampered")

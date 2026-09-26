@@ -32,10 +32,12 @@ class CandidateBuilder:
         caddyfile: Path = DEFAULT_CADDYFILE,
         output: Path = DEFAULT_OUTPUT,
         runner: Runner = subprocess.run,
+        source_sha_provider=None,
     ) -> None:
         self.caddyfile = caddyfile
         self.output = output
         self.runner = runner
+        self.source_sha_provider = source_sha_provider
 
     def _adapt(self) -> dict[str, Any]:
         if not self.caddyfile.exists():
@@ -94,9 +96,23 @@ class CandidateBuilder:
             finally:
                 if os.path.exists(temp_name):
                     os.unlink(temp_name)
+        source_sha = self.source_sha_provider() if self.source_sha_provider else None
+        metadata = {
+            "schema": "codestra.caddy.runtime-candidate-metadata.v1",
+            "candidate_sha256": digest,
+            "source_sha": source_sha,
+            "caddyfile_sha256": hashlib.sha256(self.caddyfile.read_bytes()).hexdigest(),
+        }
+        metadata_path = self.output.with_suffix(self.output.suffix + ".meta.json")
+        if not check:
+            metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        elif not metadata_path.exists() or json.loads(metadata_path.read_text(encoding="utf-8")) != metadata:
+            raise CandidateBuildError("runtime_candidate_metadata_drift")
         return {
             "schema": "codestra.caddy.runtime-candidate.v1",
             "candidate_sha256": digest,
+            "source_sha": source_sha,
+            "metadata": metadata_path.name,
             "output": self.output.name,
             "mutation_performed": False,
         }

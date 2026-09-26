@@ -34,11 +34,15 @@ class ActivationManager:
         runtime: CaddyRuntime,
         store: ExecutionStore,
         candidate_path: Path,
+        candidate_metadata_path: Path | None = None,
+        source_sha_provider=None,
         mutation_enabled: bool | None = None,
     ) -> None:
         self.runtime = runtime
         self.store = store
         self.candidate_path = candidate_path
+        self.candidate_metadata_path = candidate_metadata_path or candidate_path.with_suffix(candidate_path.suffix + ".meta.json")
+        self.source_sha_provider = source_sha_provider
         self.mutation_enabled = (
             os.environ.get("CADDY_CONTROL_MUTATION_ENABLED") == "explicit-test-only"
             if mutation_enabled is None
@@ -56,6 +60,24 @@ class ActivationManager:
         if not isinstance(value, dict):
             raise ActivationError("CANDIDATE_INVALID", "candidate Caddy JSON config must be an object")
         return sha256_text(raw), value
+
+    def _source_sha(self) -> str | None:
+        return self.source_sha_provider() if self.source_sha_provider else None
+
+    def _preflight(self, candidate_sha: str, candidate: dict[str, Any]) -> dict[str, Any]:
+        if not self.candidate_metadata_path.exists():
+            raise ActivationError("CANDIDATE_METADATA_MISSING", "candidate metadata is missing")
+        try:
+            meta = json.loads(self.candidate_metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ActivationError("CANDIDATE_METADATA_INVALID", "candidate metadata is invalid") from exc
+        if meta.get("candidate_sha256") != sha256_json(candidate):
+            raise ActivationError("CANDIDATE_DIGEST_STALE", "candidate digest no longer matches metadata")
+        source_sha = self._source_sha()
+        if source_sha and meta.get("source_sha") != source_sha:
+            raise ActivationError("SOURCE_SHA_STALE", "candidate was built from a different source SHA")
+        self.runtime.validate_json(candidate)
+        return meta
 
     def dry_run(self) -> dict[str, Any]:
         execution_id = str(uuid.uuid4())
@@ -97,6 +119,7 @@ class ActivationManager:
                 if existing.get("candidate_sha256") != candidate_sha:
                     raise ActivationError("IDEMPOTENCY_CONFLICT", "idempotency key was used with a different candidate")
                 return existing
+        metadata = self._preflight(candidate_sha, candidate)
 
         execution_id = str(uuid.uuid4())
         pre_config = self.runtime.config()
@@ -105,6 +128,9 @@ class ActivationManager:
             "kind": "ACTIVATION_APPLY",
             "status": "RUNNING",
             "candidate_sha256": candidate_sha,
+            "canonical_candidate_sha256": sha256_json(candidate),
+            "source_sha": metadata.get("source_sha"),
+            "preflight_validated": True,
             "pre_state_sha256": pre_sha,
             "pre_state": pre_config,
             "idempotency_key": idempotency_key,
@@ -161,10 +187,11 @@ class ActivationManager:
         pre_state = record.get("pre_state")
         if not isinstance(pre_state, dict):
             raise ActivationError("ROLLBACK_STATE_MISSING", "execution has no restorable pre-state")
+        self.runtime.validate_json(pre_state)
         self.runtime.load_json(pre_state)
         restored = self.runtime.config()
         if canonical_json(restored) != canonical_json(pre_state):
             raise ActivationError("ROLLBACK_READBACK_MISMATCH", "rollback readback does not match pre-state")
-        record.update({"rollback_status": "ROLLED_BACK", "rollback_completed_at": utc_now()})
+        record.update({"rollback_status": "ROLLED_BACK", "rollback_completed_at": utc_now(), "rollback_state_sha256": sha256_json(restored), "rollback_readback_verified": True})
         self.store.put(execution_id, record)
         return self.store.get(execution_id)
