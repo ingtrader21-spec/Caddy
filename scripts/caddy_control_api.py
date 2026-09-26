@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from caddy_runtime import CaddyRuntime, RuntimeApplyError, RuntimePaths
+from caddy_activation import ActivationError, ActivationManager
+from caddy_candidate import CandidateBuildError, CandidateBuilder
+from caddy_execution_store import ExecutionStore, ExecutionStoreError
 from caddy_route_compiler import (
     DEFAULT_AUTHORITY,
     DEFAULT_INVENTORY,
@@ -20,9 +24,21 @@ from caddy_route_compiler import (
     load_authority,
     normalize_routes,
 )
+from caddy_runtime_readback import CaddyRuntime, RuntimeReadbackError, canonical_json, sha256_json
 
+ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8784
+DEFAULT_ADMIN_API = os.environ.get("CADDY_ADMIN_API", "http://127.0.0.1:2019")
+DEFAULT_CANDIDATE_JSON = Path(
+    os.environ.get("CADDY_RUNTIME_CANDIDATE_JSON", str(ROOT / "generated" / "pas144-runtime-candidate.json"))
+)
+DEFAULT_EVIDENCE_DIR = Path(
+    os.environ.get(
+        "CADDY_CONTROL_EVIDENCE_DIR",
+        str(Path.home() / ".local" / "state" / "codestra-caddy-control" / "executions"),
+    )
+)
 
 
 def _json_bytes(value: Any) -> bytes:
@@ -35,12 +51,26 @@ class ControlService:
         authority_path: Path = DEFAULT_AUTHORITY,
         output_path: Path = DEFAULT_OUTPUT,
         inventory_path: Path = DEFAULT_INVENTORY,
+        *,
         runtime: CaddyRuntime | None = None,
+        store: ExecutionStore | None = None,
+        candidate_path: Path = DEFAULT_CANDIDATE_JSON,
+        mutation_enabled: bool | None = None,
+        candidate_builder: CandidateBuilder | None = None,
     ) -> None:
         self.authority_path = authority_path
         self.output_path = output_path
         self.inventory_path = inventory_path
-        self.runtime = runtime
+        self.runtime = runtime or CaddyRuntime(DEFAULT_ADMIN_API)
+        self.store = store or ExecutionStore(DEFAULT_EVIDENCE_DIR)
+        self.activation = ActivationManager(
+            runtime=self.runtime,
+            store=self.store,
+            candidate_path=candidate_path,
+            mutation_enabled=mutation_enabled,
+        )
+        self.candidate_builder = candidate_builder or CandidateBuilder(output=candidate_path)
+        self.candidate_path = candidate_path
         self._lock = threading.Lock()
 
     def routes(self) -> dict[str, Any]:
@@ -65,7 +95,6 @@ class ControlService:
     def digest(self) -> dict[str, Any]:
         authority = load_authority(self.authority_path)
         generated = compile_caddy(authority)
-        import hashlib
         canonical = json.dumps(authority, sort_keys=True, separators=(",", ":")).encode()
         return {
             "schema": "codestra.caddy.config-digest.v1",
@@ -109,33 +138,98 @@ class ControlService:
             "runtime_reload_performed": False,
         }
 
+    def build_runtime_candidate(self) -> dict[str, Any]:
+        return self.candidate_builder.build(check=False)
+
     def runtime_status(self) -> dict[str, Any]:
-        if self.runtime is None:
-            return {"schema": "codestra.caddy.runtime-status.v1", "configured": False}
-        return {"schema": "codestra.caddy.runtime-status.v1", "configured": True, **self.runtime.readback()}
+        return self.runtime.status()
 
-    def apply(self, request: dict[str, Any]) -> dict[str, Any]:
-        if self.runtime is None:
-            raise RuntimeApplyError("runtime_not_configured")
-        with self._lock:
-            compile_to_files(self.authority_path, self.output_path, self.inventory_path, check=False)
-            return self.runtime.apply(
-                self.output_path,
-                source_sha=str(request.get("source_sha", "")),
-                candidate_digest=str(request.get("candidate_digest", "")),
-                expected_active_digest=request.get("expected_active_digest"),
-                idempotency_key=request.get("idempotency_key"),
-            )
+    def runtime_routes(self) -> dict[str, Any]:
+        inventory = self.runtime.inventory()
+        return {
+            "schema": "codestra.caddy.runtime-routes.v1",
+            "hosts": inventory["hosts"],
+            "paths": inventory["paths"],
+        }
 
-    def rollback(self, request: dict[str, Any]) -> dict[str, Any]:
-        if self.runtime is None:
-            raise RuntimeApplyError("runtime_not_configured")
-        return self.runtime.rollback(expected_active_digest=request.get("expected_active_digest"))
+    def runtime_upstreams(self) -> dict[str, Any]:
+        inventory = self.runtime.inventory()
+        return {
+            "schema": "codestra.caddy.runtime-upstreams.v1",
+            "upstreams": inventory["upstreams"],
+        }
 
-    def history(self) -> dict[str, Any]:
-        if self.runtime is None:
-            return {"schema": "codestra.caddy.execution-history.v1", "executions": []}
-        return {"schema": "codestra.caddy.execution-history.v1", "executions": self.runtime.history()}
+    def drift(self) -> dict[str, Any]:
+        if not self.candidate_path.exists():
+            return {
+                "schema": "codestra.caddy.runtime-drift.v1",
+                "state": "UNKNOWN",
+                "reason": "CANDIDATE_MISSING",
+            }
+        try:
+            candidate = json.loads(self.candidate_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {
+                "schema": "codestra.caddy.runtime-drift.v1",
+                "state": "UNKNOWN",
+                "reason": "CANDIDATE_INVALID",
+            }
+        live = self.runtime.config()
+        state = "IN_SYNC" if canonical_json(live) == canonical_json(candidate) else "DRIFTED"
+        return {
+            "schema": "codestra.caddy.runtime-drift.v1",
+            "state": state,
+            "candidate_sha256": sha256_json(candidate),
+            "runtime_sha256": sha256_json(live),
+        }
+
+    def activation_dry_run(self) -> dict[str, Any]:
+        return self.activation.dry_run()
+
+    def activation_apply(self, idempotency_key: str) -> dict[str, Any]:
+        return self.activation.apply(idempotency_key=idempotency_key)
+
+    def activation_rollback(self, execution_id: str) -> dict[str, Any]:
+        return self.activation.rollback(execution_id)
+
+    def execution(self, execution_id: str) -> dict[str, Any]:
+        return self.store.get(execution_id)
+
+    def executions(self) -> dict[str, Any]:
+        rows = [self.store.get(execution_id) for execution_id in self.store.list_ids()]
+        return {"schema": "codestra.caddy.execution-list.v1", "executions": rows}
+
+    def telemetry(self) -> dict[str, Any]:
+        rows = [self.store.get(execution_id) for execution_id in self.store.list_ids()]
+        counters: dict[str, int] = {}
+        for row in rows:
+            key = f"{row.get('kind', 'UNKNOWN')}:{row.get('status', 'UNKNOWN')}"
+            counters[key] = counters.get(key, 0) + 1
+        return {
+            "schema": "codestra.caddy.control-telemetry.v1",
+            "execution_records": len(rows),
+            "counters": counters,
+            "mutation_enabled": self.activation.mutation_enabled,
+        }
+
+    def reconcile(self, *, mode: str, idempotency_key: str) -> dict[str, Any]:
+        if mode not in {"plan", "apply"}:
+            raise ActivationError("RECONCILE_MODE_INVALID", "reconcile mode must be plan or apply")
+        drift = self.drift()
+        if drift.get("state") == "IN_SYNC":
+            return {"schema": "codestra.caddy.reconcile-result.v1", "status": "NO_CHANGE", "drift": drift}
+        if mode == "plan":
+            dry_run = self.activation.dry_run()
+            return {"schema": "codestra.caddy.reconcile-result.v1", "status": "PLANNED", "drift": drift, "execution": dry_run}
+        execution = self.activation.apply(idempotency_key=idempotency_key)
+        return {"schema": "codestra.caddy.reconcile-result.v1", "status": "APPLIED", "drift": drift, "execution": execution}
+
+    def health(self) -> dict[str, Any]:
+        return {
+            "service": "caddy-control-api",
+            "status": "ok",
+            "mutation_enabled": self.activation.mutation_enabled,
+        }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -166,8 +260,20 @@ class Handler(BaseHTTPRequestHandler):
         except RouteAuthorityError as exc:
             self._send(409, {"ok": False, "error": {"code": "route_authority_invalid", "message": str(exc)}}, request_id)
             return
-        except RuntimeApplyError as exc:
-            self._send(409, {"ok": False, "error": {"code": "runtime_apply_failed", "message": str(exc)}}, request_id)
+        except ActivationError as exc:
+            status = 403 if exc.code == "ACTIVATION_DISABLED" else 409
+            self._send(status, {"ok": False, "error": {"code": exc.code, "message": str(exc)}}, request_id)
+            return
+        except CandidateBuildError as exc:
+            self._send(409, {"ok": False, "error": {"code": "candidate_build_failed", "message": str(exc)}}, request_id)
+            return
+        except ExecutionStoreError as exc:
+            status = 404 if str(exc) == "execution_not_found" else 409
+            self._send(status, {"ok": False, "error": {"code": str(exc), "message": str(exc)}}, request_id)
+            return
+        except RuntimeReadbackError as exc:
+            status = exc.status if exc.status and 400 <= exc.status < 600 else 503
+            self._send(status, {"ok": False, "error": {"code": exc.code, "message": str(exc)}}, request_id)
             return
         except Exception:
             self._send(500, {"ok": False, "error": {"code": "internal_error", "message": "control operation failed"}}, request_id)
@@ -184,55 +290,60 @@ class Handler(BaseHTTPRequestHandler):
             return self._run(self.service.status)
         if path == "/platform/v1/caddy/runtime/status":
             return self._run(self.service.runtime_status)
-        if path == "/platform/v1/caddy/executions":
-            return self._run(self.service.history)
-        if path == "/health":
-            return self._run(lambda: {"service": "caddy-control-api", "status": "ok"})
+        if path == "/platform/v1/caddy/runtime/routes":
+            return self._run(self.service.runtime_routes)
+        if path == "/platform/v1/caddy/runtime/upstreams":
+            return self._run(self.service.runtime_upstreams)
+        if path == "/platform/v1/caddy/drift":
+            return self._run(self.service.drift)
+        if path == "/platform/v1/caddy/telemetry":
+            return self._run(self.service.telemetry)
+        if path == "/platform/v1/caddy/activation/executions":
+            return self._run(self.service.executions)
+        prefix = "/platform/v1/caddy/activation/executions/"
+        if path.startswith(prefix):
+            execution_id = path[len(prefix):].split("/", 1)[0]
+            return self._run(lambda: {"execution": self.service.execution(execution_id)})
+        if path in {"/platform/v1/caddy/health", "/health"}:
+            return self._run(self.service.health)
         request_id = self._request_id()
         self._send(404, {"ok": False, "error": {"code": "not_found", "message": "route not found"}}, request_id)
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
-        length = int(self.headers.get("Content-Length", "0") or 0)
-        if length > 65536:
+        if int(self.headers.get("Content-Length", "0") or 0) > 65536:
             request_id = self._request_id()
             return self._send(413, {"ok": False, "error": {"code": "payload_too_large", "message": "request body exceeds limit"}}, request_id)
-        try:
-            request = json.loads(self.rfile.read(length) or b"{}")
-            if not isinstance(request, dict):
-                raise ValueError
-        except (json.JSONDecodeError, ValueError):
-            request_id = self._request_id()
-            return self._send(400, {"ok": False, "error": {"code": "invalid_json", "message": "JSON object required"}}, request_id)
         if path == "/platform/v1/caddy/config/compile":
             return self._run(self.service.compile)
         if path == "/platform/v1/caddy/config/validate":
             return self._run(self.service.validate)
-        if path == "/platform/v1/caddy/config/apply":
-            return self._run(lambda: self.service.apply(request))
-        if path == "/platform/v1/caddy/config/rollback":
-            return self._run(lambda: self.service.rollback(request))
+        if path == "/platform/v1/caddy/activation/candidate":
+            return self._run(self.service.build_runtime_candidate)
+        if path == "/platform/v1/caddy/activation/dry-run":
+            return self._run(self.service.activation_dry_run)
+        if path == "/platform/v1/caddy/activation/apply":
+            key = (self.headers.get("Idempotency-Key") or "").strip()
+            return self._run(lambda: {"execution": self.service.activation_apply(key)})
+        if path == "/platform/v1/caddy/reconcile":
+            mode = (self.headers.get("X-Caddy-Reconcile-Mode") or "plan").strip().lower()
+            key = (self.headers.get("Idempotency-Key") or "").strip()
+            return self._run(lambda: self.service.reconcile(mode=mode, idempotency_key=key))
+        prefix = "/platform/v1/caddy/activation/executions/"
+        if path.startswith(prefix) and path.endswith("/rollback"):
+            execution_id = path[len(prefix):-len("/rollback")].rstrip("/")
+            return self._run(lambda: {"execution": self.service.activation_rollback(execution_id)})
         request_id = self._request_id()
         self._send(404, {"ok": False, "error": {"code": "not_found", "message": "route not found"}}, request_id)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Private Caddy PAS-144 control API.")
+    parser = argparse.ArgumentParser(description="Private Caddy control API.")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--live-config")
-    parser.add_argument("--state-dir")
-    parser.add_argument("--health-url", action="append", default=[])
     args = parser.parse_args()
     if args.host not in {"127.0.0.1", "::1", "localhost"}:
         raise SystemExit("refusing non-loopback bind")
-    if bool(args.live_config) != bool(args.state_dir):
-        raise SystemExit("--live-config and --state-dir must be supplied together")
-    if args.live_config:
-        Handler.service = ControlService(runtime=CaddyRuntime(
-            RuntimePaths(Path(args.live_config), Path(args.state_dir)),
-            health_urls=tuple(args.health_url),
-        ))
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.serve_forever()
     return 0
