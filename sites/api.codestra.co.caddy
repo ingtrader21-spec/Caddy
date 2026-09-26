@@ -8,6 +8,7 @@
 # upstreams remain explicit until their equivalent Kong routes are accepted.
 api.codestra.co {
 	import security_headers
+	import public_boundary
 	encode zstd gzip
 
 	request_body {
