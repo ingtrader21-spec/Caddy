@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from caddy_runtime import CaddyRuntime, RuntimeApplyError, RuntimePaths
 from caddy_route_compiler import (
     DEFAULT_AUTHORITY,
     DEFAULT_INVENTORY,
@@ -34,10 +35,12 @@ class ControlService:
         authority_path: Path = DEFAULT_AUTHORITY,
         output_path: Path = DEFAULT_OUTPUT,
         inventory_path: Path = DEFAULT_INVENTORY,
+        runtime: CaddyRuntime | None = None,
     ) -> None:
         self.authority_path = authority_path
         self.output_path = output_path
         self.inventory_path = inventory_path
+        self.runtime = runtime
         self._lock = threading.Lock()
 
     def routes(self) -> dict[str, Any]:
@@ -106,6 +109,34 @@ class ControlService:
             "runtime_reload_performed": False,
         }
 
+    def runtime_status(self) -> dict[str, Any]:
+        if self.runtime is None:
+            return {"schema": "codestra.caddy.runtime-status.v1", "configured": False}
+        return {"schema": "codestra.caddy.runtime-status.v1", "configured": True, **self.runtime.readback()}
+
+    def apply(self, request: dict[str, Any]) -> dict[str, Any]:
+        if self.runtime is None:
+            raise RuntimeApplyError("runtime_not_configured")
+        with self._lock:
+            compile_to_files(self.authority_path, self.output_path, self.inventory_path, check=False)
+            return self.runtime.apply(
+                self.output_path,
+                source_sha=str(request.get("source_sha", "")),
+                candidate_digest=str(request.get("candidate_digest", "")),
+                expected_active_digest=request.get("expected_active_digest"),
+                idempotency_key=request.get("idempotency_key"),
+            )
+
+    def rollback(self, request: dict[str, Any]) -> dict[str, Any]:
+        if self.runtime is None:
+            raise RuntimeApplyError("runtime_not_configured")
+        return self.runtime.rollback(expected_active_digest=request.get("expected_active_digest"))
+
+    def history(self) -> dict[str, Any]:
+        if self.runtime is None:
+            return {"schema": "codestra.caddy.execution-history.v1", "executions": []}
+        return {"schema": "codestra.caddy.execution-history.v1", "executions": self.runtime.history()}
+
 
 class Handler(BaseHTTPRequestHandler):
     service = ControlService()
@@ -135,6 +166,9 @@ class Handler(BaseHTTPRequestHandler):
         except RouteAuthorityError as exc:
             self._send(409, {"ok": False, "error": {"code": "route_authority_invalid", "message": str(exc)}}, request_id)
             return
+        except RuntimeApplyError as exc:
+            self._send(409, {"ok": False, "error": {"code": "runtime_apply_failed", "message": str(exc)}}, request_id)
+            return
         except Exception:
             self._send(500, {"ok": False, "error": {"code": "internal_error", "message": "control operation failed"}}, request_id)
             return
@@ -148,6 +182,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._run(self.service.digest)
         if path == "/platform/v1/caddy/config/status":
             return self._run(self.service.status)
+        if path == "/platform/v1/caddy/runtime/status":
+            return self._run(self.service.runtime_status)
+        if path == "/platform/v1/caddy/executions":
+            return self._run(self.service.history)
         if path == "/health":
             return self._run(lambda: {"service": "caddy-control-api", "status": "ok"})
         request_id = self._request_id()
@@ -155,13 +193,25 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
-        if int(self.headers.get("Content-Length", "0") or 0) > 65536:
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        if length > 65536:
             request_id = self._request_id()
             return self._send(413, {"ok": False, "error": {"code": "payload_too_large", "message": "request body exceeds limit"}}, request_id)
+        try:
+            request = json.loads(self.rfile.read(length) or b"{}")
+            if not isinstance(request, dict):
+                raise ValueError
+        except (json.JSONDecodeError, ValueError):
+            request_id = self._request_id()
+            return self._send(400, {"ok": False, "error": {"code": "invalid_json", "message": "JSON object required"}}, request_id)
         if path == "/platform/v1/caddy/config/compile":
             return self._run(self.service.compile)
         if path == "/platform/v1/caddy/config/validate":
             return self._run(self.service.validate)
+        if path == "/platform/v1/caddy/config/apply":
+            return self._run(lambda: self.service.apply(request))
+        if path == "/platform/v1/caddy/config/rollback":
+            return self._run(lambda: self.service.rollback(request))
         request_id = self._request_id()
         self._send(404, {"ok": False, "error": {"code": "not_found", "message": "route not found"}}, request_id)
 
@@ -170,9 +220,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Private Caddy PAS-144 control API.")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--live-config")
+    parser.add_argument("--state-dir")
+    parser.add_argument("--health-url", action="append", default=[])
     args = parser.parse_args()
     if args.host not in {"127.0.0.1", "::1", "localhost"}:
         raise SystemExit("refusing non-loopback bind")
+    if bool(args.live_config) != bool(args.state_dir):
+        raise SystemExit("--live-config and --state-dir must be supplied together")
+    if args.live_config:
+        Handler.service = ControlService(runtime=CaddyRuntime(
+            RuntimePaths(Path(args.live_config), Path(args.state_dir)),
+            health_urls=tuple(args.health_url),
+        ))
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.serve_forever()
     return 0
