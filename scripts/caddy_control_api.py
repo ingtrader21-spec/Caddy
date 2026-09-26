@@ -2,13 +2,17 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from caddy_activation import ActivationError, ActivationManager
+from caddy_execution_store import ExecutionStore, ExecutionStoreError
 from caddy_route_compiler import (
     DEFAULT_AUTHORITY,
     DEFAULT_INVENTORY,
@@ -19,9 +23,21 @@ from caddy_route_compiler import (
     load_authority,
     normalize_routes,
 )
+from caddy_runtime_readback import CaddyRuntime, RuntimeReadbackError
 
+ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8784
+DEFAULT_ADMIN_API = os.environ.get("CADDY_ADMIN_API", "http://127.0.0.1:2019")
+DEFAULT_CANDIDATE_JSON = Path(
+    os.environ.get("CADDY_RUNTIME_CANDIDATE_JSON", str(ROOT / "generated" / "pas144-runtime-candidate.json"))
+)
+DEFAULT_EVIDENCE_DIR = Path(
+    os.environ.get(
+        "CADDY_CONTROL_EVIDENCE_DIR",
+        str(Path.home() / ".local" / "state" / "codestra-caddy-control" / "executions"),
+    )
+)
 
 
 def _json_bytes(value: Any) -> bytes:
@@ -34,10 +50,23 @@ class ControlService:
         authority_path: Path = DEFAULT_AUTHORITY,
         output_path: Path = DEFAULT_OUTPUT,
         inventory_path: Path = DEFAULT_INVENTORY,
+        *,
+        runtime: CaddyRuntime | None = None,
+        store: ExecutionStore | None = None,
+        candidate_path: Path = DEFAULT_CANDIDATE_JSON,
+        mutation_enabled: bool | None = None,
     ) -> None:
         self.authority_path = authority_path
         self.output_path = output_path
         self.inventory_path = inventory_path
+        self.runtime = runtime or CaddyRuntime(DEFAULT_ADMIN_API)
+        self.store = store or ExecutionStore(DEFAULT_EVIDENCE_DIR)
+        self.activation = ActivationManager(
+            runtime=self.runtime,
+            store=self.store,
+            candidate_path=candidate_path,
+            mutation_enabled=mutation_enabled,
+        )
         self._lock = threading.Lock()
 
     def routes(self) -> dict[str, Any]:
@@ -62,7 +91,6 @@ class ControlService:
     def digest(self) -> dict[str, Any]:
         authority = load_authority(self.authority_path)
         generated = compile_caddy(authority)
-        import hashlib
         canonical = json.dumps(authority, sort_keys=True, separators=(",", ":")).encode()
         return {
             "schema": "codestra.caddy.config-digest.v1",
@@ -106,6 +134,28 @@ class ControlService:
             "runtime_reload_performed": False,
         }
 
+    def runtime_status(self) -> dict[str, Any]:
+        return self.runtime.status()
+
+    def activation_dry_run(self) -> dict[str, Any]:
+        return self.activation.dry_run()
+
+    def activation_apply(self, idempotency_key: str) -> dict[str, Any]:
+        return self.activation.apply(idempotency_key=idempotency_key)
+
+    def activation_rollback(self, execution_id: str) -> dict[str, Any]:
+        return self.activation.rollback(execution_id)
+
+    def execution(self, execution_id: str) -> dict[str, Any]:
+        return self.store.get(execution_id)
+
+    def health(self) -> dict[str, Any]:
+        return {
+            "service": "caddy-control-api",
+            "status": "ok",
+            "mutation_enabled": self.activation.mutation_enabled,
+        }
+
 
 class Handler(BaseHTTPRequestHandler):
     service = ControlService()
@@ -135,6 +185,18 @@ class Handler(BaseHTTPRequestHandler):
         except RouteAuthorityError as exc:
             self._send(409, {"ok": False, "error": {"code": "route_authority_invalid", "message": str(exc)}}, request_id)
             return
+        except ActivationError as exc:
+            status = 403 if exc.code == "ACTIVATION_DISABLED" else 409
+            self._send(status, {"ok": False, "error": {"code": exc.code, "message": str(exc)}}, request_id)
+            return
+        except ExecutionStoreError as exc:
+            status = 404 if str(exc) == "execution_not_found" else 409
+            self._send(status, {"ok": False, "error": {"code": str(exc), "message": str(exc)}}, request_id)
+            return
+        except RuntimeReadbackError as exc:
+            status = exc.status if exc.status and 400 <= exc.status < 600 else 503
+            self._send(status, {"ok": False, "error": {"code": exc.code, "message": str(exc)}}, request_id)
+            return
         except Exception:
             self._send(500, {"ok": False, "error": {"code": "internal_error", "message": "control operation failed"}}, request_id)
             return
@@ -148,8 +210,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._run(self.service.digest)
         if path == "/platform/v1/caddy/config/status":
             return self._run(self.service.status)
-        if path == "/health":
-            return self._run(lambda: {"service": "caddy-control-api", "status": "ok"})
+        if path == "/platform/v1/caddy/runtime/status":
+            return self._run(self.service.runtime_status)
+        prefix = "/platform/v1/caddy/activation/executions/"
+        if path.startswith(prefix):
+            execution_id = path[len(prefix):].split("/", 1)[0]
+            return self._run(lambda: {"execution": self.service.execution(execution_id)})
+        if path in {"/platform/v1/caddy/health", "/health"}:
+            return self._run(self.service.health)
         request_id = self._request_id()
         self._send(404, {"ok": False, "error": {"code": "not_found", "message": "route not found"}}, request_id)
 
@@ -162,12 +230,21 @@ class Handler(BaseHTTPRequestHandler):
             return self._run(self.service.compile)
         if path == "/platform/v1/caddy/config/validate":
             return self._run(self.service.validate)
+        if path == "/platform/v1/caddy/activation/dry-run":
+            return self._run(self.service.activation_dry_run)
+        if path == "/platform/v1/caddy/activation/apply":
+            key = (self.headers.get("Idempotency-Key") or "").strip()
+            return self._run(lambda: {"execution": self.service.activation_apply(key)})
+        prefix = "/platform/v1/caddy/activation/executions/"
+        if path.startswith(prefix) and path.endswith("/rollback"):
+            execution_id = path[len(prefix):-len("/rollback")].rstrip("/")
+            return self._run(lambda: {"execution": self.service.activation_rollback(execution_id)})
         request_id = self._request_id()
         self._send(404, {"ok": False, "error": {"code": "not_found", "message": "route not found"}}, request_id)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Private Caddy PAS-144 control API.")
+    parser = argparse.ArgumentParser(description="Private Caddy control API.")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     args = parser.parse_args()
