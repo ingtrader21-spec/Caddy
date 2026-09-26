@@ -60,7 +60,6 @@ api.kyyow.com {
 			request>headers>X-Api-Key delete
 			request>headers>Proxy-Authorization delete
 			request>headers>Cookie delete
-			request>headers>X-Api-Key delete
 			request>uri query {
 				delete access_token
 				delete api_key
@@ -99,7 +98,6 @@ search.kyyow.com {
 			request>headers>X-Api-Key delete
 			request>headers>Proxy-Authorization delete
 			request>headers>Cookie delete
-			request>headers>X-Api-Key delete
 			request>uri query {
 				delete access_token
 				delete api_key
