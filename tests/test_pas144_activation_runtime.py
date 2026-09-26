@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from caddy_activation import ActivationError, ActivationManager
+from caddy_control_api import ControlService
 from caddy_execution_store import ExecutionStore, ExecutionStoreError
 from caddy_runtime_readback import CaddyRuntime, RuntimeReadbackError, sha256_json
 
@@ -142,3 +143,39 @@ def test_manual_rollback_restores_pre_state(tmp_path: Path):
     restored = manager.rollback(record["execution_id"])
     assert restored["rollback_status"] == "ROLLED_BACK"
     assert transport.config == {"old": True}
+
+
+def _control_service(tmp_path: Path, *, mutation_enabled=True):
+    transport = FakeTransport({"old": True})
+    runtime = CaddyRuntime(transport=transport)
+    path = candidate(tmp_path, {"new": True})
+    service = ControlService(
+        runtime=runtime,
+        store=ExecutionStore(tmp_path / "evidence"),
+        candidate_path=path,
+        mutation_enabled=mutation_enabled,
+    )
+    return service, transport
+
+def test_control_service_telemetry_and_execution_list(tmp_path):
+    service, transport = _control_service(tmp_path)
+    service.activation_dry_run()
+    listing = service.executions()
+    telemetry = service.telemetry()
+    assert listing["schema"] == "codestra.caddy.execution-list.v1"
+    assert len(listing["executions"]) == 1
+    assert telemetry["execution_records"] == 1
+    assert telemetry["counters"]["ACTIVATION_DRY_RUN:CHANGE"] == 1
+
+def test_reconcile_plan_never_mutates_runtime(tmp_path):
+    service, transport = _control_service(tmp_path)
+    before = len([x for x in transport.calls if x[0] == "POST"])
+    result = service.reconcile(mode="plan", idempotency_key="")
+    assert result["status"] == "PLANNED"
+    after = len([x for x in transport.calls if x[0] == "POST"])
+    assert after == before
+
+def test_reconcile_apply_requires_idempotency_key(tmp_path):
+    service, transport = _control_service(tmp_path)
+    with pytest.raises(ActivationError, match="idempotency"):
+        service.reconcile(mode="apply", idempotency_key="")

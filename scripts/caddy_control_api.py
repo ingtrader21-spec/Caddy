@@ -195,6 +195,35 @@ class ControlService:
     def execution(self, execution_id: str) -> dict[str, Any]:
         return self.store.get(execution_id)
 
+    def executions(self) -> dict[str, Any]:
+        rows = [self.store.get(execution_id) for execution_id in self.store.list_ids()]
+        return {"schema": "codestra.caddy.execution-list.v1", "executions": rows}
+
+    def telemetry(self) -> dict[str, Any]:
+        rows = [self.store.get(execution_id) for execution_id in self.store.list_ids()]
+        counters: dict[str, int] = {}
+        for row in rows:
+            key = f"{row.get('kind', 'UNKNOWN')}:{row.get('status', 'UNKNOWN')}"
+            counters[key] = counters.get(key, 0) + 1
+        return {
+            "schema": "codestra.caddy.control-telemetry.v1",
+            "execution_records": len(rows),
+            "counters": counters,
+            "mutation_enabled": self.activation.mutation_enabled,
+        }
+
+    def reconcile(self, *, mode: str, idempotency_key: str) -> dict[str, Any]:
+        if mode not in {"plan", "apply"}:
+            raise ActivationError("RECONCILE_MODE_INVALID", "reconcile mode must be plan or apply")
+        drift = self.drift()
+        if drift.get("state") == "IN_SYNC":
+            return {"schema": "codestra.caddy.reconcile-result.v1", "status": "NO_CHANGE", "drift": drift}
+        if mode == "plan":
+            dry_run = self.activation.dry_run()
+            return {"schema": "codestra.caddy.reconcile-result.v1", "status": "PLANNED", "drift": drift, "execution": dry_run}
+        execution = self.activation.apply(idempotency_key=idempotency_key)
+        return {"schema": "codestra.caddy.reconcile-result.v1", "status": "APPLIED", "drift": drift, "execution": execution}
+
     def health(self) -> dict[str, Any]:
         return {
             "service": "caddy-control-api",
@@ -267,6 +296,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._run(self.service.runtime_upstreams)
         if path == "/platform/v1/caddy/drift":
             return self._run(self.service.drift)
+        if path == "/platform/v1/caddy/telemetry":
+            return self._run(self.service.telemetry)
+        if path == "/platform/v1/caddy/activation/executions":
+            return self._run(self.service.executions)
         prefix = "/platform/v1/caddy/activation/executions/"
         if path.startswith(prefix):
             execution_id = path[len(prefix):].split("/", 1)[0]
@@ -292,6 +325,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/platform/v1/caddy/activation/apply":
             key = (self.headers.get("Idempotency-Key") or "").strip()
             return self._run(lambda: {"execution": self.service.activation_apply(key)})
+        if path == "/platform/v1/caddy/reconcile":
+            mode = (self.headers.get("X-Caddy-Reconcile-Mode") or "plan").strip().lower()
+            key = (self.headers.get("Idempotency-Key") or "").strip()
+            return self._run(lambda: self.service.reconcile(mode=mode, idempotency_key=key))
         prefix = "/platform/v1/caddy/activation/executions/"
         if path.startswith(prefix) and path.endswith("/rollback"):
             execution_id = path[len(prefix):-len("/rollback")].rstrip("/")
