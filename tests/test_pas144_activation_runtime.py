@@ -166,6 +166,7 @@ def _control_service(tmp_path: Path, *, mutation_enabled=True):
         runtime=runtime,
         store=ExecutionStore(tmp_path / "evidence"),
         candidate_path=path,
+        source_sha_provider=lambda: "source-a",
         mutation_enabled=mutation_enabled,
     )
     return service, transport
@@ -233,3 +234,31 @@ def test_apply_rejects_candidate_digest_tamper(tmp_path: Path):
     )
     with pytest.raises(ActivationError, match="digest"):
         manager.apply(idempotency_key="tampered")
+
+
+def test_control_service_preflight_reports_exact_source_and_candidate(tmp_path):
+    service, transport = _control_service(tmp_path)
+    result = service.activation_preflight()
+    assert result["valid"] is True
+    assert result["source_sha"] == "source-a"
+    assert result["current_source_sha"] == "source-a"
+    assert len(result["candidate_sha256"]) == 64
+    assert any(method == "POST" and url.endswith("/adapt") for method, url, _ in transport.calls)
+
+def test_control_service_preflight_rejects_stale_plan(tmp_path):
+    transport = FakeTransport({"old": True})
+    path = candidate(tmp_path, {"new": True}, source_sha="old-source")
+    service = ControlService(
+        runtime=CaddyRuntime(transport=transport),
+        store=ExecutionStore(tmp_path / "evidence"),
+        candidate_path=path,
+        source_sha_provider=lambda: "new-source",
+        mutation_enabled=True,
+    )
+    with pytest.raises(ActivationError, match="different source SHA"):
+        service.activation_preflight()
+    assert not any(method == "POST" and url.endswith("/load") for method, url, _ in transport.calls)
+
+def test_control_api_source_exposes_preflight_endpoint():
+    source=(ROOT/"scripts"/"caddy_control_api.py").read_text(encoding="utf-8")
+    assert '"/platform/v1/caddy/activation/preflight"' in source

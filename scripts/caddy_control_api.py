@@ -7,6 +7,7 @@ import json
 import os
 import threading
 import uuid
+import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -57,21 +58,43 @@ class ControlService:
         candidate_path: Path = DEFAULT_CANDIDATE_JSON,
         mutation_enabled: bool | None = None,
         candidate_builder: CandidateBuilder | None = None,
+        source_sha_provider=None,
     ) -> None:
         self.authority_path = authority_path
         self.output_path = output_path
         self.inventory_path = inventory_path
         self.runtime = runtime or CaddyRuntime(DEFAULT_ADMIN_API)
         self.store = store or ExecutionStore(DEFAULT_EVIDENCE_DIR)
+        self.source_sha_provider = source_sha_provider or self._git_source_sha
         self.activation = ActivationManager(
             runtime=self.runtime,
             store=self.store,
             candidate_path=candidate_path,
+            source_sha_provider=self.source_sha_provider,
             mutation_enabled=mutation_enabled,
         )
-        self.candidate_builder = candidate_builder or CandidateBuilder(output=candidate_path)
+        self.candidate_builder = candidate_builder or CandidateBuilder(output=candidate_path, source_sha_provider=self.source_sha_provider)
         self.candidate_path = candidate_path
         self._lock = threading.Lock()
+
+    @staticmethod
+    def _git_source_sha() -> str:
+        try:
+            return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, timeout=2).strip()
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ActivationError("SOURCE_SHA_UNAVAILABLE", "unable to resolve repository source SHA") from exc
+
+    def activation_preflight(self) -> dict[str, Any]:
+        candidate_sha, candidate = self.activation._candidate()
+        metadata = self.activation._preflight(candidate_sha, candidate)
+        return {
+            "schema": "codestra.caddy.activation-preflight.v1",
+            "valid": True,
+            "candidate_sha256": metadata.get("candidate_sha256"),
+            "source_sha": metadata.get("source_sha"),
+            "current_source_sha": self.source_sha_provider(),
+            "mutation_performed": False,
+        }
 
     def routes(self) -> dict[str, Any]:
         authority = load_authority(self.authority_path)
@@ -298,6 +321,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._run(self.service.drift)
         if path == "/platform/v1/caddy/telemetry":
             return self._run(self.service.telemetry)
+        if path == "/platform/v1/caddy/activation/preflight":
+            return self._run(self.service.activation_preflight)
         if path == "/platform/v1/caddy/activation/executions":
             return self._run(self.service.executions)
         prefix = "/platform/v1/caddy/activation/executions/"
