@@ -56,6 +56,8 @@ automation.codestra.co {
 			request>headers>Apikey delete
 			request>headers>X-Api-Key delete
 			request>headers>Authorization delete
+			request>headers>Apikey delete
+			request>headers>X-Api-Key delete
 			request>headers>Proxy-Authorization delete
 			request>uri query {
 				delete apikey
