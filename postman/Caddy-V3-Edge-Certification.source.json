@@ -60,11 +60,22 @@
           }
         },
         {
-          "name": "Unknown route transitional evidence",
+          "name": "Unknown route fails closed",
           "request": {
             "method": "GET",
             "url": "{{base_url}}/__caddy_unclassified_probe__"
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"unknown route fails closed\", function () { pm.response.to.have.status(404); });"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
