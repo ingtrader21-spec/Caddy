@@ -238,6 +238,72 @@ if "admin 127.0.0.1:2019" not in CADDYFILE:
 if "import snippets/*.caddy" not in CADDYFILE or "import sites/*.caddy" not in CADDYFILE:
     raise SystemExit("CADDY_AUTHORITY_ERROR=canonical_imports_missing")
 
+
+# Mission 4/5 governance is also enforced by the repository authority gate, not
+# only by focused tests. This keeps release validation fail-closed if those
+# focused tests are accidentally omitted from a future CI invocation.
+from mission5_desired_state import (
+    build_plan, classify_drift, configuration_identity, desired_state_material,
+    desired_state_paths, plan_outcome, promotion_allowed, validate_plan,
+)
+
+MISSION4_DOCS = {
+    name: (ROOT / "docs" / name).read_text(encoding="utf-8")
+    for name in (
+        "logging-contract-v1.md", "correlation-contract-v1.md", "metrics-contract-v1.md",
+        "monitoring-boundary-v1.md", "alert-contract-v1.md", "reload-rollback-contract-v1.md",
+    )
+}
+MISSION5_DOCS = {
+    name: (ROOT / "docs" / name).read_text(encoding="utf-8")
+    for name in (
+        "desired-state-contract-v1.md", "deployment-plan-contract-v1.md",
+        "drift-reconciliation-contract-v1.md", "environment-promotion-contract-v1.md",
+        "deployment-evidence-contract-v1.md",
+    )
+}
+for site_path in sorted((ROOT / "sites").glob("*.caddy")):
+    source = site_path.read_text(encoding="utf-8")
+    for directive in (
+        "request>headers>Authorization delete", "request>headers>Proxy-Authorization delete",
+        "request>headers>Cookie delete", "resp_headers>Set-Cookie delete",
+        "delete access_token", "delete refresh_token", "delete id_token",
+        "delete client_secret", "delete password", "delete secret", "delete api_key", "delete token",
+    ):
+        if directive not in source:
+            raise SystemExit(f"CADDY_AUTHORITY_ERROR=log_redaction_missing:{site_path.name}:{directive}")
+if "repository does not configure Caddy request-ID generation" not in MISSION4_DOCS["correlation-contract-v1.md"]:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=correlation_contract_drift")
+if "does not configure a Caddy metrics endpoint" not in MISSION4_DOCS["metrics-contract-v1.md"]:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=metrics_contract_drift")
+if "Prometheus" not in MISSION4_DOCS["monitoring-boundary-v1.md"] or "TLS certificate" not in MISSION4_DOCS["alert-contract-v1.md"]:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=monitoring_alert_contract_drift")
+for token in ("Git SHA", "configuration hash", "environment", "UTC timestamp", "known-good"):
+    if token not in MISSION4_DOCS["reload-rollback-contract-v1.md"]:
+        raise SystemExit(f"CADDY_AUTHORITY_ERROR=reload_identity_contract_missing:{token}")
+paths=set(desired_state_paths(ROOT))
+for required in (ROOT / "Caddyfile", ROOT / "config" / "runtime-values.example", ROOT / "sites" / "api.codestra.co.caddy", ROOT / "snippets" / "security_headers.caddy"):
+    if required not in paths:
+        raise SystemExit("CADDY_AUTHORITY_ERROR=desired_state_inventory_incomplete")
+if not desired_state_material(ROOT):
+    raise SystemExit("CADDY_AUTHORITY_ERROR=desired_state_material_empty")
+identity = configuration_identity(git_sha="0"*40, environment="staging", configuration_sha="0"*64, desired_state_version="desired-state-v1", generated_at="2026-01-01T00:00:00Z")
+plan = build_plan(candidate=identity, hosts=("api.codestra.co",), routes=("/api/v1/health",), upstreams=("CADDY_KONG_UPSTREAM",), changes=("none",))
+validate_plan(plan)
+if plan_outcome(plan, dict(plan)) != "NO_CHANGE" or classify_drift({"route":"kong"},{"route":"kong"}) != {"route":"IN_SYNC"}:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=desired_state_model_invalid")
+if not promotion_allowed("development", "staging", "staging") or promotion_allowed("production", "development", "development"):
+    raise SystemExit("CADDY_AUTHORITY_ERROR=promotion_chain_invalid")
+ci_source=(ROOT / "scripts" / "validate-ci.sh").read_text(encoding="utf-8")
+if "caddy reload" in ci_source or "systemctl reload caddy" in ci_source:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=blind_reload_path")
+validate_workflow=(ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
+if "concurrency:" not in validate_workflow or "cancel-in-progress: true" not in validate_workflow:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=validation_concurrency_missing")
+release_workflow=(ROOT / ".github" / "workflows" / "production-readonly-canary-v2.yml").read_text(encoding="utf-8")
+if "scripts/config_digest.py" not in release_workflow or "CADDY_CANARY_CONFIG_SHA256" not in release_workflow:
+    raise SystemExit("CADDY_AUTHORITY_ERROR=configuration_identity_release_binding_missing")
+
 # Every public site block must import the shared header snippet. HSTS and the
 # other shared response headers are defined once in snippets/security_headers.caddy,
 # so a site that forgets the import silently ships without them.
