@@ -189,14 +189,11 @@ api.codestra.co {
 			}
 		}
 
-		# Transitional legacy API fallback. The Caddy principal-source migration is
-		# complete only when this fallback is no longer required and Kong owns the
-		# corresponding route contracts.
+		# Unknown public API routes fail closed at the edge. Only explicitly classified
+		# routes above may reach an upstream; unmatched paths never reach legacy, Kong,
+		# Middleware, or a provider.
 		handle {
-			reverse_proxy {$CADDY_LEGACY_API_UPSTREAM} {
-				header_up Host {host}
-				header_up X-Real-IP {remote_host}
-			}
+			respond 404
 		}
 	}
 
