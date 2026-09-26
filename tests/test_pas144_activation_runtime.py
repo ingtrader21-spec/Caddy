@@ -262,3 +262,119 @@ def test_control_service_preflight_rejects_stale_plan(tmp_path):
 def test_control_api_source_exposes_preflight_endpoint():
     source=(ROOT/"scripts"/"caddy_control_api.py").read_text(encoding="utf-8")
     assert '"/platform/v1/caddy/activation/preflight"' in source
+
+def test_reexecute_completed_activation_returns_original_receipt_without_side_effect(tmp_path: Path):
+    service, transport = _control_service(tmp_path)
+    first = service.activation_apply("cmd-reexecute-001")
+    loads_after_first = sum(1 for method, url, _ in transport.calls if method == "POST" and url.endswith("/load"))
+    second = service.activation_apply("cmd-reexecute-001")
+    loads_after_second = sum(1 for method, url, _ in transport.calls if method == "POST" and url.endswith("/load"))
+    assert second == first
+    assert second["status"] == "COMPLETED"
+    assert loads_after_first == 1
+    assert loads_after_second == loads_after_first
+
+
+def test_reexecute_key_is_fenced_to_original_candidate(tmp_path: Path):
+    transport = FakeTransport({"old": True})
+    path = candidate(tmp_path, {"version": 1})
+    service = ControlService(
+        runtime=CaddyRuntime(transport=transport),
+        store=ExecutionStore(tmp_path / "evidence"),
+        candidate_path=path,
+        source_sha_provider=lambda: "source-a",
+        mutation_enabled=True,
+    )
+    service.activation_apply("cmd-reexecute-fenced")
+    path.write_text(json.dumps({"version": 2}), encoding="utf-8")
+    path.with_suffix(path.suffix + ".meta.json").write_text(
+        json.dumps({"schema": "codestra.caddy.runtime-candidate-metadata.v1", "candidate_sha256": sha256_json({"version": 2}), "source_sha": "source-a"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ActivationError, match="different candidate"):
+        service.activation_apply("cmd-reexecute-fenced")
+    assert sum(1 for method, url, _ in transport.calls if method == "POST" and url.endswith("/load")) == 1
+
+
+def test_reconcile_no_change_is_fenced_from_activation(tmp_path: Path):
+    service, transport = _control_service(tmp_path)
+    service.activation_apply("seed-in-sync")
+    before_loads = sum(1 for method, url, _ in transport.calls if method == "POST" and url.endswith("/load"))
+    result = service.reconcile(mode="apply", idempotency_key="reconcile-no-change")
+    after_loads = sum(1 for method, url, _ in transport.calls if method == "POST" and url.endswith("/load"))
+    assert result["status"] == "NO_CHANGE"
+    assert result["drift"]["state"] == "IN_SYNC"
+    assert after_loads == before_loads
+
+
+def test_execution_audit_preserves_candidate_source_preflight_and_readback(tmp_path: Path):
+    service, _ = _control_service(tmp_path)
+    record = service.activation_apply("audit-contract")
+    stored = service.execution(record["execution_id"])
+    assert stored["idempotency_key"] == "audit-contract"
+    assert stored["preflight_validated"] is True
+    assert stored["source_sha"] == "source-a"
+    assert len(stored["candidate_sha256"]) == 64
+    assert len(stored["canonical_candidate_sha256"]) == 64
+    assert stored["result_state_sha256"] == stored["canonical_candidate_sha256"]
+    assert stored["rollback_status"] == "NOT_REQUIRED"
+    assert stored["readback_verified"] is True
+    assert stored["readback_verified"] is True
+
+def test_reexecute_completed_activation_returns_original_receipt_without_side_effect(tmp_path: Path):
+    service, transport = _control_service(tmp_path)
+    first = service.activation_apply("cmd-reexecute-001")
+    loads_after_first = sum(1 for method, url, _ in transport.calls if method == "POST" and url.endswith("/load"))
+    second = service.activation_apply("cmd-reexecute-001")
+    loads_after_second = sum(1 for method, url, _ in transport.calls if method == "POST" and url.endswith("/load"))
+    assert second == first
+    assert second["status"] == "COMPLETED"
+    assert loads_after_first == 1
+    assert loads_after_second == loads_after_first
+
+
+def test_reexecute_key_is_fenced_to_original_candidate(tmp_path: Path):
+    transport = FakeTransport({"old": True})
+    path = candidate(tmp_path, {"version": 1})
+    service = ControlService(
+        runtime=CaddyRuntime(transport=transport),
+        store=ExecutionStore(tmp_path / "evidence"),
+        candidate_path=path,
+        source_sha_provider=lambda: "source-a",
+        mutation_enabled=True,
+    )
+    service.activation_apply("cmd-reexecute-fenced")
+    path.write_text(json.dumps({"version": 2}), encoding="utf-8")
+    path.with_suffix(path.suffix + ".meta.json").write_text(
+        json.dumps({"schema": "codestra.caddy.runtime-candidate-metadata.v1", "candidate_sha256": sha256_json({"version": 2}), "source_sha": "source-a"}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ActivationError, match="different candidate"):
+        service.activation_apply("cmd-reexecute-fenced")
+    assert sum(1 for method, url, _ in transport.calls if method == "POST" and url.endswith("/load")) == 1
+
+
+def test_reconcile_no_change_is_fenced_from_activation(tmp_path: Path):
+    service, transport = _control_service(tmp_path)
+    service.activation_apply("seed-in-sync")
+    before_loads = sum(1 for method, url, _ in transport.calls if method == "POST" and url.endswith("/load"))
+    result = service.reconcile(mode="apply", idempotency_key="reconcile-no-change")
+    after_loads = sum(1 for method, url, _ in transport.calls if method == "POST" and url.endswith("/load"))
+    assert result["status"] == "NO_CHANGE"
+    assert result["drift"]["state"] == "IN_SYNC"
+    assert after_loads == before_loads
+
+
+def test_execution_audit_preserves_candidate_source_preflight_and_readback(tmp_path: Path):
+    service, _ = _control_service(tmp_path)
+    record = service.activation_apply("audit-contract")
+    stored = service.execution(record["execution_id"])
+    assert stored["idempotency_key"] == "audit-contract"
+    assert stored["preflight_validated"] is True
+    assert stored["source_sha"] == "source-a"
+    assert len(stored["candidate_sha256"]) == 64
+    assert len(stored["canonical_candidate_sha256"]) == 64
+    assert stored["result_state_sha256"] == stored["canonical_candidate_sha256"]
+    assert stored["rollback_status"] == "NOT_REQUIRED"
+    assert stored["readback_verified"] is True
+    assert stored["readback_verified"] is True

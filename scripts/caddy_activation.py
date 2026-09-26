@@ -149,7 +149,11 @@ class ActivationManager:
                 {
                     "status": "COMPLETED",
                     "result_state_sha256": result_sha,
+                    "rollback_status": "NOT_REQUIRED",
+                    "readback_verified": True,
                     "mutation_performed": True,
+                    "rollback_status": "NOT_REQUIRED",
+                    "readback_verified": True,
                     "completed_at": utc_now(),
                 }
             )
