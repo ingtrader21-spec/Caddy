@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from caddy_activation import ActivationError, ActivationManager
+from caddy_candidate import CandidateBuildError, CandidateBuilder
 from caddy_execution_store import ExecutionStore, ExecutionStoreError
 from caddy_route_compiler import (
     DEFAULT_AUTHORITY,
@@ -23,7 +24,7 @@ from caddy_route_compiler import (
     load_authority,
     normalize_routes,
 )
-from caddy_runtime_readback import CaddyRuntime, RuntimeReadbackError
+from caddy_runtime_readback import CaddyRuntime, RuntimeReadbackError, canonical_json, sha256_json
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_HOST = "127.0.0.1"
@@ -55,6 +56,7 @@ class ControlService:
         store: ExecutionStore | None = None,
         candidate_path: Path = DEFAULT_CANDIDATE_JSON,
         mutation_enabled: bool | None = None,
+        candidate_builder: CandidateBuilder | None = None,
     ) -> None:
         self.authority_path = authority_path
         self.output_path = output_path
@@ -67,6 +69,8 @@ class ControlService:
             candidate_path=candidate_path,
             mutation_enabled=mutation_enabled,
         )
+        self.candidate_builder = candidate_builder or CandidateBuilder(output=candidate_path)
+        self.candidate_path = candidate_path
         self._lock = threading.Lock()
 
     def routes(self) -> dict[str, Any]:
@@ -134,8 +138,50 @@ class ControlService:
             "runtime_reload_performed": False,
         }
 
+    def build_runtime_candidate(self) -> dict[str, Any]:
+        return self.candidate_builder.build(check=False)
+
     def runtime_status(self) -> dict[str, Any]:
         return self.runtime.status()
+
+    def runtime_routes(self) -> dict[str, Any]:
+        inventory = self.runtime.inventory()
+        return {
+            "schema": "codestra.caddy.runtime-routes.v1",
+            "hosts": inventory["hosts"],
+            "paths": inventory["paths"],
+        }
+
+    def runtime_upstreams(self) -> dict[str, Any]:
+        inventory = self.runtime.inventory()
+        return {
+            "schema": "codestra.caddy.runtime-upstreams.v1",
+            "upstreams": inventory["upstreams"],
+        }
+
+    def drift(self) -> dict[str, Any]:
+        if not self.candidate_path.exists():
+            return {
+                "schema": "codestra.caddy.runtime-drift.v1",
+                "state": "UNKNOWN",
+                "reason": "CANDIDATE_MISSING",
+            }
+        try:
+            candidate = json.loads(self.candidate_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {
+                "schema": "codestra.caddy.runtime-drift.v1",
+                "state": "UNKNOWN",
+                "reason": "CANDIDATE_INVALID",
+            }
+        live = self.runtime.config()
+        state = "IN_SYNC" if canonical_json(live) == canonical_json(candidate) else "DRIFTED"
+        return {
+            "schema": "codestra.caddy.runtime-drift.v1",
+            "state": state,
+            "candidate_sha256": sha256_json(candidate),
+            "runtime_sha256": sha256_json(live),
+        }
 
     def activation_dry_run(self) -> dict[str, Any]:
         return self.activation.dry_run()
@@ -189,6 +235,9 @@ class Handler(BaseHTTPRequestHandler):
             status = 403 if exc.code == "ACTIVATION_DISABLED" else 409
             self._send(status, {"ok": False, "error": {"code": exc.code, "message": str(exc)}}, request_id)
             return
+        except CandidateBuildError as exc:
+            self._send(409, {"ok": False, "error": {"code": "candidate_build_failed", "message": str(exc)}}, request_id)
+            return
         except ExecutionStoreError as exc:
             status = 404 if str(exc) == "execution_not_found" else 409
             self._send(status, {"ok": False, "error": {"code": str(exc), "message": str(exc)}}, request_id)
@@ -212,6 +261,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._run(self.service.status)
         if path == "/platform/v1/caddy/runtime/status":
             return self._run(self.service.runtime_status)
+        if path == "/platform/v1/caddy/runtime/routes":
+            return self._run(self.service.runtime_routes)
+        if path == "/platform/v1/caddy/runtime/upstreams":
+            return self._run(self.service.runtime_upstreams)
+        if path == "/platform/v1/caddy/drift":
+            return self._run(self.service.drift)
         prefix = "/platform/v1/caddy/activation/executions/"
         if path.startswith(prefix):
             execution_id = path[len(prefix):].split("/", 1)[0]
@@ -230,6 +285,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._run(self.service.compile)
         if path == "/platform/v1/caddy/config/validate":
             return self._run(self.service.validate)
+        if path == "/platform/v1/caddy/activation/candidate":
+            return self._run(self.service.build_runtime_candidate)
         if path == "/platform/v1/caddy/activation/dry-run":
             return self._run(self.service.activation_dry_run)
         if path == "/platform/v1/caddy/activation/apply":

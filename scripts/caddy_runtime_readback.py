@@ -59,6 +59,45 @@ def default_transport(method: str, url: str, body: bytes | None, content_type: s
     return status, raw
 
 
+
+
+def extract_runtime_inventory(config: dict[str, Any]) -> dict[str, Any]:
+    paths: set[str] = set()
+    hosts: set[str] = set()
+    upstreams: set[str] = set()
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            match = value.get("match")
+            if isinstance(match, list):
+                for matcher in match:
+                    if not isinstance(matcher, dict):
+                        continue
+                    for path in matcher.get("path") or []:
+                        if isinstance(path, str):
+                            paths.add(path)
+                    for host in matcher.get("host") or []:
+                        if isinstance(host, str):
+                            hosts.add(host)
+            if value.get("handler") == "reverse_proxy":
+                for upstream in value.get("upstreams") or []:
+                    if isinstance(upstream, dict) and isinstance(upstream.get("dial"), str):
+                        upstreams.add(upstream["dial"])
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(config)
+    return {
+        "schema": "codestra.caddy.runtime-inventory.v1",
+        "paths": sorted(paths),
+        "hosts": sorted(hosts),
+        "upstreams": sorted(upstreams),
+    }
+
+
 class CaddyRuntime:
     def __init__(self, base_url: str = "http://127.0.0.1:2019", *, transport: Transport = default_transport) -> None:
         self.base_url = _validate_admin_base(base_url)
@@ -75,6 +114,9 @@ class CaddyRuntime:
         if not isinstance(value, dict):
             raise RuntimeReadbackError("ADMIN_API_INVALID_CONFIG", "Caddy runtime config must be a JSON object", status)
         return value
+
+    def inventory(self) -> dict[str, Any]:
+        return extract_runtime_inventory(self.config())
 
     def status(self) -> dict[str, Any]:
         config = self.config()
